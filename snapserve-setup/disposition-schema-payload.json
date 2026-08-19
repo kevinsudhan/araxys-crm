@@ -1,0 +1,17 @@
+{
+  "dispositionSchema": [
+    { "key": "customer_name", "label": "Customer name", "type": "text", "required": true },
+    { "key": "company_name", "label": "Company", "type": "text", "required": false },
+    { "key": "origin", "label": "Origin", "type": "text", "required": false },
+    { "key": "destination", "label": "Destination", "type": "text", "required": false },
+    { "key": "cargo_description", "label": "Cargo description", "type": "text", "required": false },
+    { "key": "cargo_type", "label": "Cargo type", "type": "choice", "options": ["general_dry", "textiles_garments", "perishable_food", "hazardous_dg", "electronics", "agri_grain"], "required": false },
+    { "key": "volume_cbm", "label": "Volume (CBM)", "type": "number", "required": false },
+    { "key": "container_type", "label": "Container type", "type": "choice", "options": ["LCL", "20GP", "40GP", "40HC", "20RF", "40RF"], "required": false },
+    { "key": "price_asked", "label": "Price asked by customer (INR)", "type": "number", "required": false },
+    { "key": "price_negotiated", "label": "Final price negotiated (INR)", "type": "number", "required": false },
+    { "key": "bl_number", "label": "BL number (if existing shipment)", "type": "text", "required": false },
+    { "key": "call_outcome", "label": "Call outcome", "type": "choice", "options": ["quote_provided", "negotiating", "booked", "status_check", "docs_missing", "escalated", "complaint"], "required": false },
+    { "key": "next_step", "label": "Next step", "type": "text", "required": false }
+  ]
+}
