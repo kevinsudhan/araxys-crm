@@ -32,7 +32,10 @@ export default function RealRecordsSection({ stage }: { stage: "processing" | "p
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 8000); // new calls should appear without a manual reload
+    // 4s, not 8: SnapServe now webhooks us the moment a call ends, so the record is
+    // usually in Postgres within seconds. The old interval was the slowest link in an
+    // otherwise near-instant path.
+    const t = setInterval(refresh, 4000);
     return () => clearInterval(t);
   }, [stage]);
 
