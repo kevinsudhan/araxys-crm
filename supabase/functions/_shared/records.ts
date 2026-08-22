@@ -319,6 +319,55 @@ export async function syncCallerMemory(agentIds: number[] = AGENT_IDS) {
   return { ok: true, synced, callers: results.length };
 }
 
+/**
+ * Pushes live container availability into the knowledge base.
+ *
+ * Kept as its own source rather than folded into the customer document: space changes
+ * whenever anyone books, while customer records change on calls, and rewriting one should
+ * not churn the other. A source is deleted and recreated on each sync because SnapServe
+ * has no update-in-place, and a source created empty stays at status "failed" — which
+ * attach-agent refuses, so the content would embed but never reach the agent.
+ */
+export async function syncSpaceKb(agentIds: number[] = AGENT_IDS) {
+  if (!SNAPSERVE_KEY) return { ok: false, error: "SNAPSERVE_API_KEY not set" };
+
+  const { buildSpaceKb } = await import("./spaceKb.ts");
+  const content = await buildSpaceKb();
+  const NAME = "Araxys container space availability";
+
+  const list = await snap("/knowledge-sources");
+  if (list.ok && Array.isArray(list.body)) {
+    const existing = (list.body as Array<{ id: number; name: string }>).find((s) => s.name === NAME);
+    if (existing) await snap(`/knowledge-sources/${existing.id}`, { method: "DELETE" });
+  }
+
+  const created = await snap("/knowledge-sources", {
+    method: "POST",
+    body: JSON.stringify({
+      name: NAME,
+      type: "text",
+      entries: [{ title: "Live container space", content }],
+    }),
+  });
+  if (!created.ok) return { ok: false, error: `create failed ${created.status}`, detail: created.body };
+
+  const sourceId = (created.body as { id: number }).id;
+  const check = await snap(`/knowledge-sources/${sourceId}`);
+  const status = (check.body as { status?: string })?.status;
+  if (status !== "ready") {
+    return { ok: false, error: `source status is "${status}" — agents can only attach a ready source`, sourceId };
+  }
+
+  const attached: Record<string, boolean> = {};
+  for (const id of agentIds) {
+    const a = await snap(`/knowledge-sources/${sourceId}/attach-agent/${id}`, { method: "POST" });
+    attached[String(id)] = a.ok;
+  }
+
+  console.log(`[araxys] space KB sync -> source ${sourceId}, ${content.length} chars`);
+  return { ok: true, sourceId, chars: content.length, attached };
+}
+
 export async function syncKb() {
   if (!SNAPSERVE_KEY) return { ok: false, error: "SNAPSERVE_API_KEY not set on the function" };
 

@@ -133,9 +133,10 @@ console.log("\n── SnapServe wiring ─────────────�
   ok("asks for caller name", /GET THE CALLER'S NAME EARLY/.test(a.systemPrompt ?? ""));
   ok("anti-fabrication rule present", /SHIPMENT FACTS -- ABSOLUTE RULE/.test(a.systemPrompt ?? ""));
 
+  // Webhook tools were removed deliberately: their results never reached the model on the
+  // Gemini Live stack, so everything the agent needs to know now arrives via retrieval.
   const toolUrls = (a.tools ?? []).filter((t) => t.url);
-  ok("no tool points at a dead tunnel", !toolUrls.some((t) => t.url.includes("trycloudflare")));
-  ok("space tool points at hosted API", toolUrls.some((t) => t.url.includes("functions/v1/api")));
+  ok("no webhook tools left (results never reached the model)", toolUrls.length === 0, toolUrls.map((t) => t.name).join(","));
 
   const ks = await fetch(`${SNAP}/knowledge-sources`, { headers: { Authorization: `Bearer ${SNAP_KEY}` } }).then((r) => r.json());
   const live = ks.find((s) => s.name === "Araxys real customer records");
@@ -143,6 +144,12 @@ console.log("\n── SnapServe wiring ─────────────�
   ok("KB source is ready (attachable)", live?.status === "ready", `status ${live?.status}`);
   ok("KB attached to agents", (live?.attachedAgentCount ?? 0) >= 1, `${live?.attachedAgentCount} agents`);
   ok("all KB sources ready", ks.every((s) => s.status === "ready"), ks.filter((s) => s.status !== "ready").map((s) => s.name).join(","));
+
+  const space = ks.find((s) => s.name === "Araxys container space availability");
+  ok("space availability is in the knowledge base", Boolean(space));
+  ok("space KB is ready and attached", space?.status === "ready" && (space?.attachedAgentCount ?? 0) >= 1);
+  ok("agent asks about space via retrieval", /CONTAINER SPACE AND SAILING DATES/.test(a.systemPrompt ?? ""));
+  ok("agent recognises callers by number", /RECOGNISING A CALLER FROM THEIR NUMBER/.test(a.systemPrompt ?? ""));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

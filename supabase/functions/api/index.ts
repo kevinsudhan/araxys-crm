@@ -8,7 +8,7 @@
  * The SnapServe key lives in function secrets and is never sent to the browser, which is
  * the same reason the Express version existed at all.
  */
-import { listRecords, findByAnything, upsertRecord, syncKb, syncCallerMemory, phoneKey } from "../_shared/records.ts";
+import { listRecords, findByAnything, upsertRecord, syncKb, syncCallerMemory, syncSpaceKb, phoneKey } from "../_shared/records.ts";
 import {
   listSlots,
   getSlot,
@@ -130,6 +130,8 @@ Deno.serve(async (req) => {
 
     if (path === "/caller-memory/sync" && req.method === "POST") return json(await syncCallerMemory());
 
+    if (path === "/space/sync-kb" && req.method === "POST") return json(await syncSpaceKb());
+
     // -------------------------------------------------------------- call logs
 
     if (path === "/calls/logs" && req.method === "GET") {
@@ -210,6 +212,8 @@ Deno.serve(async (req) => {
         },
       });
       if (!placed) return json({ error: "consignment does not fit in the space remaining" }, 409);
+      // A booking changes what is available, so the agent's copy must not go stale.
+      await syncSpaceKb();
       return json({ placement: placed, slot: await slotView(await getSlot(String(b.slot_id))) });
     }
 

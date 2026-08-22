@@ -8,7 +8,7 @@
  * extracted -> CRM row written -> knowledge base re-synced. Nothing depends on the voice
  * agent invoking a tool mid-conversation, which proved unreliable on the Gemini Live stack.
  */
-import { upsertRecord, syncKb, syncCallerMemory, phoneKey } from "./records.ts";
+import { upsertRecord, syncKb, syncCallerMemory, syncSpaceKb, phoneKey } from "./records.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -347,6 +347,10 @@ export async function ingestRecentCalls(limit = 25) {
     await syncKb();
     await syncCallerMemory();
   }
+
+  // Space availability is refreshed every run regardless: cutoff dates pass and sailings
+  // close with time alone, not only when someone books.
+  await syncSpaceKb();
 
   console.log(`[araxys] ingest: ${stored} stored, ${recordsTouched} records touched`);
   return { ok: true, stored, recordsTouched, seen: calls.length };
