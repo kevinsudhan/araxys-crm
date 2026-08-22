@@ -15,8 +15,12 @@ import {
   compact,
   depthOf,
   dragToMetres,
+  indexForX,
   mixHex,
   normaliseYaw,
+  nudgeOrder,
+  reorderTo,
+  sequenceOf,
   project,
   proposeMove,
   shade,
@@ -193,6 +197,71 @@ console.log("\n9. Compaction closes gaps without reordering");
   check("blocks end up touching", near(c[1].xM, 2) && near(c[2].xM, 3.5), c);
   check("order is preserved", c.map((i) => i.id).join("") === "abc", c.map((i) => i.id));
   check("no overlaps remain", c.every((i, n) => n === 0 || i.xM >= c[n - 1].xM + c[n - 1].lengthM - 1e-9));
+}
+
+console.log("\n9b. Changing the loading order");
+{
+  // Back wall first, doors last. Whatever is nearest the doors comes off first, so on a
+  // groupage box this sequence has to match the order the consignments are wanted in.
+  const items: StowItem[] = [
+    { id: "a", xM: 0, lengthM: 3.6 },
+    { id: "b", xM: 3.6, lengthM: 3.2 },
+    { id: "c", xM: 6.8, lengthM: 2 },
+  ];
+  check("order is read off the positions", sequenceOf(items).join("") === "abc", sequenceOf(items));
+
+  const cFirst = reorderTo(items, "c", 0);
+  check("a block can be moved to the back wall", sequenceOf(cFirst).join("") === "cab", sequenceOf(cFirst));
+  check("and everything closes up behind it", near(cFirst[0].xM, 0) && near(cFirst[1].xM, 2) && near(cFirst[2].xM, 5.6), cFirst);
+
+  const aLast = reorderTo(items, "a", 2);
+  check("a block can be moved to the doors", sequenceOf(aLast).join("") === "bca", sequenceOf(aLast));
+
+  check("reordering never leaves a gap", [0, 1, 2].every((t) => {
+    const r = reorderTo(items, "b", t);
+    return r.every((i, n) => n === 0 || near(i.xM, r[n - 1].xM + r[n - 1].lengthM, 1e-9));
+  }));
+  check("reordering never drops or duplicates a block", [0, 1, 2].every((t) =>
+    reorderTo(items, "c", t).map((i) => i.id).sort().join("") === "abc"
+  ));
+
+  const past = reorderTo(items, "a", 99);
+  check("an out-of-range index lands at the doors", sequenceOf(past).join("") === "bca", sequenceOf(past));
+  check("an unknown id leaves the order alone", sequenceOf(reorderTo(items, "zz", 0)).join("") === "abc");
+}
+
+console.log("\n9c. Deciding the order from a drag");
+{
+  const items: StowItem[] = [
+    { id: "a", xM: 0, lengthM: 3.6 },
+    { id: "b", xM: 3.6, lengthM: 3.2 },
+    { id: "c", xM: 6.8, lengthM: 2 },
+  ];
+  check("staying put keeps the same place", indexForX(items, "c", 6.8) === 2, indexForX(items, "c", 6.8));
+  check("dragged to the back wall it takes first place", indexForX(items, "c", -1) === 0, indexForX(items, "c", -1));
+  check("dragged between the two it takes the middle", indexForX(items, "c", 2.8) === 1, indexForX(items, "c", 2.8));
+
+  // The swap must fire as the dragged block passes its neighbour's midpoint, measured
+  // against where the others sit once it is lifted out of the line. Comparing against
+  // their unlifted positions would make a short block unable to pass a long one -- it
+  // could never travel far enough to clear it.
+  check("a 2m block can pass a 3.6m one", indexForX(items, "c", 0.9) === 1, indexForX(items, "c", 0.9));
+  check("index never exceeds the number of neighbours", indexForX(items, "a", 999) === 2, indexForX(items, "a", 999));
+  check("index is never negative", indexForX(items, "a", -999) === 0);
+}
+
+console.log("\n9d. Stepping one place at a time");
+{
+  const items: StowItem[] = [
+    { id: "a", xM: 0, lengthM: 3.6 },
+    { id: "b", xM: 3.6, lengthM: 3.2 },
+    { id: "c", xM: 6.8, lengthM: 2 },
+  ];
+  check("later moves it towards the doors", sequenceOf(nudgeOrder(items, "a", 1)).join("") === "bac");
+  check("earlier moves it towards the back wall", sequenceOf(nudgeOrder(items, "c", -1)).join("") === "acb");
+  check("earlier at the back wall is a no-op", sequenceOf(nudgeOrder(items, "a", -1)).join("") === "abc");
+  check("later at the doors is a no-op", sequenceOf(nudgeOrder(items, "c", 1)).join("") === "abc");
+  check("a no-op still returns a packed stow", nudgeOrder(items, "a", -1).every((i, n, all) => n === 0 || near(i.xM, all[n - 1].xM + all[n - 1].lengthM, 1e-9)));
 }
 
 console.log("\n10. Camera guards");

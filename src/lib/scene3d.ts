@@ -268,13 +268,88 @@ export function proposeMove(
   return { xM: Math.round(x * 1000) / 1000, ok: true, reason: held ? "held at the container wall" : undefined };
 }
 
-/** Pushes every block back against the one before it, closing gaps left by removals. */
-export function compact(items: StowItem[]): StowItem[] {
-  const sorted = [...items].sort((a, b) => a.xM - b.xM);
+/**
+ * Lays blocks out end to end in the order they are given, starting at the back wall.
+ *
+ * Array order is the loading order here, which is the whole point -- this is what a
+ * reorder uses, and it must not consult the old positions or it would undo itself.
+ */
+export function packInOrder(items: StowItem[]): StowItem[] {
   let cursor = 0;
-  return sorted.map((i) => {
+  return items.map((i) => {
     const moved = { ...i, xM: Math.round(cursor * 1000) / 1000 };
     cursor += i.lengthM;
     return moved;
   });
+}
+
+/**
+ * Pushes every block back against the one before it, closing gaps left by removals.
+ *
+ * Keeps the existing loading order -- this tidies a stow, it does not resequence one.
+ * Use packInOrder when the array order is the intent.
+ */
+export function compact(items: StowItem[]): StowItem[] {
+  return packInOrder([...items].sort((a, b) => a.xM - b.xM));
+}
+
+/**
+ * The loading order: back wall first, doors last.
+ *
+ * This is the sequence the container is actually packed in, and it is not cosmetic --
+ * whatever is nearest the doors comes off first, so on a groupage box the order has to
+ * match the order the consignments are wanted in. Reading it off the x positions rather
+ * than storing a separate index means the drawing and the order can never disagree.
+ */
+export function sequenceOf(items: StowItem[]): string[] {
+  return [...items].sort((a, b) => a.xM - b.xM).map((i) => i.id);
+}
+
+/**
+ * Moves one consignment to a different place in the loading order.
+ *
+ * Everything else closes up around it, so the result is always a container that can
+ * actually be packed: no gaps, no overlaps, nothing hanging out of the doors. That is the
+ * difference between this and proposeMove -- proposeMove slides a block within the space
+ * its neighbours leave it, and refuses to pass them; this one changes who the neighbours
+ * are.
+ */
+export function reorderTo(items: StowItem[], id: string, targetIndex: number): StowItem[] {
+  const sorted = [...items].sort((a, b) => a.xM - b.xM);
+  const from = sorted.findIndex((i) => i.id === id);
+  if (from === -1) return packInOrder(sorted);
+  const [me] = sorted.splice(from, 1);
+  const to = Math.max(0, Math.min(sorted.length, targetIndex));
+  sorted.splice(to, 0, me);
+  return packInOrder(sorted);
+}
+
+/**
+ * Which place in the order a dragged consignment is asking for.
+ *
+ * Measured against where the *other* blocks would sit once this one is lifted out of the
+ * line, which is what makes the swap happen at the moment the dragged block passes its
+ * neighbour's midpoint rather than only after it has cleared the whole block. Comparing
+ * against the neighbours' current positions instead would make short blocks impossible to
+ * drag past long ones.
+ */
+export function indexForX(items: StowItem[], id: string, desiredX: number): number {
+  const me = items.find((i) => i.id === id);
+  if (!me) return 0;
+  const others = compact(items.filter((i) => i.id !== id));
+  const myCentre = desiredX + me.lengthM / 2;
+  let idx = 0;
+  for (const o of others) {
+    if (o.xM + o.lengthM / 2 < myCentre) idx++;
+    else break;
+  }
+  return idx;
+}
+
+/** Steps one consignment one place earlier (-1) or later (+1) in the loading order. */
+export function nudgeOrder(items: StowItem[], id: string, direction: -1 | 1): StowItem[] {
+  const order = sequenceOf(items);
+  const at = order.indexOf(id);
+  if (at === -1) return compact(items);
+  return reorderTo(items, id, Math.max(0, Math.min(order.length - 1, at + direction)));
 }

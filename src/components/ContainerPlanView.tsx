@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, Loader2, Check, Undo2, AlignHorizontalJustifyStart } from "lucide-react";
+import { X, Loader2, Check, Undo2, AlignHorizontalJustifyStart, ChevronUp, ChevronDown } from "lucide-react";
 import StatusPill from "./StatusPill";
-import ContainerScene from "./ContainerScene";
-import { compact, type StowItem } from "../lib/scene3d";
+import ContainerScene, { type DragMode } from "./ContainerScene";
+import { compact, nudgeOrder, sequenceOf, type StowItem } from "../lib/scene3d";
 import { getSlotPlan, restowSlot, type SlotPlan, type PlacedConsignment } from "../services/backend";
 
 /**
@@ -117,6 +117,7 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
   const [positions, setPositions] = useState<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [explode, setExplode] = useState(0);
+  const [dragMode, setDragMode] = useState<DragMode>("reorder");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -135,6 +136,22 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
     [plan, positions]
   );
 
+  /** The table lists the working loading order, not the order the server last sent. */
+  const ordered = useMemo(() => {
+    const seq = sequenceOf(items);
+    return [...(plan?.consignments ?? [])].sort((a, b) => seq.indexOf(a.id) - seq.indexOf(b.id));
+  }, [plan, items]);
+
+  const applyAll = (next: Array<{ id: string; xM: number }>) => {
+    const map: Record<string, number> = {};
+    for (const i of next) map[i.id] = i.xM;
+    setPositions(map);
+    setSaveError(null);
+  };
+
+  /** Steps one consignment one place along the loading order. */
+  const step = (id: string, direction: -1 | 1) => applyAll(nudgeOrder(items, id, direction));
+
   const discard = () => {
     setPositions({});
     setSaveError(null);
@@ -143,10 +160,7 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
   const closeUp = () => {
     // Pushing everything back against the wall is the move an operator makes constantly
     // after a cancellation, and doing it by dragging each block is tedious.
-    const next: Record<string, number> = {};
-    for (const i of compact(items)) next[i.id] = i.xM;
-    setPositions(next);
-    setSaveError(null);
+    applyAll(compact(items));
   };
 
   const save = async () => {
@@ -235,12 +249,37 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                     plan={plan}
                     positions={positions}
                     onMove={(id, xM) => setPositions((p) => ({ ...p, [id]: xM }))}
+                    onRestow={applyAll}
+                    dragMode={dragMode}
                     selectedId={selectedId}
                     onSelect={setSelectedId}
                     explode={explode}
                   />
 
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 mb-4">
+                    <div className="inline-flex rounded border border-border overflow-hidden" role="group" aria-label="What dragging a block does">
+                      {(
+                        [
+                          ["reorder", "Reorder", "Drag a block to change its place in the loading order"],
+                          ["nudge", "Nudge", "Drag a block within the room its neighbours leave it"],
+                        ] as const
+                      ).map(([key, label, title]) => (
+                        <button
+                          key={key}
+                          onClick={() => setDragMode(key)}
+                          title={title}
+                          aria-pressed={dragMode === key}
+                          className={`px-2.5 py-1 text-[11.5px] ${
+                            dragMode === key
+                              ? "bg-brand text-white"
+                              : "bg-surface-1 text-text-secondary hover:text-text-primary"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
                     <label className="flex items-center gap-2 text-[11.5px] text-text-secondary">
                       Separate blocks
                       <input
@@ -330,10 +369,16 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                 </div>
               </div>
 
-              <p className="text-sm font-medium text-text-primary mb-2">Consignments in this container</p>
+              <div className="flex items-baseline justify-between mb-2">
+                <p className="text-sm font-medium text-text-primary">Loading order</p>
+                <p className="text-[11px] text-text-muted">
+                  Loaded back wall first, doors last — so the last one listed comes off first
+                </p>
+              </div>
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-left text-xs text-text-secondary">
+                    <th className="py-2 w-14">Order</th>
                     <th className="py-2">Client</th>
                     <th className="py-2 w-28">Reference</th>
                     <th className="py-2 w-28">Position</th>
@@ -342,7 +387,7 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                   </tr>
                 </thead>
                 <tbody onPointerLeave={() => setSelectedId(null)}>
-                  {plan.consignments.map((c) => {
+                  {ordered.map((c, n) => {
                     const [top, mid] = paletteFor(c.colorIndex);
                     const x = positions[c.id] ?? c.xM;
                     const moved = Math.abs(x - c.xM) > 0.0005;
@@ -355,6 +400,31 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                         }`}
                       >
                         <td className="py-2">
+                          <span className="inline-flex items-center gap-1">
+                            <span className="text-text-secondary tabular-nums w-3">{n + 1}</span>
+                            <span className="inline-flex flex-col">
+                              <button
+                                onClick={() => step(c.id, -1)}
+                                disabled={n === 0}
+                                aria-label={`Load ${c.clientName} earlier`}
+                                title="Load earlier — one place towards the back wall"
+                                className="text-text-muted hover:text-text-primary disabled:opacity-25 disabled:hover:text-text-muted leading-none"
+                              >
+                                <ChevronUp size={13} />
+                              </button>
+                              <button
+                                onClick={() => step(c.id, 1)}
+                                disabled={n === ordered.length - 1}
+                                aria-label={`Load ${c.clientName} later`}
+                                title="Load later — one place towards the doors"
+                                className="text-text-muted hover:text-text-primary disabled:opacity-25 disabled:hover:text-text-muted leading-none"
+                              >
+                                <ChevronDown size={13} />
+                              </button>
+                            </span>
+                          </span>
+                        </td>
+                        <td className="py-2">
                           <span className="inline-flex items-center gap-2">
                             <span
                               className="w-3 h-3 rounded-sm inline-block"
@@ -364,9 +434,11 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                           </span>
                         </td>
                         <td className="py-2 font-mono text-xs text-text-secondary">{c.reference}</td>
-                        <td className={`py-2 ${moved ? "text-text-warning" : "text-text-secondary"}`}>
-                          {Math.round(x * 100) / 100}–{Math.round((x + c.lengthM) * 100) / 100}m
-                          {moved && <span className="text-[10px] ml-1">moved</span>}
+                        <td className={`py-2 ${moved ? "text-text-accent" : "text-text-secondary"}`}>
+                          <span className="tabular-nums">
+                            {Math.round(x * 100) / 100}–{Math.round((x + c.lengthM) * 100) / 100}m
+                          </span>
+                          {moved && <span className="text-[10px] ml-1.5">moved</span>}
                         </td>
                         <td className="py-2 text-text-secondary">
                           {c.quantity} pcs · {c.piecesAcross}×{c.piecesHigh}×{c.rows}

@@ -8,6 +8,7 @@ import {
   ZoomIn,
   ZoomOut,
   Hand,
+  GripHorizontal,
 } from "lucide-react";
 import {
   DEFAULT_CAMERA,
@@ -17,11 +18,14 @@ import {
   depthOf,
   dragToMetres,
   faceCorners,
+  indexForX,
   mixHex,
   normaliseYaw,
   project,
   projectedBounds,
   proposeMove,
+  reorderTo,
+  sequenceOf,
   shade,
   visibleFaces,
   type Camera,
@@ -128,11 +132,25 @@ type Gesture =
   | { kind: "pan"; lastX: number; lastY: number }
   | { kind: "move"; id: string; startX: number; startY: number; originM: number; moved: boolean };
 
+/**
+ * What a drag on a block does.
+ *
+ * "reorder" is the default because changing the loading sequence is the common job --
+ * whatever sits nearest the doors comes off first, so the order has to match the order
+ * the consignments are wanted in. "nudge" keeps the sequence and slides a block within
+ * the room its neighbours leave it, for the rarer case of deliberately parting two
+ * consignments that should not travel touching.
+ */
+export type DragMode = "reorder" | "nudge";
+
 export interface SceneProps {
   plan: SlotPlan;
   /** Working positions, keyed by consignment id. Lets the parent own unsaved edits. */
   positions: Record<string, number>;
   onMove: (id: string, xM: number) => void;
+  /** Applies a whole rearrangement at once, which is what a reorder always is. */
+  onRestow: (next: Array<{ id: string; xM: number }>) => void;
+  dragMode: DragMode;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   /** 0 = stowed as loaded, 1 = pulled fully apart to see between the blocks. */
@@ -145,6 +163,8 @@ export default function ContainerScene({
   plan,
   positions,
   onMove,
+  onRestow,
+  dragMode,
   selectedId,
   onSelect,
   explode,
@@ -327,8 +347,8 @@ export default function ContainerScene({
       return;
     }
 
-    // Dragging a consignment. It may only slide along the container, so the pointer
-    // travel is projected onto the screen image of the x axis.
+    // Dragging a consignment. It may only travel along the container, so the pointer
+    // movement is projected onto the screen image of the x axis.
     const rect = svgRef.current?.getBoundingClientRect();
     const k = rect ? VW / rect.width : 1;
     const metres = dragToMetres(
@@ -346,6 +366,23 @@ export default function ContainerScene({
       xM: positions[c.id] ?? c.xM,
       lengthM: c.lengthM,
     }));
+
+    if (dragMode === "reorder") {
+      // The block being dragged takes a place in the queue and the others close up
+      // around it, so the result is always a container that can actually be packed. The
+      // swap fires as it passes a neighbour's midpoint rather than after clearing the
+      // whole block, which is what lets a short consignment get past a long one.
+      const wanted = indexForX(items, g.id, g.originM + metres);
+      const next = reorderTo(items, g.id, wanted);
+      const before = sequenceOf(items).join("|");
+      if (sequenceOf(next).join("|") !== before) {
+        onRestow(next.map((i) => ({ id: i.id, xM: i.xM })));
+        gesture.current = { ...g, moved: true };
+      }
+      setRefusal(null);
+      return;
+    }
+
     const r = proposeMove(items, g.id, g.originM + metres, L);
     setRefusal(r.ok ? r.reason ?? null : r.reason ?? "That position is taken");
     if (r.ok) {
@@ -401,6 +438,8 @@ export default function ContainerScene({
     [[0, 0, 0], [0, 0, W]], [[L, 0, 0], [L, 0, W]], [[0, H, 0], [0, H, W]], [[L, H, 0], [L, H, W]],
     [[0, 0, 0], [0, H, 0]], [[L, 0, 0], [L, H, 0]], [[0, 0, W], [0, H, W]], [[L, 0, W], [L, H, W]],
   ];
+
+  const seq = sequenceOf(consignments.map((c) => ({ id: c.id, xM: positions[c.id] ?? c.xM, lengthM: c.lengthM })));
 
   const labelFor = (c: PlacedConsignment) => {
     const x = xOf(c);
@@ -517,22 +556,23 @@ export default function ContainerScene({
           const p = labelFor(c);
           const isActive = active === c.id;
           if (!isActive && active !== null) return null;
+          const place = seq.indexOf(c.id) + 1;
           return (
-            <text
-              key={`lb-${c.id}`}
-              x={p.x}
-              y={p.y - 12}
-              textAnchor="middle"
-              fontSize="11.5"
-              fill="#1c1d1a"
-              stroke="#ffffff"
-              strokeWidth="3.5"
-              paintOrder="stroke"
-              fontWeight="500"
-              pointerEvents="none"
-            >
-              {c.clientName}
-            </text>
+            <g key={`lb-${c.id}`} pointerEvents="none">
+              <text
+                x={p.x}
+                y={p.y - 12}
+                textAnchor="middle"
+                fontSize="11.5"
+                fill="#1c1d1a"
+                stroke="#ffffff"
+                strokeWidth="3.5"
+                paintOrder="stroke"
+                fontWeight="500"
+              >
+                {place}. {c.clientName}
+              </text>
+            </g>
           );
         })}
 
@@ -621,6 +661,10 @@ export default function ContainerScene({
       <div className="absolute bottom-2 left-2 flex items-center gap-3 text-[10.5px] text-text-muted">
         <span className="inline-flex items-center gap-1">
           <Move3d size={11} /> drag to orbit
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <GripHorizontal size={11} />
+          {dragMode === "reorder" ? "drag a block to resequence" : "drag a block to nudge it"}
         </span>
         <span className="inline-flex items-center gap-1">
           <Hand size={11} /> shift-drag to pan
