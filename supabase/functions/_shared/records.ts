@@ -229,6 +229,96 @@ async function snap(path: string, init: RequestInit = {}) {
  * source created empty stays at status "failed", which attach-agent refuses — so the
  * content would embed but never reach the agent.
  */
+/**
+ * Writes each customer's own details into SnapServe caller memory, keyed by their phone.
+ *
+ * This is what makes the agent recognise someone the moment they ring, without asking for
+ * a reference number. SnapServe matches on the calling number and injects these facts as
+ * ground truth before the agent speaks, so "who am I talking to" is already answered.
+ *
+ * The knowledge base is a different job: it holds every customer and is searched when the
+ * agent needs to look someone up. Caller memory is only ever about the person on the line.
+ */
+export async function syncCallerMemory(agentIds: number[] = AGENT_IDS) {
+  if (!SNAPSERVE_KEY) return { ok: false, error: "SNAPSERVE_API_KEY not set" };
+
+  const rows = await rest("real_records?select=*&order=updated_at.desc");
+  if (!rows?.length) return { ok: true, synced: 0 };
+
+  // Group by phone: one caller may have several enquiries, and the agent needs to know
+  // whether to proceed with the obvious one or ask which they mean.
+  const byPhone = new Map<string, Record<string, unknown>[]>();
+  for (const r of rows) {
+    const key = phoneKey(String(r.phone ?? ""));
+    if (key.length < 10) continue;
+    byPhone.set(key, [...(byPhone.get(key) ?? []), r]);
+  }
+
+  const results: Array<{ phone: string; ok: boolean; shipments: number }> = [];
+
+  for (const [, recs] of byPhone) {
+    const first = recs[0];
+    const phone = String(first.phone);
+    const name = (first.customer_name as string) ?? null;
+    const company = (first.company as string) ?? null;
+
+    const describe = (r: Record<string, unknown>) => {
+      const ref = r.bl_number ? `BL ${r.bl_number}` : `reference ${r.ref}`;
+      const route = r.origin && r.destination ? `${r.origin} to ${r.destination}` : "route not yet confirmed";
+      return `${ref} — ${route}, currently ${r.stage}, ${r.status}`;
+    };
+
+    let note: string;
+    if (recs.length === 1) {
+      note =
+        `You are speaking to ${name ?? company ?? "a known customer"}${company && name ? ` from ${company}` : ""}. ` +
+        `They have ONE shipment with us: ${describe(first)}. ` +
+        `Greet them by name and do NOT ask for a BL or reference number — you already know who they are and which shipment they mean. ` +
+        `Only ask for a number if they bring up a shipment that is clearly not this one.`;
+    } else {
+      note =
+        `You are speaking to ${name ?? company ?? "a known customer"}${company && name ? ` from ${company}` : ""}. ` +
+        `They have ${recs.length} shipments with us: ${recs.map(describe).join("; ")}. ` +
+        `Greet them by name. Do NOT ask for a BL number — instead ask which of these they are calling about, ` +
+        `naming them briefly so they can pick. Never assume it is one of them without asking.`;
+    }
+
+    const context: Record<string, string | number> = {
+      known_customer: "yes",
+      shipment_count: recs.length,
+      reference: String(first.ref),
+    };
+    if (name) context.customer_name = name;
+    if (company) context.company = company;
+    if (recs.length === 1) {
+      if (first.origin) context.origin = String(first.origin);
+      if (first.destination) context.destination = String(first.destination);
+      if (first.bl_number) context.bl_number = String(first.bl_number);
+      context.order_status = String(first.status);
+    }
+
+    for (const agentId of agentIds) {
+      try {
+        const r = await fetch(
+          `${SNAPSERVE_BASE}/agents/${agentId}/caller-memory/${encodeURIComponent(phone)}/facts`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${SNAPSERVE_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ note, context }),
+          }
+        );
+        if (agentId === agentIds[0]) results.push({ phone, ok: r.ok, shipments: recs.length });
+      } catch (e) {
+        console.error(`[araxys] caller-memory ${phone}:`, e);
+      }
+    }
+  }
+
+  const synced = results.filter((r) => r.ok).length;
+  console.log(`[araxys] caller memory synced for ${synced}/${results.length} callers`);
+  return { ok: true, synced, callers: results.length };
+}
+
 export async function syncKb() {
   if (!SNAPSERVE_KEY) return { ok: false, error: "SNAPSERVE_API_KEY not set on the function" };
 

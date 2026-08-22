@@ -8,7 +8,7 @@
  * extracted -> CRM row written -> knowledge base re-synced. Nothing depends on the voice
  * agent invoking a tool mid-conversation, which proved unreliable on the Gemini Live stack.
  */
-import { upsertRecord, syncKb, phoneKey } from "./records.ts";
+import { upsertRecord, syncKb, syncCallerMemory, phoneKey } from "./records.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -341,7 +341,12 @@ export async function ingestRecentCalls(limit = 25) {
   }
 
   // Only re-sync when something actually changed — the KB rewrite is delete-and-recreate.
-  if (recordsTouched > 0) await syncKb();
+  // Caller memory refreshes alongside it: that is what lets the agent greet a returning
+  // caller by name instead of asking who they are.
+  if (recordsTouched > 0) {
+    await syncKb();
+    await syncCallerMemory();
+  }
 
   console.log(`[araxys] ingest: ${stored} stored, ${recordsTouched} records touched`);
   return { ok: true, stored, recordsTouched, seen: calls.length };

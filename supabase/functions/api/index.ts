@@ -8,7 +8,7 @@
  * The SnapServe key lives in function secrets and is never sent to the browser, which is
  * the same reason the Express version existed at all.
  */
-import { listRecords, findByAnything, upsertRecord, syncKb, phoneKey } from "../_shared/records.ts";
+import { listRecords, findByAnything, upsertRecord, syncKb, syncCallerMemory, phoneKey } from "../_shared/records.ts";
 import {
   listSlots,
   getSlot,
@@ -127,6 +127,8 @@ Deno.serve(async (req) => {
     // -------------------------------------------------------------- knowledge base
 
     if (path === "/kb/sync" && req.method === "POST") return json(await syncKb());
+
+    if (path === "/caller-memory/sync" && req.method === "POST") return json(await syncCallerMemory());
 
     // -------------------------------------------------------------- call logs
 
