@@ -250,12 +250,25 @@ export async function remainingFor(slot: SlotRow) {
   const placed = await placementsFor(slot.id);
   const usedLength = round2(placed.reduce((s, p) => s + Number(p.length_m), 0));
   const usedWeight = round2(placed.reduce((s, p) => s + Number(p.weight_kg), 0));
+
+  // Free floor is measured from where the cargo actually ends, not from the sum of what
+  // is aboard. Those two agree only while the stow is packed tight against the back
+  // wall. They stop agreeing the moment anyone leaves a gap -- and once an operator can
+  // drag a consignment forward in the CRM, gaps are a thing that happens. Using the sum
+  // would let us sell floor that is physically stranded between two blocks.
+  const frontier = round2(placed.reduce((m, p) => Math.max(m, Number(p.x_m) + Number(p.length_m)), 0));
+  const freeLength = round2(Math.max(0, dims.internalLengthM - frontier));
+
   return {
     dims,
     used: { lengthM: usedLength, weightKg: usedWeight },
-    lengthM: round2(Math.max(0, dims.internalLengthM - usedLength)),
+    /** Where the loaded section ends -- new cargo goes here. */
+    frontier,
+    /** Floor lost to gaps between blocks. Recoverable by restowing, not by booking. */
+    trappedM: round2(Math.max(0, frontier - usedLength)),
+    lengthM: freeLength,
     payloadKg: round2(Math.max(0, dims.maxPayloadKg - usedWeight)),
-    cbm: round2(Math.max(0, dims.internalLengthM - usedLength) * dims.internalWidthM * dims.internalHeightM),
+    cbm: round2(freeLength * dims.internalWidthM * dims.internalHeightM),
     placements: placed,
   };
 }
@@ -322,7 +335,9 @@ export async function commitBooking(args: {
     slot_id: slot.id,
     client_name: args.clientName,
     reference: args.reference,
-    x_m: rem.used.lengthM,
+    // Against the last block, not against the sum of the blocks -- with a gap in the
+    // stow those differ, and the sum would drop this consignment on top of another one.
+    x_m: rem.frontier,
     length_m: fit.lengthConsumedM ?? 0,
     pieces_across: fit.piecesAcrossWidth ?? 1,
     pieces_high: fit.piecesStackedHigh ?? 1,
@@ -339,4 +354,67 @@ export async function commitBooking(args: {
   await rest("space_placements", { method: "POST", body: JSON.stringify(row) });
   await refreshStatus(slot.id);
   return row;
+}
+
+/**
+ * Repositions consignments along the container floor after an operator restows them.
+ *
+ * The browser proposes the arrangement, but it does not get to be the authority on it --
+ * anyone can post to this endpoint, and a stow with two consignments in the same metre of
+ * floor would corrupt every availability figure downstream, including the ones the voice
+ * agent reads out. So the whole arrangement is re-validated here and rejected as a unit.
+ */
+export async function restow(
+  slotId: string,
+  moves: Array<{ id: string; xM: number }>
+): Promise<{ ok: true; placements: PlacementRow[] } | { ok: false; error: string }> {
+  const slot = await getSlot(slotId);
+  if (!slot) return { ok: false, error: "unknown slot" };
+  const dims = containerDimsFor(slot.container_code);
+  if (!dims) return { ok: false, error: "slot has no container dimensions" };
+
+  const existing = await placementsFor(slotId);
+  const byId = new Map(existing.map((p) => [p.id, p]));
+
+  const proposed = existing.map((p) => {
+    const m = moves.find((x) => x.id === p.id);
+    return {
+      id: p.id,
+      xM: m ? Math.round(Number(m.xM) * 1000) / 1000 : Number(p.x_m),
+      lengthM: Number(p.length_m),
+    };
+  });
+
+  for (const m of moves) {
+    if (!byId.has(m.id)) return { ok: false, error: `consignment ${m.id} is not in this container` };
+    if (!Number.isFinite(Number(m.xM))) return { ok: false, error: `consignment ${m.id} has no valid position` };
+  }
+
+  for (const p of proposed) {
+    if (p.xM < -0.001) return { ok: false, error: `${p.id} would sit behind the back wall` };
+    if (p.xM + p.lengthM > dims.internalLengthM + 0.001) {
+      return { ok: false, error: `${p.id} would hang out of the doors` };
+    }
+  }
+
+  const ordered = [...proposed].sort((a, b) => a.xM - b.xM);
+  for (let i = 1; i < ordered.length; i++) {
+    const prev = ordered[i - 1];
+    const cur = ordered[i];
+    if (cur.xM < prev.xM + prev.lengthM - 0.001) {
+      return { ok: false, error: `${cur.id} overlaps ${prev.id}` };
+    }
+  }
+
+  // Only write what actually moved; a no-op save should not churn the table.
+  const changed = proposed.filter((p) => Math.abs(p.xM - Number(byId.get(p.id)!.x_m)) > 0.0005);
+  for (const p of changed) {
+    await rest(`space_placements?id=eq.${encodeURIComponent(p.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ x_m: p.xM }),
+    });
+  }
+
+  await refreshStatus(slotId);
+  return { ok: true, placements: await placementsFor(slotId) };
 }

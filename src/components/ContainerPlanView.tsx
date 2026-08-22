@@ -1,25 +1,23 @@
-import { useEffect, useState } from "react";
-import { X, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { X, Loader2, Check, Undo2, AlignHorizontalJustifyStart } from "lucide-react";
 import StatusPill from "./StatusPill";
-import { getSlotPlan, type SlotPlan, type PlacedConsignment } from "../services/backend";
+import ContainerScene from "./ContainerScene";
+import { compact, type StowItem } from "../lib/scene3d";
+import { getSlotPlan, restowSlot, type SlotPlan, type PlacedConsignment } from "../services/backend";
 
 /**
- * Hybrid 2D/3D load plan.
+ * Load plan modal: an interactive 3D stow plus the two flat views it is bad at.
  *
- * The main view is an isometric projection of the container with every consignment drawn
- * where it actually sits; alongside it are a top-down plan and a side elevation, because
- * those two flat views answer the questions the 3D view is bad at — how much floor is
- * left, and how high things are stacked.
+ * The 3D view answers "what is in there and where"; the top-down and side elevations
+ * answer "how much floor is left" and "how high is it stacked", which a projected view
+ * makes you estimate. Both read from the same working positions, so dragging a block in
+ * 3D moves it in the flat views at the same time.
  *
- * Isometric mapping, with x along the container, y up, z across:
- *   sx = (x - z) * cos30      sy = (x + z) * sin30 - y
- * That makes the top, far-x and far-z faces of every box the visible ones.
+ * Edits are held here rather than in the scene, because a restow is a change to the whole
+ * container and has to be saved or discarded as one -- half a rearrangement is not a
+ * loadable container.
  */
 
-const COS30 = Math.cos(Math.PI / 6);
-const SIN30 = 0.5;
-
-/** [top, left face, right face] per client — light to dark gives the 3D read. */
 const PALETTE: Array<[string, string, string]> = [
   ["#9FE1CB", "#1D9E75", "#0F6E56"],
   ["#B5D4F4", "#378ADD", "#185FA5"],
@@ -30,165 +28,24 @@ const PALETTE: Array<[string, string, string]> = [
   ["#F4C0D1", "#D4537E", "#993556"],
   ["#D3D1C7", "#888780", "#5F5E5A"],
 ];
-
 const paletteFor = (i: number) => PALETTE[i % PALETTE.length];
 
-interface Box {
-  x: number;
-  y: number;
-  z: number;
-  l: number;
-  w: number;
-  h: number;
-  colorIndex: number;
-  client: string;
-}
-
-/** Expands consignments into individual pieces; merges very large ones to stay legible. */
-function toBoxes(consignments: PlacedConsignment[]): Box[] {
-  const boxes: Box[] = [];
-  for (const c of consignments) {
-    const spanW = c.piecesAcross * c.pieceWidthM;
-    const spanH = c.piecesHigh * c.pieceHeightM;
-
-    if (c.quantity > 60) {
-      boxes.push({
-        x: c.xM, y: 0, z: 0,
-        l: c.lengthM, w: spanW, h: spanH,
-        colorIndex: c.colorIndex, client: c.clientName,
-      });
-      continue;
-    }
-
-    let placed = 0;
-    for (let r = 0; r < c.rows && placed < c.quantity; r++) {
-      for (let a = 0; a < c.piecesAcross && placed < c.quantity; a++) {
-        for (let s = 0; s < c.piecesHigh && placed < c.quantity; s++) {
-          boxes.push({
-            x: c.xM + r * c.pieceLengthM,
-            y: s * c.pieceHeightM,
-            z: a * c.pieceWidthM,
-            l: c.pieceLengthM,
-            w: c.pieceWidthM,
-            h: c.pieceHeightM,
-            colorIndex: c.colorIndex,
-            client: c.clientName,
-          });
-          placed++;
-        }
-      }
-    }
-  }
-  // Painter's algorithm: further boxes (smaller x+z) first, then lower ones.
-  return boxes.sort((a, b) => a.x + a.z - (b.x + b.z) || a.y - b.y);
-}
-
-function IsoView({ plan }: { plan: SlotPlan }) {
+function FlatViews({
+  plan,
+  positions,
+  selectedId,
+  onSelect,
+}: {
+  plan: SlotPlan;
+  positions: Record<string, number>;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
   const { container, consignments } = plan;
   const L = container.lengthM;
   const W = container.widthM;
   const H = container.heightM;
-
-  const spanW = (L + W) * COS30;
-  const spanH = (L + W) * SIN30 + H;
-  const scale = 560 / spanW;
-  const pad = 34;
-
-  const px = (x: number, y: number, z: number) => ({
-    x: (x - z) * COS30 * scale + W * COS30 * scale + pad,
-    y: ((x + z) * SIN30 - y) * scale + H * scale + pad,
-  });
-  const pt = (p: { x: number; y: number }) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-
-  const boxes = toBoxes(consignments);
-
-  function faces(b: Box) {
-    const top = [px(b.x, b.y + b.h, b.z), px(b.x + b.l, b.y + b.h, b.z), px(b.x + b.l, b.y + b.h, b.z + b.w), px(b.x, b.y + b.h, b.z + b.w)];
-    const right = [px(b.x + b.l, b.y + b.h, b.z), px(b.x + b.l, b.y + b.h, b.z + b.w), px(b.x + b.l, b.y, b.z + b.w), px(b.x + b.l, b.y, b.z)];
-    const left = [px(b.x, b.y + b.h, b.z + b.w), px(b.x + b.l, b.y + b.h, b.z + b.w), px(b.x + b.l, b.y, b.z + b.w), px(b.x, b.y, b.z + b.w)];
-    return { top, right, left };
-  }
-
-  // Container floor and the two back walls, drawn behind the cargo.
-  const floor = [px(0, 0, 0), px(L, 0, 0), px(L, 0, W), px(0, 0, W)];
-  const backWall = [px(0, 0, 0), px(0, H, 0), px(0, H, W), px(0, 0, W)];
-  const sideWall = [px(0, 0, 0), px(0, H, 0), px(L, H, 0), px(L, 0, 0)];
-
-  // Outline of the empty space still available, so "what's left" is visible not inferred.
-  const usedL = plan.used.lengthM;
-  const freeStart = Math.min(usedL, L);
-
-  return (
-    <svg viewBox={`0 0 ${spanW * scale + pad * 2} ${spanH * scale + pad * 2}`} className="w-full">
-      <polygon points={floor.map(pt).join(" ")} fill="#efeee9" stroke="#d3d1c7" strokeWidth="1" />
-      <polygon points={sideWall.map(pt).join(" ")} fill="#f6f5f2" stroke="#d3d1c7" strokeWidth="1" />
-      <polygon points={backWall.map(pt).join(" ")} fill="#f1f0ec" stroke="#d3d1c7" strokeWidth="1" />
-
-      {freeStart < L - 0.01 && (
-        <polygon
-          points={[px(freeStart, 0, 0), px(L, 0, 0), px(L, 0, W), px(freeStart, 0, W)].map(pt).join(" ")}
-          fill="#1D9E75"
-          fillOpacity="0.1"
-          stroke="#1D9E75"
-          strokeDasharray="4 3"
-          strokeWidth="1"
-        />
-      )}
-
-      {boxes.map((b, i) => {
-        const [top, left, right] = paletteFor(b.colorIndex);
-        const f = faces(b);
-        return (
-          <g key={i}>
-            <polygon points={f.left.map(pt).join(" ")} fill={left} stroke="#ffffff" strokeWidth="0.6" />
-            <polygon points={f.right.map(pt).join(" ")} fill={right} stroke="#ffffff" strokeWidth="0.6" />
-            <polygon points={f.top.map(pt).join(" ")} fill={top} stroke="#ffffff" strokeWidth="0.6" />
-          </g>
-        );
-      })}
-
-      {consignments.map((c) => {
-        const cx = c.xM + c.lengthM / 2;
-        const cz = (c.piecesAcross * c.pieceWidthM) / 2;
-        const cy = c.piecesHigh * c.pieceHeightM;
-        const p = px(cx, cy, cz);
-        return (
-          <text
-            key={c.id}
-            x={p.x}
-            y={p.y - 8}
-            textAnchor="middle"
-            fontSize="11"
-            fill="#1c1d1a"
-            stroke="#ffffff"
-            strokeWidth="3"
-            paintOrder="stroke"
-            fontWeight="500"
-          >
-            {c.clientName}
-          </text>
-        );
-      })}
-
-      {freeStart < L - 0.01 &&
-        (() => {
-          const p = px((freeStart + L) / 2, 0, W / 2);
-          return (
-            <text x={p.x} y={p.y} textAnchor="middle" fontSize="10.5" fill="#0F6E56" stroke="#ffffff" strokeWidth="3" paintOrder="stroke">
-              {plan.remaining.lengthM}m free
-            </text>
-          );
-        })()}
-    </svg>
-  );
-}
-
-function FlatViews({ plan }: { plan: SlotPlan }) {
-  const { container, consignments } = plan;
-  const L = container.lengthM;
-  const W = container.widthM;
-  const H = container.heightM;
-  const w = 560;
+  const w = 760;
   const scale = w / L;
 
   const Row = ({
@@ -207,24 +64,30 @@ function FlatViews({ plan }: { plan: SlotPlan }) {
         {consignments.map((c) => {
           const [top, mid] = paletteFor(c.colorIndex);
           const e = extent(c) * scale;
+          const x = (positions[c.id] ?? c.xM) * scale;
+          const isSel = selectedId === c.id;
           return (
-            <g key={c.id}>
+            <g key={c.id} onPointerEnter={() => onSelect(c.id)} style={{ cursor: "pointer" }}>
               <rect
-                x={c.xM * scale}
+                x={x}
                 y={depth * scale - e + 1}
                 width={c.lengthM * scale}
                 height={e}
                 fill={top}
-                stroke={mid}
-                strokeWidth="1"
+                stroke={isSel ? "#1c1d1a" : mid}
+                strokeWidth={isSel ? 1.8 : 1}
+                opacity={selectedId && !isSel ? 0.45 : 1}
+                style={{ transition: "x 140ms ease-out, opacity 140ms ease-out" }}
               />
               {c.lengthM * scale > 54 && (
                 <text
-                  x={c.xM * scale + (c.lengthM * scale) / 2}
+                  x={x + (c.lengthM * scale) / 2}
                   y={depth * scale - e / 2 + 5}
                   textAnchor="middle"
                   fontSize="10"
                   fill="#1c1d1a"
+                  pointerEvents="none"
+                  style={{ transition: "x 140ms ease-out" }}
                 >
                   {c.clientName.split(" ")[0]}
                 </text>
@@ -237,12 +100,12 @@ function FlatViews({ plan }: { plan: SlotPlan }) {
   );
 
   return (
-    <div>
+    <div onPointerLeave={() => onSelect(null)}>
       <Row label={`Top-down plan — floor use across ${W}m width`} depth={W} extent={(c) => c.piecesAcross * c.pieceWidthM} />
       <Row label={`Side elevation — stacking against ${H}m height`} depth={H} extent={(c) => c.piecesHigh * c.pieceHeightM} />
       <div className="flex justify-between text-[10px] text-text-muted">
-        <span>0m</span>
-        <span>{L}m (back of container to doors)</span>
+        <span>0m — back wall</span>
+        <span>{L}m — doors</span>
       </div>
     </div>
   );
@@ -251,18 +114,83 @@ function FlatViews({ plan }: { plan: SlotPlan }) {
 export default function ContainerPlanView({ slotId, onClose }: { slotId: string; onClose: () => void }) {
   const [plan, setPlan] = useState<SlotPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [positions, setPositions] = useState<Record<string, number>>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [explode, setExplode] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
 
   useEffect(() => {
     getSlotPlan(slotId).then(setPlan).catch((e) => setError(String(e)));
   }, [slotId]);
 
+  const dirty = useMemo(() => {
+    if (!plan) return false;
+    return plan.consignments.some((c) => positions[c.id] !== undefined && Math.abs(positions[c.id] - c.xM) > 0.0005);
+  }, [plan, positions]);
+
+  const items = useMemo<StowItem[]>(
+    () => (plan?.consignments ?? []).map((c) => ({ id: c.id, xM: positions[c.id] ?? c.xM, lengthM: c.lengthM })),
+    [plan, positions]
+  );
+
+  const discard = () => {
+    setPositions({});
+    setSaveError(null);
+  };
+
+  const closeUp = () => {
+    // Pushing everything back against the wall is the move an operator makes constantly
+    // after a cancellation, and doing it by dragging each block is tedious.
+    const next: Record<string, number> = {};
+    for (const i of compact(items)) next[i.id] = i.xM;
+    setPositions(next);
+    setSaveError(null);
+  };
+
+  const save = async () => {
+    if (!plan) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await restowSlot(slotId, items.map((i) => ({ id: i.id, xM: i.xM })));
+      const fresh = await getSlotPlan(slotId);
+      setPlan(fresh);
+      setPositions({});
+      setSavedAt(Date.now());
+    } catch (e) {
+      setSaveError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (savedAt === null) return;
+    const t = setTimeout(() => setSavedAt(null), 2600);
+    return () => clearTimeout(t);
+  }, [savedAt]);
+
+  // The scene owns the working positions but this drawer owns saving them, so the free
+  // and stranded figures are recomputed here rather than read off the server's snapshot.
+  // Bookable floor is measured from where the cargo ends, not from the sum of the
+  // blocks: floor caught in a gap between two consignments cannot be sold to anyone.
+  const live = useMemo(() => {
+    if (!plan) return { free: 0, trapped: 0 };
+    const frontier = items.reduce((m, i) => Math.max(m, i.xM + i.lengthM), 0);
+    const footprint = items.reduce((s, i) => s + i.lengthM, 0);
+    const r2 = (n: number) => Math.round(Math.max(0, n) * 100) / 100;
+    return { free: r2(plan.container.lengthM - frontier), trapped: r2(frontier - footprint) };
+  }, [plan, items]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-6" onClick={onClose}>
       <div
-        className="bg-surface-1 border border-border rounded-card w-full max-w-4xl max-h-full overflow-y-auto"
+        className="bg-surface-1 border border-border rounded-card w-full max-w-5xl max-h-full overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-surface-1 border-b border-border px-5 py-4 flex items-start justify-between">
+        <div className="sticky top-0 z-10 bg-surface-1 border-b border-border px-5 py-4 flex items-start justify-between">
           <div>
             <p className="text-sm font-medium text-text-primary">
               {plan ? `${plan.slot.route} · ${plan.slot.sailingDate}` : "Load plan"}
@@ -303,8 +231,80 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                 </p>
               ) : (
                 <>
-                  <IsoView plan={plan} />
-                  <FlatViews plan={plan} />
+                  <ContainerScene
+                    plan={plan}
+                    positions={positions}
+                    onMove={(id, xM) => setPositions((p) => ({ ...p, [id]: xM }))}
+                    selectedId={selectedId}
+                    onSelect={setSelectedId}
+                    explode={explode}
+                  />
+
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 mb-4">
+                    <label className="flex items-center gap-2 text-[11.5px] text-text-secondary">
+                      Separate blocks
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.02}
+                        value={explode}
+                        onChange={(e) => setExplode(Number(e.target.value))}
+                        className="w-28 accent-brand"
+                        aria-label="Pull the consignments apart to see between them"
+                      />
+                    </label>
+
+                    <button
+                      onClick={closeUp}
+                      disabled={live.trapped <= 0.01}
+                      title={
+                        live.trapped > 0.01
+                          ? `Recovers ${live.trapped}m of floor stranded between blocks`
+                          : "Nothing to recover — the stow is already packed tight"
+                      }
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] rounded border border-border text-text-secondary hover:text-text-primary hover:border-border-strong disabled:opacity-40 disabled:hover:text-text-secondary"
+                    >
+                      <AlignHorizontalJustifyStart size={12} /> Close up gaps
+                    </button>
+
+                    {live.trapped > 0.01 && (
+                      <span className="text-[11.5px] text-text-warning">
+                        {live.trapped}m stranded in gaps — not bookable until it's closed up
+                      </span>
+                    )}
+
+                    {dirty && (
+                      <>
+                        <button
+                          onClick={save}
+                          disabled={saving}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] rounded bg-brand text-white hover:bg-brand-dark disabled:opacity-60"
+                        >
+                          {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                          Save stow
+                        </button>
+                        <button
+                          onClick={discard}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] rounded border border-border text-text-secondary hover:text-text-primary"
+                        >
+                          <Undo2 size={12} /> Discard
+                        </button>
+                        <span className="text-[11.5px] text-text-accent">
+                          Unsaved — {live.free}m would be bookable
+                        </span>
+                      </>
+                    )}
+
+                    {savedAt !== null && (
+                      <span className="text-[11.5px] text-text-success inline-flex items-center gap-1">
+                        <Check size={12} /> Stow saved and the agent's availability refreshed
+                      </span>
+                    )}
+                    {saveError && <span className="text-[11.5px] text-text-danger">Couldn't save: {saveError}</span>}
+                  </div>
+
+                  <FlatViews plan={plan} positions={positions} selectedId={selectedId} onSelect={setSelectedId} />
                 </>
               )}
 
@@ -336,16 +336,24 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                   <tr className="border-b border-border text-left text-xs text-text-secondary">
                     <th className="py-2">Client</th>
                     <th className="py-2 w-28">Reference</th>
-                    <th className="py-2 w-24">Position</th>
+                    <th className="py-2 w-28">Position</th>
                     <th className="py-2 w-32">Arrangement</th>
                     <th className="py-2 w-20">Weight</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody onPointerLeave={() => setSelectedId(null)}>
                   {plan.consignments.map((c) => {
                     const [top, mid] = paletteFor(c.colorIndex);
+                    const x = positions[c.id] ?? c.xM;
+                    const moved = Math.abs(x - c.xM) > 0.0005;
                     return (
-                      <tr key={c.id} className="border-b border-border last:border-0">
+                      <tr
+                        key={c.id}
+                        onPointerEnter={() => setSelectedId(c.id)}
+                        className={`border-b border-border last:border-0 cursor-pointer ${
+                          selectedId === c.id ? "bg-surface-2" : ""
+                        }`}
+                      >
                         <td className="py-2">
                           <span className="inline-flex items-center gap-2">
                             <span
@@ -356,8 +364,9 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                           </span>
                         </td>
                         <td className="py-2 font-mono text-xs text-text-secondary">{c.reference}</td>
-                        <td className="py-2 text-text-secondary">
-                          {c.xM}–{Math.round((c.xM + c.lengthM) * 100) / 100}m
+                        <td className={`py-2 ${moved ? "text-text-warning" : "text-text-secondary"}`}>
+                          {Math.round(x * 100) / 100}–{Math.round((x + c.lengthM) * 100) / 100}m
+                          {moved && <span className="text-[10px] ml-1">moved</span>}
                         </td>
                         <td className="py-2 text-text-secondary">
                           {c.quantity} pcs · {c.piecesAcross}×{c.piecesHigh}×{c.rows}

@@ -17,6 +17,7 @@ import {
   containerDimsFor,
   resolveRoute,
   commitBooking,
+  restow,
   checkFit,
   type CargoPiece,
 } from "../_shared/space.ts";
@@ -190,8 +191,22 @@ Deno.serve(async (req) => {
           source: p.source,
         })),
         used: rem.used,
+        frontier: rem.frontier,
+        trappedM: rem.trappedM,
         remaining: { lengthM: rem.lengthM, payloadKg: rem.payloadKg, cbm: rem.cbm },
       });
+    }
+
+    if (path.match(/^\/space\/slots\/[^/]+\/restow$/) && req.method === "POST") {
+      const id = path.split("/")[3];
+      const body = await req.json();
+      const moves = Array.isArray(body?.placements) ? body.placements : [];
+      const r = await restow(id, moves.map((m: { id: string; xM: number }) => ({ id: String(m.id), xM: Number(m.xM) })));
+      if (!r.ok) return json({ error: r.error }, 409);
+      // Restowing changes where the free floor is contiguous, so the figures the agent
+      // reads out have to be rebuilt rather than left describing the old arrangement.
+      await syncSpaceKb();
+      return json({ slot: await slotView(await getSlot(id)), moved: moves.length });
     }
 
     if (path === "/space/book" && req.method === "POST") {

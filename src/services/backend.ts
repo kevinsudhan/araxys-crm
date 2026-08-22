@@ -119,6 +119,10 @@ export interface SlotPlan {
   container: { code: string; lengthM: number; widthM: number; heightM: number; maxPayloadKg: number };
   consignments: PlacedConsignment[];
   used: { lengthM: number; weightKg: number };
+  /** Where the loaded section ends. New cargo is placed here, not at `used.lengthM`. */
+  frontier: number;
+  /** Floor stranded in gaps between blocks — recoverable by restowing, not bookable. */
+  trappedM: number;
   remaining: SlotRemaining;
 }
 
@@ -211,6 +215,14 @@ export const getSlotPlan = (slotId: string) => get<SlotPlan>(`/api/space/slots/$
 
 export const checkSpace = (req: CheckSpaceRequest) =>
   post<CheckSpaceResponse>("/api/tools/check-space", req);
+
+/**
+ * Persists a rearranged stow. The server re-validates the whole arrangement and rejects
+ * it as a unit, so a 409 here means the plan on screen is not loadable, not that one
+ * consignment failed to save.
+ */
+export const restowSlot = (slotId: string, placements: Array<{ id: string; xM: number }>) =>
+  post<{ slot: SpaceSlot; moved: number }>(`/api/space/slots/${slotId}/restow`, { placements });
 
 export const bookSpace = (body: {
   slot_id: string;

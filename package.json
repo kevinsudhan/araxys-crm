@@ -11,7 +11,9 @@
     "tunnel": "node scripts/tunnel.cjs",
     "server": "tsx watch server/index.ts",
     "test:space": "tsx server/spaceEngine.test.ts",
-    "start": "tsx server/index.ts"
+    "start": "tsx server/index.ts",
+    "test:scene": "tsx src/lib/scene3d.test.ts",
+    "test": "npm run test:space && npm run test:scene"
   },
   "dependencies": {
     "cors": "^2.8.6",

@@ -122,6 +122,35 @@ console.log("\n── Container space (3D engine) ──────────
     signal: AbortSignal.timeout(45000),
   }).then((r) => r.json());
   ok("rejects cargo that cannot physically fit", tall.available === false);
+
+  // Free floor must be measured from where the cargo ends, not from the sum of the
+  // blocks. Those agree only while the stow is packed tight, and the CRM now lets an
+  // operator drag a consignment forward -- selling stranded floor is the failure mode.
+  ok("plan reports where the loaded section ends", typeof plan.body?.frontier === "number", JSON.stringify(plan.body?.frontier));
+  ok("plan reports floor stranded in gaps", typeof plan.body?.trappedM === "number");
+  const cons = plan.body.consignments;
+  const frontier = cons.reduce((m, c) => Math.max(m, c.xM + c.lengthM), 0);
+  ok("bookable floor is measured from the frontier",
+    Math.abs(plan.body.remaining.lengthM - (plan.body.container.lengthM - frontier)) < 0.02,
+    JSON.stringify([plan.body.remaining.lengthM, plan.body.container.lengthM - frontier]));
+
+  // A restow that would stack two consignments on the same floor has to be refused by
+  // the server, not just by the browser -- anyone can post to this endpoint.
+  const bad = await fetch(`${API}/space/slots/${withCargo.id}/restow`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ placements: [{ id: cons[cons.length - 1].id, xM: cons[0].xM }] }),
+    signal: AbortSignal.timeout(45000),
+  });
+  ok("server refuses an overlapping restow", bad.status === 409, `got ${bad.status}`);
+
+  const past = await fetch(`${API}/space/slots/${withCargo.id}/restow`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ placements: [{ id: cons[0].id, xM: plan.body.container.lengthM + 5 }] }),
+    signal: AbortSignal.timeout(45000),
+  });
+  ok("server refuses cargo hanging out of the doors", past.status === 409, `got ${past.status}`);
 }
 
 console.log("\n── SnapServe wiring ────────────────────────");

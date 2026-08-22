@@ -74,6 +74,16 @@ async function slotSection(slot: SlotRow): Promise<string> {
   if (rem.placements.length) {
     L.push(`- Already carrying ${rem.placements.length} consignment${rem.placements.length === 1 ? "" : "s"} from other customers (LCL groupage)`);
   }
+
+  // Stranded floor is real space that cannot be sold until someone restows the container.
+  // Naming it keeps the agent from being asked to explain a discrepancy it cannot see,
+  // and flags to the desk that there is space to recover here.
+  if (rem.trappedM > 0.05) {
+    L.push(
+      `- Note for the desk only: ${rem.trappedM}m of floor is stranded in gaps between blocks and is NOT included in the space left above. ` +
+        `Do not offer it to a customer -- it becomes bookable only once the container is restowed.`
+    );
+  }
   return L.join("\n");
 }
 
