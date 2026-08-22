@@ -27,6 +27,12 @@ Endpoints:
 - `GET /api/space/slots/:id/plan` — the full load plan: every consignment in that container with its client, size, arrangement and position along the floor.
 - `POST /api/space/book` — commits space; remaining length/payload drop and slot status auto-flips to `closing_soon` / `full`.
 
+**Shipment facts — anti-fabrication.** The agent may state a shipment's status, ETA, container number, free-time figure, demurrage date, charge or document position from exactly two sources: the caller-memory block SnapServe injects before the call, or the `lookup_shipment` tool. Both resolve to the CRM's real records via `server/shipments.ts`. A lookup miss returns `found: false` with the exact sentence to say and an explicit instruction not to invent a substitute — a miss is a real answer, not an error to improvise around. The lookup payload also carries an `unknown_fields` list, so the model is told what it does *not* know rather than left to fill gaps. Priya's system prompt carries a matching absolute rule that overrides the rest of the prompt.
+
+Reference data (container specs, pricing, document rules, port regulations) is explicitly exempt — that's safe to quote to anyone. The rule is specifically about facts belonging to one particular shipment.
+
+`POST /api/sync/caller-memory` pushes every shipment's confirmed facts into SnapServe caller memory keyed by customer phone, so the agent opens a call already knowing that caller's real status. Run it after CRM data changes.
+
 **Load-plan visualisation.** Clicking any sailing in the CRM opens a hybrid 2D/3D view of that container: an isometric projection showing every consignment as stacked boxes colour-coded and labelled per client, alongside a top-down floor plan and a side elevation (those two answer "how much floor is left" and "how high is it stacked" better than the 3D view does). Occupancy is *derived* from the individual consignments in `server/placements.ts` rather than stored as a separate total, so the picture and the availability figure can never drift apart. Booking through the CRM places the new consignment against the free floor and it appears in the plan immediately.
 - `GET /api/calls/live`, `GET /api/calls/:id` — SnapServe proxy for the live-call feature, key stays server-side.
 - `POST /api/webhooks/snapserve` — receiver for `call.started` / `call.completed`.

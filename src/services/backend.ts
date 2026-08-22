@@ -163,6 +163,48 @@ export interface CheckSpaceResponse {
   }>;
 }
 
+/** A real customer captured from an actual call — distinct from seeded demo shipments. */
+export interface RealRecord {
+  ref: string;
+  phone: string;
+  customerName?: string;
+  company?: string;
+  blNumber?: string;
+  stage: "processing" | "processed";
+  status: string;
+  origin?: string;
+  destination?: string;
+  cargoDescription?: string;
+  volumeCbm?: number;
+  containerType?: string;
+  quotedAmountInr?: number;
+  agreedAmountInr?: number;
+  sailingDate?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const getRealRecords = () => get<{ records: RealRecord[] }>("/api/records");
+
+/** A stored call: what was said, plus the summary we generate from it. */
+export interface CallLog {
+  call_id: string;
+  agent_name: string | null;
+  direction: string | null;
+  from_number: string | null;
+  to_number: string | null;
+  status: string | null;
+  duration_secs: number | null;
+  transcript: string | null;
+  summary: string | null;
+  extracted: Record<string, unknown> | null;
+  started_at: string | null;
+}
+
+export const getCallLogs = (phone?: string) =>
+  get<{ logs: CallLog[] }>(`/api/calls/logs${phone ? `?phone=${encodeURIComponent(phone)}` : ""}`);
+
 export const getSpaceSlots = () => get<{ slots: SpaceSlot[] }>("/api/space/slots");
 
 export const getSlotPlan = (slotId: string) => get<SlotPlan>(`/api/space/slots/${slotId}/plan`);

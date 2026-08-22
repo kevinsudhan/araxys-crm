@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { PhoneIncoming } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import RowCard from "../components/RowCard";
+import RealRecordsSection from "../components/RealRecordsSection";
 import StatusPill, { toneForShipmentStatus } from "../components/StatusPill";
 import { shipments } from "../data/mockData";
 
@@ -48,6 +49,7 @@ export default function ShipmentsInProcess() {
           </RowCard>
         );
       })}
+      <RealRecordsSection stage="processing" />
     </div>
   );
 }

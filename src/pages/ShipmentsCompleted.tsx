@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader";
 import RowCard from "../components/RowCard";
+import RealRecordsSection from "../components/RealRecordsSection";
 import StatusPill from "../components/StatusPill";
 import { shipments } from "../data/mockData";
 
@@ -23,6 +24,7 @@ export default function ShipmentsCompleted() {
           <StatusPill tone="success">Delivered</StatusPill>
         </RowCard>
       ))}
+      <RealRecordsSection stage="processed" />
     </div>
   );
 }

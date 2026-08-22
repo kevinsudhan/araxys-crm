@@ -14,6 +14,11 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkFit, type CargoPiece } from "./spaceEngine";
+import { lookup, allShipments, factsFor, phoneKey } from "./shipments";
+import { upsertFromCall, listRecords, findByAnything, deleteRecord, backend as recordBackend, type RealRecord } from "./records";
+import { syncRealRecordsToKb } from "./kbSync";
+import { ingestRecentCalls } from "./transcripts";
+import { listCallLogs, callLogsForPhone } from "./supabase";
 import {
   listSlots,
   getSlot,
@@ -28,16 +33,24 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Load the SnapServe key from the same .env the setup scripts use. Never sent to the client.
+/**
+ * Loads the SnapServe key. Locally that comes from the same .env the setup scripts use;
+ * in a deployed environment it comes from real environment variables, so anything already
+ * present in process.env wins and the missing file is not an error.
+ */
 function loadEnv() {
+  if (process.env.SNAPSERVE_API_KEY) {
+    console.log("[araxys] using SNAPSERVE_API_KEY from environment");
+    return;
+  }
   try {
     const raw = readFileSync(join(__dirname, "..", "snapserve-setup", ".env"), "utf-8");
     for (const line of raw.split("\n")) {
       const m = line.match(/^([A-Z_]+)=(.*)$/);
-      if (m) process.env[m[1]] = m[2].trim();
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
     }
   } catch {
-    console.warn("[araxys] no snapserve-setup/.env found — SnapServe proxy routes will be disabled");
+    console.warn("[araxys] no SNAPSERVE_API_KEY set and no snapserve-setup/.env found — SnapServe routes disabled");
   }
 }
 loadEnv();
@@ -214,6 +227,192 @@ app.post("/api/tools/check-space", (req, res) => {
 });
 
 /** Commits space — used by the CRM, and available to the agent once a customer confirms. */
+/**
+ * Shipment lookup — AGENT TOOL. The only sanctioned source of shipment facts on a call.
+ * Always 200, even on a miss: a miss is a real answer the agent must relay honestly,
+ * not an error it should improvise around.
+ */
+app.post("/api/tools/lookup-shipment", (req, res) => {
+  // Log the raw envelope: if SnapServe nests tool arguments (arguments/args/parameters/
+  // input) or sends them as a JSON string, reading req.body.bl_number silently yields
+  // nothing and looks identical to the model not passing anything.
+  console.log("[araxys] RAW lookup body:", JSON.stringify(req.body));
+  console.log("[araxys] RAW lookup query:", JSON.stringify(req.query));
+  console.log("[araxys] RAW content-type:", req.headers["content-type"]);
+
+  const b: Record<string, unknown> = req.body ?? {};
+  const unwrap = (v: unknown): Record<string, unknown> => {
+    if (typeof v === "string") {
+      try {
+        return JSON.parse(v);
+      } catch {
+        return {};
+      }
+    }
+    return (v as Record<string, unknown>) ?? {};
+  };
+  const nested = {
+    ...unwrap(b.arguments),
+    ...unwrap(b.args),
+    ...unwrap(b.parameters),
+    ...unwrap(b.input),
+    ...unwrap((b.tool_call as Record<string, unknown>)?.arguments),
+  };
+  const src = { ...nested, ...b, ...(req.query as Record<string, unknown>) };
+
+  const bl_number = (src.bl_number ?? src.blNumber ?? src.bl ?? nested.bl_number) as string | undefined;
+  const phone = (src.phone ?? src.phone_number ?? src.caller_phone) as string | undefined;
+  const result = lookup({ bl_number, phone });
+
+  if (!result.found) {
+    console.log(`[araxys] shipment lookup MISS bl=${bl_number ?? "-"} phone=${phone ?? "-"} reason=${result.reason}`);
+    return res.json({
+      ...result,
+      instruction:
+        result.hard_stop ??
+        "No matching shipment. Say exactly this, and do not invent any status, ETA, container number " +
+          "or charge. In particular do not answer from the CRM update block injected earlier — that is " +
+          "this caller's own shipment and is not the one they asked about.",
+    });
+  }
+
+  console.log(`[araxys] shipment lookup HIT ${result.bl_number}`);
+
+  // Deliberately small and flat. A large nested object gives a native-audio model far too
+  // much to reconcile against whatever it already believes; a single sentence it can read
+  // straight out is much harder to talk past. Detail stays available under `details` for
+  // follow-up questions, but `answer` is what should be spoken.
+  // Same content under several conventional key names. Which key a platform reads back
+  // into the conversation is undocumented here, so covering `result` / `output` / `text` /
+  // `message` costs nothing and removes one whole class of silent failure.
+  // Bare minimum on purpose. Returning the full record let the native-audio model pick
+  // one field it liked (the BL) and improvise the rest; with a single instruction-shaped
+  // sentence and nothing else in the payload, there is nothing to cherry-pick from.
+  const line =
+    `Read this to the caller word for word, and say nothing about this shipment that is not in this sentence: ` +
+    result.spoken_summary;
+  res.json({ result: line });
+});
+
+// ------------------------------------------------- real customer records + KB sync
+
+const AGENT_IDS = [717, 758];
+
+function kbCtx() {
+  return { baseUrl: SNAPSERVE_BASE_URL, apiKey: SNAPSERVE_API_KEY, agentIds: AGENT_IDS };
+}
+
+/** Fire-and-forget KB refresh — a call must never be held up waiting on this. */
+function scheduleKbSync(reason: string) {
+  setTimeout(() => {
+    syncRealRecordsToKb(kbCtx())
+      .then((r) => console.log(`[araxys] KB sync (${reason}):`, r.ok ? "ok" : r.error))
+      .catch((e) => console.error("[araxys] KB sync threw:", e));
+  }, 50);
+}
+
+/**
+ * AGENT TOOL — save/refresh a caller's details.
+ *
+ * Deliberately write-only from the agent's point of view. Tool RESULTS do not reach the
+ * model on the Gemini Live stack, but tool ARGUMENTS arrive intact (verified against the
+ * live account), so capturing information this way is reliable even though reading back
+ * through a tool is not. What the agent needs to KNOW comes from the knowledge base,
+ * which this endpoint keeps current.
+ */
+app.post("/api/tools/save-customer", async (req, res) => {
+  console.log("[araxys] RAW save-customer body:", JSON.stringify(req.body));
+  const b: Record<string, unknown> = req.body ?? {};
+  const args = ((b.args ?? b.arguments ?? b.parameters ?? {}) as Record<string, unknown>) ?? {};
+  const src = { ...args, ...b };
+
+  const phone = String(src.phone ?? src.phone_number ?? src.caller_phone ?? "").trim();
+  if (!phone) {
+    return res.json({
+      saved: false,
+      result: "No phone number was supplied, so nothing could be saved. Ask the caller for their number.",
+    });
+  }
+
+  const num = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : Number(v));
+  const str = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : String(v));
+
+  const rec = await upsertFromCall({
+    phone,
+    customerName: str(src.customer_name),
+    company: str(src.company),
+    origin: str(src.origin),
+    destination: str(src.destination),
+    cargoDescription: str(src.cargo_description),
+    volumeCbm: num(src.volume_cbm),
+    containerType: str(src.container_type),
+    quotedAmountInr: num(src.quoted_amount_inr),
+    agreedAmountInr: num(src.agreed_amount_inr),
+    sailingDate: str(src.sailing_date),
+    blNumber: str(src.bl_number),
+    status: str(src.status) ?? "enquiry received",
+    notes: str(src.notes),
+    sourceCallId: str(b.callId),
+  });
+
+  scheduleKbSync(`save-customer ${rec.ref}`);
+  res.json({ saved: true, reference: rec.ref, result: `Saved. The customer's reference number is ${rec.ref}.` });
+});
+
+app.get("/api/records", async (_req, res) => res.json({ records: await listRecords(), backend: recordBackend() }));
+
+app.get("/api/records/find", async (req, res) => {
+  const q = String(req.query.q ?? "");
+  const hit = await findByAnything(q);
+  res.json({ found: !!hit, record: hit ?? null });
+});
+
+app.post("/api/records", async (req, res) => {
+  const { phone } = req.body ?? {};
+  if (!phone) return res.status(400).json({ error: "phone required" });
+  const rec = await upsertFromCall(req.body as Partial<RealRecord> & { phone: string });
+  scheduleKbSync("crm edit");
+  res.json({ record: rec });
+});
+
+app.delete("/api/records/:ref", async (req, res) => {
+  const ok = await deleteRecord(req.params.ref);
+  if (ok) scheduleKbSync("crm delete");
+  res.json({ deleted: ok });
+});
+
+app.post("/api/kb/sync", async (_req, res) => res.json(await syncRealRecordsToKb(kbCtx())));
+
+// ------------------------------------------------------- call transcripts
+
+app.post("/api/calls/ingest", async (_req, res) => {
+  const r = await ingestRecentCalls({ baseUrl: SNAPSERVE_BASE_URL, apiKey: SNAPSERVE_API_KEY });
+  if (r.ok && (r.recordsTouched ?? 0) > 0) scheduleKbSync("transcript ingest");
+  res.json(r);
+});
+
+app.get("/api/calls/logs", async (req, res) => {
+  const phone = String(req.query.phone ?? "");
+  try {
+    res.json({ logs: phone ? await callLogsForPhone(phone) : await listCallLogs() });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// Keep transcripts flowing in without anyone remembering to trigger it. Poll rather than
+// webhook: a webhook needs a permanently reachable URL, which is the thing that kept
+// breaking, and SnapServe's own post-call extraction never fires anyway.
+const INGEST_EVERY_MS = 120_000;
+setInterval(() => {
+  ingestRecentCalls({ baseUrl: SNAPSERVE_BASE_URL, apiKey: SNAPSERVE_API_KEY })
+    .then((r) => {
+      if (!r.ok) console.warn("[araxys] transcript ingest:", r.error);
+      else if ((r.recordsTouched ?? 0) > 0) scheduleKbSync("transcript ingest");
+    })
+    .catch((e) => console.error("[araxys] transcript ingest threw:", e));
+}, INGEST_EVERY_MS);
+
 app.post("/api/space/book", (req, res) => {
   const { slot_id, client_name, reference, source, length_cm, width_cm, height_cm, quantity, weight_kg_each, stackable, upright_only } =
     req.body ?? {};
@@ -376,6 +575,135 @@ app.post("/api/webhooks/snapserve", (req, res) => {
 });
 
 app.get("/api/webhooks/events", (_req, res) => res.json({ events: callEvents.slice(0, 50) }));
+
+/**
+ * Pushes each shipment's confirmed facts into SnapServe caller memory, keyed by the
+ * customer's phone. SnapServe injects these as ground truth on the next call, so the
+ * agent opens already knowing the caller's real status instead of having to ask — and
+ * has no room to invent one. This is the CRM -> SnapServe half of the sync; the CRM
+ * stays the system of record.
+ */
+async function syncCallerMemory(agentId: string) {
+  if (!SNAPSERVE_API_KEY) return { ok: false, error: "no SnapServe key configured" };
+
+  const results: Array<{ phone: string; bl: string; ok: boolean; detail?: string }> = [];
+  const skipped: Array<{ phone: string; bl: string }> = [];
+
+  for (const s of allShipments()) {
+    const f = factsFor(s);
+    const key = phoneKey(s.phone);
+    if (key.length < 10) continue;
+
+    // Never inject placeholder records as ground truth. A half-captured lead ("Unidentified
+    // caller", carrier "TBD", ETA "Pending booking") is not a confirmed shipment, and once
+    // injected the agent will answer from it with total confidence — which is exactly how a
+    // caller ends up being told their Jeddah container is in Singapore.
+    const placeholder =
+      /unidentified|not captured|unknown/i.test(`${f.customer_name} ${f.company}`) ||
+      /tbd|pending/i.test(f.carrier) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(f.eta_date);
+    if (placeholder) {
+      console.log(`[araxys] caller-memory SKIP ${f.bl_number} — placeholder record, not confirmed fact`);
+      skipped.push({ phone: s.phone, bl: f.bl_number });
+      continue;
+    }
+
+    const missing = f.documents_missing.map((d) => (d.due_date ? `${d.name} (due ${d.due_date})` : d.name));
+    // Scoped deliberately: the agent must not read this as the answer to ANY shipment
+    // question, only as this caller's own most recent one.
+    const note =
+      `This caller's most recent shipment is ${f.bl_number}. ` +
+      `Status ${f.status.replace(/_/g, " ")}, ${f.origin} to ${f.destination} on ${f.carrier}. ` +
+      (f.delivered_date ? `Delivered ${f.delivered_date}.` : `ETA ${f.eta_date}.`) +
+      (missing.length ? ` Outstanding documents: ${missing.join(", ")}.` : " All documents received.") +
+      (f.demurrage_start_date ? ` Demurrage starts ${f.demurrage_start_date}.` : "") +
+      ` IMPORTANT: if the caller asks about any BL number other than ${f.bl_number}, these facts do not ` +
+      `apply — call the lookup_shipment tool with the BL number they said instead of answering from here.`;
+
+    const context: Record<string, string | number> = {
+      bl_number: f.bl_number,
+      order_status: f.status,
+      origin: f.origin,
+      destination: f.destination,
+      carrier: f.carrier,
+      eta_date: f.eta_date,
+    };
+    if (f.container_id) context.container_id = f.container_id;
+    if (f.free_days_remaining !== null) context.free_days_remaining = f.free_days_remaining;
+    if (f.demurrage_start_date) context.demurrage_start_date = f.demurrage_start_date;
+    if (missing.length) context.documents_missing = missing.join("; ");
+
+    try {
+      const r = await fetch(
+        `${SNAPSERVE_BASE_URL}/agents/${agentId}/caller-memory/${encodeURIComponent(s.phone)}/facts`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${SNAPSERVE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ note, context }),
+        }
+      );
+      results.push({ phone: s.phone, bl: f.bl_number, ok: r.ok, detail: r.ok ? undefined : await r.text() });
+    } catch (e) {
+      results.push({ phone: s.phone, bl: f.bl_number, ok: false, detail: String(e) });
+    }
+  }
+  return {
+    ok: true,
+    synced: results.filter((r) => r.ok).length,
+    skipped,
+    failed: results.filter((r) => !r.ok),
+    results,
+  };
+}
+
+app.post("/api/sync/caller-memory", async (req, res) => {
+  const agentId = String(req.body?.agent_id ?? "717");
+  res.json(await syncCallerMemory(agentId));
+});
+
+/**
+ * Overwrites a caller's memory with an explicit "nothing confirmed on file" note.
+ *
+ * Facts already written to SnapServe do not expire on their own, so a bad entry keeps
+ * being injected as ground truth on every future call. Blanking the values and stating
+ * plainly that there is no confirmed shipment is what stops the agent answering from it.
+ */
+app.post("/api/sync/clear-caller-memory", async (req, res) => {
+  const agentId = String(req.body?.agent_id ?? "717");
+  const phone = String(req.body?.phone ?? "");
+  if (!phone) return res.status(400).json({ error: "phone required" });
+  if (!SNAPSERVE_API_KEY) return res.status(400).json({ error: "no SnapServe key configured" });
+
+  const body = {
+    note:
+      "No confirmed shipment on file for this caller. Do not state any shipment status, route, ETA, " +
+      "container number or document position for them from memory. Always call the lookup_shipment " +
+      "tool with the BL number they give you.",
+    context: {
+      bl_number: "none on file",
+      order_status: "none on file",
+      origin: "none on file",
+      destination: "none on file",
+      carrier: "none on file",
+      eta_date: "none on file",
+      container_id: "none on file",
+      documents_missing: "none on file",
+      demurrage_start_date: "none on file",
+      free_days_remaining: "none on file",
+    },
+  };
+
+  const r = await fetch(
+    `${SNAPSERVE_BASE_URL}/agents/${agentId}/caller-memory/${encodeURIComponent(phone)}/facts`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SNAPSERVE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+  console.log(`[araxys] cleared caller memory for ${phone} -> ${r.status}`);
+  res.json({ ok: r.ok, status: r.status, detail: r.ok ? undefined : await r.text() });
+});
 
 app.get("/api/health", (_req, res) =>
   res.json({ ok: true, snapserveConfigured: Boolean(SNAPSERVE_API_KEY), slots: listSlots().length })

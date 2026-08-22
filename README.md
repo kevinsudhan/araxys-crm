@@ -11,9 +11,13 @@ documentation desk — while the CRM stays the system of record for everything s
 shipments, container space, documentation, live calls, complaints, billing, agents,
 knowledge base, analytics, compliance. Light theme, route-based code splitting.
 
-**Backend (`server/`, Express + tsx).** Exists for three reasons the frontend can't cover:
-the SnapServe API key must never reach a browser, SnapServe webhooks need somewhere to
-POST, and the voice agent needs a URL it can call mid-conversation.
+**Backend (`supabase/functions/`, Deno on Supabase Edge Functions).** Hosted, so nothing
+depends on a laptop being awake. Exists because the SnapServe API key must never reach a
+browser, and because the voice agent needs a URL it can call mid-conversation that is
+still there tomorrow. Data lives in Postgres; `pg_cron` drives transcript ingestion.
+
+`server/` still holds the original Express implementation. It is the same logic and works
+locally, but the hosted functions are what production uses.
 
 **Voice agents (`snapserve-setup/`).** Two agents configured against the live SnapServe
 account — Priya (customer-facing forwarder rep) and Arun (documentation desk) — with their
@@ -45,22 +49,41 @@ left" and "how high is it stacked" better than the 3D view does.
 
 ## Running it
 
+The frontend talks to the hosted Supabase functions by default, so it runs on its own:
+
 ```bash
 npm install
-cp .env.example snapserve-setup/.env   # add your sk_live_ key
-npm run server                          # backend on :8787
-npm run dev                             # CRM on :5173
+npm run dev                             # CRM on :5173, against hosted Supabase
 ```
 
-The CRM degrades gracefully with the backend down — space data falls back to static
-values and the live-call indicator goes quiet, rather than erroring.
+To point it at a local backend instead, set `VITE_API_BASE=http://localhost:8787` and run
+`npm run server`. The CRM degrades gracefully when the API is unreachable — space data
+falls back to static values and the live-call indicator goes quiet, rather than erroring.
 
 | Script | What it does |
 | --- | --- |
 | `npm run dev` | CRM dev server |
-| `npm run server` | Backend (space engine, call polling, agent tool endpoint) |
+| `npm run build` | Production build (reads `VITE_API_BASE`) |
+| `npm run server` | Local Express backend, if you want one |
 | `npm run test:space` | Space engine test suite |
 | `npm run sync:kb` | Regenerates the agent knowledge-base docs from CRM data |
+| `node scripts/verify-hosted.mjs` | End-to-end check of the hosted stack (33 assertions) |
+
+### Deploying
+
+Frontend goes to Netlify — `netlify.toml` sets the build, the SPA redirect (without it
+every deep link 404s on refresh) and `VITE_API_BASE`. Set the base directory to
+`araxys-crm`.
+
+Backend functions deploy with the Supabase CLI:
+
+```bash
+npx supabase functions deploy api --project-ref <ref> --no-verify-jwt
+npx supabase functions deploy ingest --project-ref <ref> --no-verify-jwt
+npx supabase secrets set SNAPSERVE_API_KEY=sk_live_... --project-ref <ref>
+```
+
+Schema lives in `supabase/schema.sql` and `supabase/schema-space.sql`.
 
 ## Knowledge base stays in sync
 
@@ -74,12 +97,23 @@ is the one manual step — everything upstream of it is automated.
 
 These are real and deliberately not papered over:
 
-- **Disposition extraction has never fired.** `dispositionResult` is null on every call
-  regardless of voice stack, so the CRM's structured columns aren't yet auto-populated
-  from conversations.
+- **Tool results do not reach the model on the Gemini Live voice stack.** Verified over
+  many calls: the webhook fires with the right arguments, returns correct data, and the
+  agent still answers from something else. `lookup_shipment` was removed for this reason —
+  shipment recognition goes through the knowledge base instead, which does work. The
+  space-check tool is still registered, but treat its in-call reliability as unproven.
+- **Whether the agent grounds itself in the knowledge base is untested.** Every step up to
+  it is verified; nobody has yet called and confirmed the agent reads a customer back
+  correctly. Until that happens, the end-to-end claim is unproven.
+- **SnapServe's own extraction never fires.** `dispositionResult` and `callSummary` are
+  null on every call, so transcripts are parsed and summarised here instead
+  (`extractCustomer.ts`, `summarise.ts`). That parsing is regex-based and conservative:
+  fields it cannot read stay blank rather than being guessed.
 - **Squads and WhatsApp have no public API.** Agent-to-agent handoff and the WhatsApp
-  channel are configured through the SnapServe dashboard only.
-- **The space tool needs a public URL.** `snapserve-setup/register-space-tool.cjs` registers
-  it, but the backend must be reachable from the internet (a tunnel) before the agent can
-  call it live.
-- **Backend state is in memory.** Restarting resets space bookings to seed data.
+  channel are dashboard-only, and the handoff is not wired — the agent will say it is
+  transferring with nothing behind it.
+- **Most CRM modules are still mock data** — documentation, complaints, billing, analytics.
+  Customers, calls and container space are real.
+- **Transcripts contain run-together words** (`thisis Priyafromthe`) from the ASR. Spacing
+  is repaired only where unambiguous; splitting the rest needs dictionary segmentation, and
+  guessing wrong would corrupt what a customer actually said.

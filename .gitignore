@@ -15,8 +15,15 @@ snapserve-setup/*-result*.json
 snapserve-setup/*-fix.json
 snapserve-setup/*-refix.json
 snapserve-setup/agent-current*.json
+snapserve-setup/agent-now.json
 snapserve-setup/arun-current.json
 snapserve-setup/arun-after-tool.json
 snapserve-setup/call-*.json
 snapserve-setup/calls-list.json
 snapserve-setup/wallet.json
+
+# Local fallback store, used only when Supabase is unreachable. Holds real customer
+# names and phone numbers captured from actual calls — genuine PII, never committed.
+# Supabase is the system of record; this file is a cache.
+data/
+

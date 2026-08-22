@@ -1,0 +1,31 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # Not a secret: this is a public Edge Function URL and would be visible in the bundle
+  # regardless. The real secrets (SnapServe key, service_role key) live in Supabase
+  # function secrets and never reach the browser.
+  VITE_API_BASE = "https://wremiarcmppuncgfzrqb.supabase.co/functions/v1/api"
+
+# The CRM is a single-page app using client-side routing. Without this, every deep link
+# (/shipments/in-process, /knowledge-base) 404s on refresh or when shared, because Netlify
+# looks for a file at that path and there isn't one.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Hashed asset filenames change on every build, so they can be cached indefinitely.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

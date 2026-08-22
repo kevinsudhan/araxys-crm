@@ -55,6 +55,78 @@ const tools = [
       required: ["route", "length_cm", "width_cm", "height_cm", "quantity"],
     },
   },
+  {
+    type: "webhook",
+    name: "lookup_shipment",
+    description:
+      "Look up the confirmed facts for an existing shipment — status, ETA, container number, " +
+      "free days remaining, demurrage date, and which documents are received or still outstanding. " +
+      "CRITICAL: if the caller says a BL number, you MUST pass it as bl_number. Do not call this tool " +
+      "with empty arguments and do not answer from the CRM update block injected at the start of the " +
+      "call — that block describes this caller's own most recent shipment, which is very often NOT the " +
+      "shipment they are asking about. A caller can ask about any BL number, including one that belongs " +
+      "to a different route entirely. Only use the phone argument when the caller has no BL number at " +
+      "all. If this returns found=false, say exactly what it tells you and never substitute a " +
+      "similar-looking shipment.",
+    url: `${publicBase.replace(/\/$/, "")}/api/tools/lookup-shipment`,
+    method: "POST",
+    parameters: {
+      type: "object",
+      properties: {
+        bl_number: {
+          type: "string",
+          description:
+            "The BL number the caller said, e.g. MSCU7291044 or OOLU9013345. Letters and digits, no spaces or dashes. " +
+            "Transcribe exactly what they said, including when they spell it out letter by letter " +
+            "('O-O-L-U nine zero one three three four five' becomes OOLU9013345). " +
+            "This is REQUIRED. If the caller genuinely has no BL number to hand, pass the exact string NONE " +
+            "and the lookup will fall back to their phone number.",
+        },
+        phone: {
+          type: "string",
+          description: "The caller's phone number. Only used when bl_number is NONE.",
+        },
+      },
+      required: ["bl_number"],
+    },
+  },
+  {
+    type: "webhook",
+    name: "save_customer_enquiry",
+    description:
+      "Save this caller's details so we have a record of them. Call this near the END of any call " +
+      "with a customer who is enquiring about a new shipment, as soon as you know their name, " +
+      "company and what they want to ship — even if they have not booked anything and have no BL " +
+      "number. The phone number is required; everything else is optional, so send whatever you " +
+      "actually learned and leave the rest out. Calling this is what lets us recognise them the " +
+      "next time they ring, so do not skip it just because the enquiry is unfinished.",
+    // Permanent Supabase Edge Function URL, not the tunnel. This endpoint must keep
+    // working when no laptop is running — a dead URL here means the agent silently stops
+    // recording callers mid-call and nobody finds out until the records are missing.
+    url: env.SUPABASE_URL
+      ? `${env.SUPABASE_URL}/functions/v1/save-customer`
+      : `${publicBase.replace(/\/$/, "")}/api/tools/save-customer`,
+    method: "POST",
+    parameters: {
+      type: "object",
+      properties: {
+        phone: { type: "string", description: "The caller's phone number. Required." },
+        customer_name: { type: "string", description: "Contact person's name" },
+        company: { type: "string", description: "Their company name" },
+        origin: { type: "string", description: "Origin port or city" },
+        destination: { type: "string", description: "Destination port or city" },
+        cargo_description: { type: "string", description: "What they are shipping, in their words" },
+        volume_cbm: { type: "number", description: "Volume in CBM if mentioned" },
+        container_type: { type: "string", description: "LCL, 20GP, 40GP, 40HC, 20RF or 40RF" },
+        quoted_amount_inr: { type: "number", description: "Amount you quoted them, in rupees" },
+        agreed_amount_inr: { type: "number", description: "Final agreed rate if they accepted" },
+        sailing_date: { type: "string", description: "Sailing date discussed, YYYY-MM-DD" },
+        status: { type: "string", description: "Short status, e.g. 'quoted, awaiting confirmation'" },
+        notes: { type: "string", description: "Anything else worth recording for the next call" },
+      },
+      required: ["phone"],
+    },
+  },
 ];
 
 (async () => {
