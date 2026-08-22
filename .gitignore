@@ -27,3 +27,4 @@ snapserve-setup/wallet.json
 # Supabase is the system of record; this file is a cache.
 data/
 
+snapserve-setup/agent-717-backup.json
