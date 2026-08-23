@@ -105,7 +105,7 @@ export default function RealRecordsSection({ stage }: { stage: "processing" | "p
         </RowCard>
         {expanded === r.ref && (
           <div className="px-3">
-            <RequestDetailsGrid details={r.requestDetails} sourceLanguage={r.sourceLanguage} />
+            <RequestDetailsGrid details={r.requestDetails} sourceLanguage={r.sourceLanguage} record={r} />
             <CallHistoryPanel phone={r.phone} />
           </div>
         )}

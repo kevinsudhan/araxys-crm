@@ -8,6 +8,8 @@ import {
   type RequestDetails,
   type SourceLanguage,
 } from "../data/requestFields";
+import DocumentsPanel from "./DocumentsPanel";
+import type { RealRecord } from "../services/backend";
 
 /**
  * Every field the desk needs off a call, one labelled box each.
@@ -92,9 +94,11 @@ function Group({ group, details }: { group: FieldGroup; details: RequestDetails 
 export default function RequestDetailsGrid({
   details,
   sourceLanguage,
+  record,
 }: {
   details?: RequestDetails;
   sourceLanguage?: SourceLanguage;
+  record?: RealRecord;
 }) {
   const d = details ?? {};
   const { filled, total } = completeness(d);
@@ -133,6 +137,8 @@ export default function RequestDetailsGrid({
       <Group group="booking" details={d} />
       <Group group="documentation" details={d} />
       <Group group="handling" details={d} />
+
+      {record && <DocumentsPanel record={record} />}
 
       <p className="mt-3 text-[11px] leading-relaxed text-text-muted">
         Extracted from call transcripts. A field reads "not stated" when the call did not
