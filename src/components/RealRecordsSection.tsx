@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { PhoneIncoming, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { PhoneIncoming, RefreshCw, ChevronRight } from "lucide-react";
 import RowCard from "./RowCard";
 import StatusPill from "./StatusPill";
-import CallHistoryPanel from "./CallHistoryPanel";
-import RequestDetailsGrid from "./RequestDetailsGrid";
-import { getRealRecords, type RealRecord } from "../services/backend";
+import { getRealRecords, type RealRecord, type RecordStage } from "../services/backend";
 
 /**
  * Real customers, kept visually separate from the seeded demo data above it.
@@ -12,12 +11,27 @@ import { getRealRecords, type RealRecord } from "../services/backend";
  * The separation is the point: during a build it must be obvious at a glance which rows
  * came from an actual phone call and which are scaffolding, so a demo record is never
  * mistaken for a real customer or vice versa.
+ *
+ * A row opens the record as a page rather than expanding in place. It used to unfold into
+ * the fields and the call history, which worked while that was all there was — now there
+ * is also the container, the timeline and twelve documents, and none of that belongs
+ * inside a list row.
  */
-export default function RealRecordsSection({ stage }: { stage: "processing" | "processed" }) {
+export default function RealRecordsSection({
+  stage,
+  title = "Real data",
+  blurb = "Live customers captured from real calls. Everything above this line is seeded demo data.",
+  emptyLabel,
+}: {
+  stage: RecordStage;
+  title?: string;
+  blurb?: string;
+  emptyLabel?: string;
+}) {
+  const navigate = useNavigate();
   const [records, setRecords] = useState<RealRecord[]>([]);
   const [offline, setOffline] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<string | null>(null);
 
   async function refresh() {
     try {
@@ -44,12 +58,12 @@ export default function RealRecordsSection({ stage }: { stage: "processing" | "p
     <div className="mt-8">
       <div className="flex items-center gap-3 mb-1">
         <div className="h-px flex-1 bg-border-strong" />
-        <span className="text-[11px] uppercase tracking-wide text-text-secondary font-medium">Real data</span>
+        <span className="text-[11px] uppercase tracking-wide text-text-secondary font-medium">{title}</span>
         <div className="h-px flex-1 bg-border-strong" />
       </div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-text-muted">
-          Live customers captured from real calls. Everything above this line is seeded demo data.
+          {blurb}
         </p>
         <button
           onClick={refresh}
@@ -67,15 +81,14 @@ export default function RealRecordsSection({ stage }: { stage: "processing" | "p
 
       {!offline && !loading && records.length === 0 && (
         <p className="text-[13px] text-text-muted py-4">
-          No real {stage} customers yet. They appear here automatically after a call.
+          {emptyLabel ?? `No real ${stage} customers yet. They appear here automatically after a call.`}
         </p>
       )}
 
       {records.map((r) => (
-        <div key={r.ref}>
-        <RowCard onClick={() => setExpanded(expanded === r.ref ? null : r.ref)}>
+        <RowCard key={r.ref} onClick={() => navigate(`/records/${encodeURIComponent(r.ref)}`)}>
           <span className="text-text-muted shrink-0">
-            {expanded === r.ref ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <ChevronRight size={14} />
           </span>
           <span title="Captured from a real call">
             <PhoneIncoming size={14} className="text-text-accent shrink-0" />
@@ -103,13 +116,6 @@ export default function RealRecordsSection({ stage }: { stage: "processing" | "p
           {!r.blNumber && <StatusPill tone="warning">No BL yet</StatusPill>}
           <StatusPill tone={r.stage === "processed" ? "success" : "accent"}>{r.stage}</StatusPill>
         </RowCard>
-        {expanded === r.ref && (
-          <div className="px-3">
-            <RequestDetailsGrid details={r.requestDetails} sourceLanguage={r.sourceLanguage} record={r} />
-            <CallHistoryPanel phone={r.phone} />
-          </div>
-        )}
-        </div>
       ))}
     </div>
   );

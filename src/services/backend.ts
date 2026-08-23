@@ -170,13 +170,20 @@ export interface CheckSpaceResponse {
 /** A real customer captured from an actual call — distinct from seeded demo shipments. */
 import type { RequestDetails, SourceLanguage } from "../data/requestFields";
 
+/**
+ * enquiry -> someone rang; processing -> the desk committed to a booking; processed -> delivered.
+ * The move out of enquiry is a human decision, never inferred from a transcript.
+ */
+export type RecordStage = "enquiry" | "processing" | "processed";
+
 export interface RealRecord {
   ref: string;
   phone: string;
   customerName?: string;
   company?: string;
   blNumber?: string;
-  stage: "processing" | "processed";
+  stage: RecordStage;
+  processingStartedAt?: string;
   status: string;
   origin?: string;
   destination?: string;
@@ -195,6 +202,13 @@ export interface RealRecord {
 }
 
 export const getRealRecords = () => get<{ records: RealRecord[] }>("/api/records");
+
+/** Rejected with a 409 if the move needs a sailing date and none is on file. */
+export const setRecordStage = (ref: string, stage: RecordStage, sailingDate?: string) =>
+  post<{ record: RealRecord }>(`/api/records/${encodeURIComponent(ref)}/stage`, {
+    stage,
+    ...(sailingDate ? { sailing_date: sailingDate } : {}),
+  });
 
 /** A stored call: what was said, plus the summary we generate from it. */
 export interface CallLog {

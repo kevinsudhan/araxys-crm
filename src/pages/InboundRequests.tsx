@@ -6,6 +6,7 @@ import RowCard from "../components/RowCard";
 import StatusPill, { toneForRequestStatus } from "../components/StatusPill";
 import ChannelBadge from "../components/ChannelBadge";
 import EmptyState from "../components/EmptyState";
+import RealRecordsSection from "../components/RealRecordsSection";
 import CallDrawer from "../components/CallDrawer";
 import { useLiveCalls } from "../hooks/useLiveCalls";
 import { inboundRequests } from "../data/mockData";
@@ -135,6 +136,13 @@ export default function InboundRequests() {
       })}
 
       {openCallId !== null && <CallDrawer callId={openCallId} onClose={() => setOpenCallId(null)} />}
+
+      <RealRecordsSection
+        stage="enquiry"
+        title="Real enquiries"
+        blurb="Callers captured from actual calls. Open one to see what was said, what was extracted, and to start the booking."
+        emptyLabel="No real enquiries yet. They appear here automatically once a call ends."
+      />
     </div>
   );
 }

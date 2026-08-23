@@ -93,7 +93,7 @@ function toCamel(r: Record<string, unknown>) {
     customerName: u(r.customer_name as string | null),
     company: u(r.company as string | null),
     blNumber: u(r.bl_number as string | null),
-    stage: r.stage as "processing" | "processed",
+    stage: r.stage as RecordStage,
     status: r.status as string,
     origin: u(r.origin as string | null),
     destination: u(r.destination as string | null),
@@ -104,6 +104,7 @@ function toCamel(r: Record<string, unknown>) {
     agreedAmountInr: u(r.agreed_amount_inr as number | null),
     sailingDate: u(r.sailing_date as string | null),
     notes: u(r.notes as string | null),
+    processingStartedAt: u(r.processing_started_at as string | null),
     // Deliberately not camelised inside: the keys are the field catalogue's own, and the
     // CRM grid looks them up by the same key the extractor and the schema use.
     requestDetails: u(r.request_details as Record<string, unknown> | null),
@@ -156,7 +157,9 @@ export async function upsertRecord(input: RecordInput) {
   }
 
   row.ref = await nextRef();
-  row.stage = "processing";
+  // A call creates an enquiry, never an in-process shipment. Moving it on is a decision
+  // the desk makes once there is a sailing date it will stand behind -- see advanceStage.
+  row.stage = "enquiry";
   if (!row.status) row.status = "enquiry received";
   const created = await rest("real_records", {
     method: "POST",
@@ -164,6 +167,39 @@ export async function upsertRecord(input: RecordInput) {
     body: JSON.stringify(row),
   });
   return created?.[0];
+}
+
+export type RecordStage = "enquiry" | "processing" | "processed";
+
+/**
+ * Moves a record along the pipeline.
+ *
+ * Guarded rather than free-form: reaching 'processing' means the desk is committing to a
+ * booking, and a booking without a sailing date is not one. The check lives here rather
+ * than only in the button, because the button is not the only thing that can call this.
+ */
+export async function advanceStage(ref: string, stage: RecordStage, sailingDate?: string) {
+  const rows = await rest(`real_records?select=*&ref=eq.${encodeURIComponent(ref)}&limit=1`);
+  const record = rows?.[0];
+  if (!record) return { ok: false as const, error: "unknown reference" };
+
+  const date = sailingDate ?? (record.sailing_date as string | null) ?? "";
+  if (stage === "processing" && !date) {
+    return { ok: false as const, error: "a sailing date is needed before a booking can start" };
+  }
+
+  const patch: Record<string, unknown> = { stage };
+  if (sailingDate) patch.sailing_date = sailingDate;
+  if (stage === "processing" && !record.processing_started_at) {
+    patch.processing_started_at = new Date().toISOString();
+  }
+
+  const updated = await rest(`real_records?ref=eq.${encodeURIComponent(ref)}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(patch),
+  });
+  return { ok: true as const, record: toCamel(updated?.[0] ?? record) };
 }
 
 /** MUST stay in step with recordToKbBlock in server/realRecords.ts. */

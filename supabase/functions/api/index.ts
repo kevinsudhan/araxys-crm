@@ -8,7 +8,7 @@
  * The SnapServe key lives in function secrets and is never sent to the browser, which is
  * the same reason the Express version existed at all.
  */
-import { listRecords, findByAnything, upsertRecord, syncKb, syncCallerMemory, syncSpaceKb, phoneKey } from "../_shared/records.ts";
+import { listRecords, findByAnything, upsertRecord, advanceStage, syncKb, syncCallerMemory, syncSpaceKb, phoneKey, type RecordStage } from "../_shared/records.ts";
 import {
   listSlots,
   getSlot,
@@ -116,6 +116,22 @@ Deno.serve(async (req) => {
       const rec = await upsertRecord(body);
       await syncKb();
       return json({ record: rec });
+    }
+
+    // Moving an enquiry into the booking pipeline, or a booking to delivered.
+    if (path.match(/^\/records\/[^/]+\/stage$/) && req.method === "POST") {
+      const ref = decodeURIComponent(path.split("/")[2]);
+      const body = await req.json();
+      const stage = String(body?.stage ?? "") as RecordStage;
+      if (!["enquiry", "processing", "processed"].includes(stage)) {
+        return json({ error: "stage must be enquiry, processing or processed" }, 400);
+      }
+      const result = await advanceStage(ref, stage, body?.sailing_date ? String(body.sailing_date) : undefined);
+      if (!result.ok) return json({ error: result.error }, 409);
+      // The agent greets callers with their stage and status, so a move has to reach it.
+      await syncKb();
+      await syncCallerMemory();
+      return json({ record: result.record });
     }
 
     if (path.startsWith("/records/") && req.method === "DELETE") {
