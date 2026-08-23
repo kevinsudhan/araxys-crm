@@ -33,7 +33,7 @@ snapserve-setup/agent-717-backup.json
 sample-documents/
 
 # Prompt backups written by set-language-rules.mjs — live snapshots, not source.
-snapserve-setup/agent-*-prompt-backup.json
+snapserve-setup/agent-*-backup.json
 
 # Regenerable from scripts/generate-sample-documents.mjs
 sample-documents/
