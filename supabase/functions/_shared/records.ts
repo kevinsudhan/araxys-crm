@@ -258,6 +258,57 @@ async function snap(path: string, init: RequestInit = {}) {
  * The knowledge base is a different job: it holds every customer and is searched when the
  * agent needs to look someone up. Caller memory is only ever about the person on the line.
  */
+/**
+ * Which language to open a call in, per caller.
+ *
+ * Derived from what they actually spoke on previous calls rather than stored as a
+ * setting, because nobody is going to maintain a language field by hand and the calls
+ * already say it — the extractor labels every transcript en / ta / mixed.
+ *
+ * Two rules, both from how these customers actually talk:
+ *
+ *   1. `mixed` counts as Tamil. Someone moving between Tamil and English is comfortable
+ *      in Tamil; someone comfortable only in English never produces a Tamil-leaning
+ *      transcript at all. So a tie goes to Tamil — the cost of opening in Tamil with a
+ *      bilingual caller is nil, and the cost of opening in English with someone who
+ *      rang in Tamil last week is that they have to ask, again, to be spoken to in
+ *      their own language.
+ *   2. Only the last three calls count, and recency has to win. A caller whose last two
+ *      calls were Tamil-leaning gets Tamil even if the three before that were English —
+ *      a wider window let stale English calls outvote what the customer is doing now,
+ *      which is the exact complaint this was built to fix. Three means it takes two
+ *      English-only calls out of the last three to move someone back to English.
+ */
+const LANGUAGE_WINDOW = 3;
+
+export type CallerLanguage = "ta" | "en";
+
+export async function languageByPhone(): Promise<Map<string, CallerLanguage>> {
+  const out = new Map<string, CallerLanguage>();
+  const rows = await rest(
+    "call_logs?select=phone_key,extracted&extracted=not.is.null&order=started_at.desc&limit=500"
+  );
+  if (!rows?.length) return out;
+
+  const seen = new Map<string, string[]>();
+  for (const r of rows) {
+    const key = String(r.phone_key ?? "");
+    if (!key) continue;
+    const lang = (r.extracted as Record<string, unknown> | null)?.source_language;
+    if (lang !== "ta" && lang !== "en" && lang !== "mixed") continue;
+    const list = seen.get(key) ?? [];
+    if (list.length < LANGUAGE_WINDOW) list.push(String(lang));
+    seen.set(key, list);
+  }
+
+  for (const [key, langs] of seen) {
+    const tamilish = langs.filter((l) => l === "ta" || l === "mixed").length;
+    const english = langs.filter((l) => l === "en").length;
+    out.set(key, tamilish >= english ? "ta" : "en");
+  }
+  return out;
+}
+
 export async function syncCallerMemory(agentIds: number[] = AGENT_IDS) {
   if (!SNAPSERVE_KEY) return { ok: false, error: "SNAPSERVE_API_KEY not set" };
 
@@ -273,9 +324,10 @@ export async function syncCallerMemory(agentIds: number[] = AGENT_IDS) {
     byPhone.set(key, [...(byPhone.get(key) ?? []), r]);
   }
 
+  const languages = await languageByPhone();
   const results: Array<{ phone: string; ok: boolean; shipments: number }> = [];
 
-  for (const [, recs] of byPhone) {
+  for (const [phoneKeyValue, recs] of byPhone) {
     const first = recs[0];
     const phone = String(first.phone);
     const name = (first.customer_name as string) ?? null;
@@ -302,11 +354,24 @@ export async function syncCallerMemory(agentIds: number[] = AGENT_IDS) {
         `naming them briefly so they can pick. Never assume it is one of them without asking.`;
     }
 
+    // Prepended, not appended: the agent has to know which language to open in before it
+    // reads anything else, and the greeting is the first thing it says.
+    const language = languages.get(phoneKeyValue);
+    if (language === "ta") {
+      note =
+        "This caller speaks TAMIL with us. Greet them and hold the conversation in Tamil, " +
+        "not English, unless they switch to English themselves. " +
+        note;
+    } else if (language === "en") {
+      note = "This caller speaks ENGLISH with us. Open in English. " + note;
+    }
+
     const context: Record<string, string | number> = {
       known_customer: "yes",
       shipment_count: recs.length,
       reference: String(first.ref),
     };
+    if (language) context.preferred_language = language === "ta" ? "Tamil" : "English";
     if (name) context.customer_name = name;
     if (company) context.company = company;
     if (recs.length === 1) {

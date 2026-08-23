@@ -31,3 +31,6 @@ snapserve-setup/agent-717-backup.json
 
 # Generated document samples — regenerate from any record rather than storing binaries.
 sample-documents/
+
+# Prompt backups written by set-language-rules.mjs — live snapshots, not source.
+snapserve-setup/agent-*-prompt-backup.json
