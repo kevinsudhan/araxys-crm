@@ -14,6 +14,7 @@
 import { extractRequestDetails, lastExtractionError } from "./extractFields.ts";
 import { regexFieldsFor } from "./ingest.ts";
 import { upsertRecord, autoPromote, syncKb, syncCallerMemory, syncSpaceKb } from "./records.ts";
+import { autoBookSpace, type BookOutcome } from "./autoBook.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -42,6 +43,8 @@ export interface ExtractResult {
   extracted: number;
   recordsTouched: number;
   promoted: number;
+  /** One line per promotion: whether space was allocated, or why it was not. */
+  bookings: Array<{ ref: string } & BookOutcome>;
   remaining: number;
   refreshed: string[];
   extractionError: string | null;
@@ -61,6 +64,7 @@ export async function extractPending(batch = 4, refresh = true): Promise<Extract
   let extracted = 0;
   let recordsTouched = 0;
   let promoted = 0;
+  const bookings: Array<{ ref: string } & BookOutcome> = [];
 
   for (const row of pending ?? []) {
     const transcript = row.transcript as string;
@@ -92,7 +96,34 @@ export async function extractPending(batch = 4, refresh = true): Promise<Extract
       const merged = (rec as { request_details?: Record<string, unknown> } | null)?.request_details;
       if (ref && merged) {
         const p = await autoPromote(ref, merged, callDate);
-        if (p.promoted) promoted++;
+        if (p.promoted) {
+          promoted++;
+          // Becoming a booking is what earns the space. Attempted here rather than inside
+          // autoPromote so a refusal to allocate never undoes the promotion -- the call
+          // did establish a booking even if the cargo will not fit that sailing, and the
+          // desk needs to see it in the pipeline to act on it.
+          const record = p.record as Record<string, unknown>;
+          try {
+            const outcome = await autoBookSpace({
+              reference: ref,
+              clientName: String(record.company ?? record.customerName ?? ref),
+              origin: record.origin as string | undefined,
+              destination: record.destination as string | undefined,
+              sailingDate: String(record.sailingDate ?? ""),
+              details: merged,
+            });
+            bookings.push({ ref, ...outcome });
+            console.log(
+              outcome.booked
+                ? `[araxys] ${ref} allocated ${outcome.lengthM}m on ${outcome.slotId}`
+                : `[araxys] ${ref} not allocated — ${outcome.reason}`,
+            );
+          } catch (e) {
+            const reason = e instanceof Error ? e.message : String(e);
+            bookings.push({ ref, booked: false, reason });
+            console.error(`[araxys] ${ref} allocation failed:`, reason);
+          }
+        }
       }
     }
   }
@@ -105,6 +136,7 @@ export async function extractPending(batch = 4, refresh = true): Promise<Extract
     extracted,
     recordsTouched,
     promoted,
+    bookings,
     remaining: (remaining ?? []).length,
     refreshed,
     extractionError: lastExtractionError(),
