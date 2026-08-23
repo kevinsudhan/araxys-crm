@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { Radio, WifiOff } from "lucide-react";
 import PageHeader from "../components/PageHeader";
@@ -26,6 +27,7 @@ function elapsed(startedAt: string) {
 
 export default function InboundRequests() {
   const [filter, setFilter] = useState<Channel | "all">("all");
+  const navigate = useNavigate();
   const [openCallId, setOpenCallId] = useState<number | null>(null);
   const { live, connected } = useLiveCalls();
 
@@ -96,7 +98,7 @@ export default function InboundRequests() {
       {list.map((r) => {
         const onCall = liveByPhone.get(digitsOnly(r.phone).slice(-10));
         return (
-          <RowCard key={r.id} onClick={onCall ? () => setOpenCallId(onCall.id) : undefined}>
+          <RowCard key={r.id} onClick={onCall ? () => setOpenCallId(onCall.id) : () => navigate(`/inbound/${r.id}`)}>
             {onCall ? (
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-text-danger animate-pulse" />

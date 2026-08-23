@@ -157,6 +157,16 @@ export interface SceneProps {
   explode: number;
   /** Set false to make the plan read-only (e.g. a full container). */
   editable?: boolean;
+  /**
+   * Start rotating on mount.
+   *
+   * For a shipment page, where the container is something to look at rather than work
+   * on: a slow orbit shows all four sides without anyone having to discover that the
+   * scene can be dragged. The Pause control is the same one that was already there, so
+   * it stops the moment someone wants a fixed angle -- and any drag stops it too, since
+   * a scene that keeps turning under the cursor is unusable.
+   */
+  autoSpin?: boolean;
 }
 
 export default function ContainerScene({
@@ -169,9 +179,10 @@ export default function ContainerScene({
   onSelect,
   explode,
   editable = true,
+  autoSpin = false,
 }: SceneProps) {
   const [cam, setCam] = useState<Camera>(DEFAULT_CAMERA);
-  const [spin, setSpin] = useState(false);
+  const [spin, setSpin] = useState(autoSpin);
   const [hovered, setHovered] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const gesture = useRef<Gesture>({ kind: "none" });

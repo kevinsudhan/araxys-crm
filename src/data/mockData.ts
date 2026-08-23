@@ -82,6 +82,89 @@ export const inboundRequests: InboundRequest[] = [
 ];
 
 export const shipments: Shipment[] = [
+  /**
+   * The complete-documentation example.
+   *
+   * Every other seeded shipment is deliberately missing something, because chasing gaps is
+   * the job the CRM exists for. This one is the opposite case: a booking where the customer
+   * supplied everything, so all twelve documents issue rather than coming out stamped
+   * DRAFT. Without it there is nothing in the app that demonstrates the finished state.
+   *
+   * The figures agree with each other on purpose -- 480 cartons at 18 kg is the 8,640 kg
+   * gross, 480 cartons of 60x40x35 cm is the 40.32 CBM, and the 440 kg between net and
+   * gross is the packaging that puts it in scope for ISPM-15.
+   */
+  {
+    id: "sh-9001",
+    blNumber: "MSCU7845120",
+    customerName: "Meera Raghavan",
+    company: "Kavitha Textiles",
+    phone: "+91 98401 12233",
+    origin: "Chennai",
+    destination: "Jebel Ali, Dubai",
+    stage: "in_process",
+    status: "booked",
+    carrier: "MSC",
+    containerId: "MSCU7845120",
+    containerFillPct: 68,
+    etaDate: "2026-09-07",
+    freeDaysRemaining: 7,
+    demurrageStartDate: "2026-09-14",
+    quoteAmount: 185000,
+    documents: [
+      { name: "Commercial invoice", status: "generated" },
+      { name: "Packing list", status: "generated" },
+      { name: "Bill of lading", status: "generated" },
+      { name: "Certificate of origin", status: "received" },
+      { name: "VGM declaration", status: "generated" },
+      { name: "Fumigation certificate (ISPM-15)", status: "received" },
+    ],
+    timeline: [
+      { label: "Quote accepted", date: "2026-08-20", state: "done" },
+      { label: "Booking confirmed", date: "2026-08-22", state: "done" },
+      { label: "Documents generated", date: "2026-08-23", state: "done" },
+      { label: "Container sails", date: "2026-08-28", state: "current" },
+      { label: "Arrival Jebel Ali", date: "2026-09-07", state: "pending" },
+      { label: "Delivered", date: "pending", state: "pending" },
+    ],
+    pickup: { date: "2026-08-26", window: "08:00-11:00", confirmed: true },
+    delivery: { date: "2026-09-09", window: "TBD", confirmed: false },
+    callHistory: [
+      { date: "2026-08-23", agent: "Arun", disposition: "All documentation details collected" },
+      { date: "2026-08-22", agent: "Priya", disposition: "Booked, 40HC on 28 Aug sailing" },
+      { date: "2026-08-20", agent: "Priya", disposition: "Quote accepted" },
+    ],
+    lastSyncedToSnapserve: "just now",
+    callExtraction: {
+      snapserveCallId: "sample-9001",
+      callDate: "2026-08-22",
+      channel: "voice",
+      transcript: [],
+      cargoDescription: "Cotton bed linen sets",
+      cargoType: "textiles_garments",
+      volumeCbm: 40.32,
+      containerTypeRequested: "40HC",
+      priceAskedInr: 180000,
+      priceNegotiatedInr: 185000,
+      callOutcome: "booked",
+    },
+    docGenDetails: {
+      snapserveCallId: "sample-9001",
+      callDate: "2026-08-23",
+      shipperName: "Kavitha Textiles Private Limited",
+      shipperGstinIec: "33AAGCK4521M1Z8",
+      consigneeName: "Al Noor Trading LLC",
+      consigneeAddress: "Warehouse 12, Jebel Ali Free Zone, Dubai",
+      consigneeCountry: "United Arab Emirates",
+      hsCode: "6302.31",
+      invoiceValueInr: 4250000,
+      packageCount: 480,
+      packageType: "cartons",
+      netWeightKg: 8200,
+      grossWeightKg: 8640,
+      documentationStatus: "complete",
+    },
+  },
   {
     id: "sh-1",
     blNumber: "MSCU7291044",

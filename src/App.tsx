@@ -4,6 +4,7 @@ import AppLayout from "./layout/AppLayout";
 
 const Overview = lazy(() => import("./pages/Overview"));
 const InboundRequests = lazy(() => import("./pages/InboundRequests"));
+const InboundRequestDetail = lazy(() => import("./pages/InboundRequestDetail"));
 const ShipmentsInProcess = lazy(() => import("./pages/ShipmentsInProcess"));
 const ShipmentsCompleted = lazy(() => import("./pages/ShipmentsCompleted"));
 const ShipmentDetail = lazy(() => import("./pages/ShipmentDetail"));
@@ -29,6 +30,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<Overview />} />
           <Route path="/inbound" element={<InboundRequests />} />
+          <Route path="/inbound/:id" element={<InboundRequestDetail />} />
           <Route path="/shipments/in-process" element={<ShipmentsInProcess />} />
           <Route path="/shipments/completed" element={<ShipmentsCompleted />} />
           <Route path="/shipments/:id" element={<ShipmentDetail />} />

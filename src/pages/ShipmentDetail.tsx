@@ -4,6 +4,7 @@ import StatusPill, { toneForShipmentStatus } from "../components/StatusPill";
 import { shipments } from "../data/mockData";
 import EmptyState from "../components/EmptyState";
 import { generateInvoicePdf } from "../lib/generateInvoicePdf";
+import StowPanel from "../components/StowPanel";
 
 const docStatusTone = { complete: "success", partial_callback_needed: "warning", escalated: "danger" } as const;
 
@@ -277,7 +278,16 @@ export default function ShipmentDetail() {
         </div>
       )}
 
-      <div className="rounded-card bg-surface-1 border border-border p-4">
+      <StowPanel
+        query={{
+          blNumber: shipment.blNumber,
+          company: shipment.company,
+          origin: shipment.origin,
+          destination: shipment.destination,
+        }}
+      />
+
+      <div className="rounded-card bg-surface-1 border border-border p-4 mt-6">
         <p className="text-sm font-medium text-text-primary mb-3">Call history</p>
         <div className="flex flex-col gap-2">
           {shipment.callHistory.map((c, i) => (

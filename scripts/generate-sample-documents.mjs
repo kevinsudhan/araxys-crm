@@ -47,7 +47,7 @@ const SHIPMENT = {
   volumeCbm: 40.32,
   quotedAmountInr: 195000,
   agreedAmountInr: 185000,
-  sailingDate: "2026-09-05",
+  sailingDate: "2026-08-28",
   sourceLanguage: "ta",
   createdAt: "2026-08-23T00:00:00.000Z",
   updatedAt: "2026-08-23T00:00:00.000Z",
@@ -69,7 +69,7 @@ const SHIPMENT = {
     volume_cbm: 40.32,
     stackable: true,
     upright_only: false,
-    preferred_sailing_date: "2026-09-05",
+    preferred_sailing_date: "2026-08-28",
     container_type: "40HC",
     target_price_inr: 180000,
 
@@ -99,7 +99,7 @@ const data = documentDataFromRecord(SHIPMENT);
 // rather than invented by the extractor.
 data.carrier = "MSC";
 data.containerId = "MSCU7845120";
-data.etaDate = "2026-09-18";
+data.etaDate = "2026-09-07";
 
 console.log(`sample shipment ${SHIPMENT.ref} — ${SHIPMENT.company}, ${data.origin} to ${data.destination}\n`);
 
