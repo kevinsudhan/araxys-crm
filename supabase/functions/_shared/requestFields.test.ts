@@ -14,6 +14,7 @@ import {
   normaliseDetails,
   completeness,
   mergeExtractions,
+  resolveSailingDate,
 } from "./requestFields";
 // mergeExtractions lives in the catalogue, not the extractor: it is pure logic, and
 // importing the extractor here would drag in the Deno-only npm: specifiers with it.
@@ -102,3 +103,13 @@ check(
 
 console.log(failures === 0 ? "\nall passed\n" : `\n${failures} failed\n`);
 if (failures > 0) process.exit(1);
+
+console.log("\nsailing date resolution");
+check("ISO passes through", resolveSailingDate("2026-09-14", "2026-08-23"), "2026-09-14");
+check("month and day resolve against the call", resolveSailingDate("August 30th", "2026-08-23"), "2026-08-30");
+check("bare day uses the call's month", resolveSailingDate("the 30th", "2026-08-23"), "2026-08-30");
+check("a day already past rolls to next year", resolveSailingDate("August 1st", "2026-08-23"), "2027-08-01");
+check("a window stays a window", resolveSailingDate("first week of September", "2026-08-23"), null);
+check("no call date means no guess", resolveSailingDate("August 30th", undefined), null);
+check("impossible day is rejected", resolveSailingDate("February 31st", "2026-01-05"), null);
+check("empty is null", resolveSailingDate("", "2026-08-23"), null);

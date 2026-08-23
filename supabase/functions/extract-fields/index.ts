@@ -17,7 +17,7 @@
  */
 import { extractRequestDetails, lastExtractionError } from "../_shared/extractFields.ts";
 import { regexFieldsFor } from "../_shared/ingest.ts";
-import { upsertRecord } from "../_shared/records.ts";
+import { upsertRecord, autoPromote } from "../_shared/records.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
     // still on the regex fallback failed rather than completed, so it stays in the queue
     // and gets retried here.
     const pending = await db(
-      "call_logs?select=call_id,from_number,transcript,duration_secs,direction" +
+      "call_logs?select=call_id,from_number,transcript,duration_secs,direction,started_at" +
         "&direction=eq.inbound&transcript=not.is.null&duration_secs=gte.20" +
         "&or=(extracted.is.null,extracted->>extracted_by.not.like.llm*)" +
         `&order=started_at.desc&limit=${batch}`,
@@ -78,10 +78,15 @@ Deno.serve(async (req) => {
 
     let extracted = 0;
     let recordsTouched = 0;
+    let promoted = 0;
 
     for (const row of pending ?? []) {
       const transcript = row.transcript as string;
-      const details = await extractRequestDetails(transcript, regexFieldsFor(transcript));
+      const details = await extractRequestDetails(
+        transcript,
+        regexFieldsFor(transcript),
+        row.started_at ? String(row.started_at).slice(0, 10) : undefined,
+      );
 
       await db(`call_logs?call_id=eq.${encodeURIComponent(row.call_id)}`, {
         method: "PATCH",
@@ -92,13 +97,23 @@ Deno.serve(async (req) => {
 
       const phone = row.from_number ?? "";
       if (phone && !/^webcall/i.test(phone) && Object.keys(details.fields).length) {
-        await upsertRecord({
+        const rec = await upsertRecord({
           phone,
           source_call_id: String(row.call_id),
           request_details: details.fields,
           source_language: details.source_language,
         });
         recordsTouched++;
+
+        // An enquiry with a named sailing date and an accepted quote is a booking. The
+        // merged details are read from the record rather than this call's extraction:
+        // the date may have come from one call and the acceptance from the next.
+        const ref = (rec as { ref?: string } | null)?.ref;
+        const merged = (rec as { request_details?: Record<string, unknown> } | null)?.request_details;
+        if (ref && merged) {
+          const p = await autoPromote(ref, merged, row.started_at ? String(row.started_at).slice(0, 10) : undefined);
+          if (p.promoted) promoted++;
+        }
       }
     }
 
@@ -112,6 +127,7 @@ Deno.serve(async (req) => {
       ok: true,
       extracted,
       recordsTouched,
+      promoted,
       remaining: (remaining ?? []).length,
       extractionError: lastExtractionError(),
     });

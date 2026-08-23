@@ -41,6 +41,7 @@ import {
   REQUEST_FIELDS,
   mergeExtractions,
   normaliseDetails,
+  resolveSailingDate,
   type RequestDetails,
   type RequestDetailsEnvelope,
   type SourceLanguage,
@@ -156,7 +157,7 @@ interface LlmResult {
 let lastError: string | null = null;
 export const lastExtractionError = () => lastError;
 
-async function extractWithClaude(transcript: string): Promise<LlmResult | null> {
+async function extractWithClaude(transcript: string, callDate?: string): Promise<LlmResult | null> {
   if (!API_KEY) {
     lastError = "ANTHROPIC_API_KEY not set";
     return null;
@@ -220,10 +221,16 @@ async function extractWithClaude(transcript: string): Promise<LlmResult | null> 
 export async function extractRequestDetails(
   transcript: string,
   regexFields: RequestDetails,
+  callDate?: string,
 ): Promise<RequestDetailsEnvelope> {
-  const llm = await extractWithClaude(transcript);
+  const llm = await extractWithClaude(transcript, callDate);
 
   const fields = llm ? mergeExtractions(llm.fields, regexFields) : normaliseDetails(regexFields);
+
+  // "August 30th" is what people say; a booking needs a date. Resolved here, against the
+  // call date, rather than left for whatever reads the field later to guess at.
+  const resolved = resolveSailingDate(fields.preferred_sailing_date, callDate);
+  if (resolved) fields.preferred_sailing_date = resolved;
   const sourceLanguage: SourceLanguage = llm?.sourceLanguage ?? "unknown";
 
   return {

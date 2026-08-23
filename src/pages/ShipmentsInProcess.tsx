@@ -49,7 +49,13 @@ export default function ShipmentsInProcess() {
           </RowCard>
         );
       })}
-      <RealRecordsSection stage="processing" />
+      <RealRecordsSection
+        stage="processing"
+        title="Real shipments"
+        blurb="Live bookings from actual calls — a sailing date is confirmed and the customer accepted the rate. Everything above this line is seeded demo data."
+        emptyLabel="No real shipments in process yet. An enquiry moves here once a call establishes both a sailing date and an accepted quote."
+        showFields
+      />
     </div>
   );
 }

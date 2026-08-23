@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { PhoneIncoming, RefreshCw, ChevronRight } from "lucide-react";
 import RowCard from "./RowCard";
 import StatusPill from "./StatusPill";
+import RequestDetailsGrid from "./RequestDetailsGrid";
 import { getRealRecords, type RealRecord, type RecordStage } from "../services/backend";
 
 /**
@@ -22,11 +23,20 @@ export default function RealRecordsSection({
   title = "Real data",
   blurb = "Live customers captured from real calls. Everything above this line is seeded demo data.",
   emptyLabel,
+  showFields = false,
 }: {
   stage: RecordStage;
   title?: string;
   blurb?: string;
   emptyLabel?: string;
+  /**
+   * Render what each call actually captured under the row.
+   *
+   * On in-process shipments this is the point of the page — these are live bookings and
+   * the desk needs to see what is known and what is still missing without opening each
+   * one. On the inbound list it would be noise, since most enquiries have three fields.
+   */
+  showFields?: boolean;
 }) {
   const navigate = useNavigate();
   const [records, setRecords] = useState<RealRecord[]>([]);
@@ -86,7 +96,8 @@ export default function RealRecordsSection({
       )}
 
       {records.map((r) => (
-        <RowCard key={r.ref} onClick={() => navigate(`/records/${encodeURIComponent(r.ref)}`)}>
+        <div key={r.ref}>
+        <RowCard onClick={() => navigate(`/records/${encodeURIComponent(r.ref)}`)}>
           <span className="text-text-muted shrink-0">
             <ChevronRight size={14} />
           </span>
@@ -116,6 +127,16 @@ export default function RealRecordsSection({
           {!r.blNumber && <StatusPill tone="warning">No BL yet</StatusPill>}
           <StatusPill tone={r.stage === "processed" ? "success" : "accent"}>{r.stage}</StatusPill>
         </RowCard>
+        {showFields && (
+          <div className="px-3 pb-2">
+            <RequestDetailsGrid
+              details={r.requestDetails}
+              sourceLanguage={r.sourceLanguage}
+              record={r}
+            />
+          </div>
+        )}
+        </div>
       ))}
     </div>
   );

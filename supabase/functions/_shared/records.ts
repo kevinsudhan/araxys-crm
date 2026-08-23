@@ -17,6 +17,8 @@ const AGENT_IDS = (Deno.env.get("SNAPSERVE_AGENT_IDS") ?? "717,758")
   .map((s) => Number(s.trim()))
   .filter(Boolean);
 
+import { resolveSailingDate } from "./requestFields.ts";
+
 const KB_SOURCE_NAME = "Araxys real customer records";
 
 /** MUST match server/supabase.ts — a caller is identified by the last 10 digits. */
@@ -170,6 +172,38 @@ export async function upsertRecord(input: RecordInput) {
 }
 
 export type RecordStage = "enquiry" | "processing" | "processed";
+
+/**
+ * Promotes an enquiry the moment the call establishes both halves of a booking.
+ *
+ * The desk asked for this to be automatic: an enquiry is a shipment without a sailing
+ * date, the agent's job is to get one, and a customer accepting the rate is the other
+ * half. When both land on the same record it is no longer an enquiry, and making someone
+ * click a button to say so is bookkeeping rather than a decision.
+ *
+ * Deliberately one-way. It never demotes a record, because a later call that does not
+ * repeat the acceptance is not a retraction of it.
+ */
+export async function autoPromote(
+  ref: string,
+  details: Record<string, unknown>,
+  callDate?: string,
+) {
+  // Resolved rather than required-as-ISO: a record can still be carrying "August 30" from
+  // an extraction that predates the resolver, and the desk should not have to re-run a
+  // call to get a booking moving.
+  const date = resolveSailingDate(details.preferred_sailing_date, callDate);
+  const accepted = details.quote_accepted === true;
+  if (!date || !accepted) return { promoted: false as const };
+
+  const rows = await rest(`real_records?select=stage&ref=eq.${encodeURIComponent(ref)}&limit=1`);
+  if (rows?.[0]?.stage !== "enquiry") return { promoted: false as const };
+
+  const result = await advanceStage(ref, "processing", date);
+  if (!result.ok) return { promoted: false as const };
+  console.log(`[araxys] ${ref} promoted to processing — sailing ${date}, quote accepted`);
+  return { promoted: true as const, record: result.record };
+}
 
 /**
  * Moves a record along the pipeline.

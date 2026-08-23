@@ -157,7 +157,7 @@ export const REQUEST_FIELDS: FieldDef[] = [
     label: "Preferred sailing date",
     group: "booking",
     kind: "text",
-    hint: "The date or window the caller wants, as an ISO date (2026-09-14) when they named a specific day, otherwise their own words in English ('first week of September'). Never invent a year.",
+    hint: "The sailing date the caller wants, as a full ISO date (2026-09-14). The call date is given to you -- use it to resolve 'the 30th', 'August 30th' or 'next Friday' into a real date, and never resolve one backwards into the past. Only if they genuinely gave a window rather than a day, record their own words in English ('first week of September').",
   },
   {
     key: "container_type",
@@ -166,6 +166,13 @@ export const REQUEST_FIELDS: FieldDef[] = [
     kind: "enum",
     options: ["LCL", "20GP", "40GP", "40HC", "20RF", "40RF"],
     hint: "Only what the caller asked for or agreed to. '20 feet' is 20GP, 'reefer' plus a size gives 20RF/40RF. Not what the agent merely suggested.",
+  },
+  {
+    key: "quote_accepted",
+    label: "Quote accepted",
+    group: "booking",
+    kind: "boolean",
+    hint: "True ONLY if the customer clearly agreed to a rate on this call -- 'okay, book it', 'that works, go ahead', 'sari, pannunga'. Not true when they said they would think about it, asked us to call back, or were still negotiating. This decides whether the enquiry becomes a booking, so a wrong true starts paperwork nobody agreed to.",
   },
   {
     key: "target_price_inr",
@@ -455,6 +462,49 @@ export function invoiceReadiness(details: RequestDetails): {
   const required = REQUEST_FIELDS.filter((f) => f.requiredForInvoice);
   const missing = required.filter((f) => details[f.key] === null || details[f.key] === undefined);
   return { ready: missing.length === 0, missing, have: required.length - missing.length, need: required.length };
+}
+
+const MONTHS = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+
+/**
+ * Turns a spoken sailing date into a real one, using the date of the call.
+ *
+ * Callers say "August 30th" or "the 30th", never "2026-08-30", and the year is almost
+ * never spoken because it is obvious to both people on the phone. Asking the model to
+ * resolve it was tried first and it kept returning the words back; this is arithmetic,
+ * so it belongs in code where it is deterministic and testable.
+ *
+ * The year is chosen as the one that puts the sailing in the future relative to the call,
+ * because nobody books a sailing into the past. Anything that is genuinely a window
+ * rather than a day is left exactly as the customer said it — a vague answer should stay
+ * visibly vague rather than be sharpened into a date nobody committed to.
+ */
+export function resolveSailingDate(value: unknown, callDate?: string): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const base = callDate && /^\d{4}-\d{2}-\d{2}$/.test(callDate) ? new Date(callDate + "T00:00:00Z") : null;
+  if (!base) return null;
+
+  const lower = raw.toLowerCase();
+  const named = MONTHS.findIndex((m) => lower.includes(m));
+  const dayMatch = lower.match(/(?:^|[^0-9])([0-9]{1,2})(?:st|nd|rd|th)?(?![0-9])/);
+  if (!dayMatch) return null;
+  const day = Number(dayMatch[1]);
+  if (day < 1 || day > 31) return null;
+
+  const month = named >= 0 ? named : base.getUTCMonth();
+  let year = base.getUTCFullYear();
+  let candidate = new Date(Date.UTC(year, month, day));
+  // A day already past on the call date means they meant the next occurrence.
+  if (candidate < base) candidate = new Date(Date.UTC(++year, month, day));
+  if (candidate.getUTCDate() !== day) return null; // e.g. "31st" of a 30-day month
+
+  return candidate.toISOString().slice(0, 10);
 }
 
 /** How complete a request is, for the progress bar on the record. */
