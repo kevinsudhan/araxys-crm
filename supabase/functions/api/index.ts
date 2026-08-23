@@ -9,6 +9,7 @@
  * the same reason the Express version existed at all.
  */
 import { listRecords, findByAnything, upsertRecord, advanceStage, syncKb, syncCallerMemory, syncSpaceKb, phoneKey, type RecordStage } from "../_shared/records.ts";
+import { refreshKnowledge } from "../_shared/extractQueue.ts";
 import {
   listSlots,
   getSlot,
@@ -129,9 +130,10 @@ Deno.serve(async (req) => {
       const result = await advanceStage(ref, stage, body?.sailing_date ? String(body.sailing_date) : undefined);
       if (!result.ok) return json({ error: result.error }, 409);
       // The agent greets callers with their stage and status, so a move has to reach it.
-      await syncKb();
-      await syncCallerMemory();
-      return json({ record: result.record });
+      // Same refresh the call path runs, so a hand-moved record is no less current than
+      // one the extractor promoted.
+      const refreshed = await refreshKnowledge();
+      return json({ record: result.record, refreshed });
     }
 
     if (path.startsWith("/records/") && req.method === "DELETE") {

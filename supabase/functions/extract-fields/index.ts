@@ -12,15 +12,14 @@
  * invocation, well inside every limit, and cron drains the backlog over successive runs.
  * A batch that fails costs one batch, not the customer-capture pipeline.
  *
- *   POST /functions/v1/extract-fields          # default batch
- *   POST /functions/v1/extract-fields?batch=3  # explicit size
+ * The work itself lives in _shared/extractQueue.ts, because the call webhook runs exactly
+ * the same thing the moment a call ends — this endpoint is the scheduled safety net.
+ *
+ *   POST /functions/v1/extract-fields              # default batch
+ *   POST /functions/v1/extract-fields?batch=3      # explicit size
+ *   POST /functions/v1/extract-fields?refresh=0    # skip the knowledge republish
  */
-import { extractRequestDetails, lastExtractionError } from "../_shared/extractFields.ts";
-import { regexFieldsFor } from "../_shared/ingest.ts";
-import { upsertRecord, autoPromote } from "../_shared/records.ts";
-
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+import { extractPending } from "../_shared/extractQueue.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -31,27 +30,12 @@ const cors = {
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-async function db(path: string, init: RequestInit = {}) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...init,
-    headers: {
-      apikey: SERVICE_KEY,
-      Authorization: `Bearer ${SERVICE_KEY}`,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
-  const t = await r.text();
-  if (!r.ok) throw new Error(`supabase ${r.status}: ${t}`);
-  return t ? JSON.parse(t) : null;
-}
-
 /**
  * Four at a time.
  *
- * Each transcript is two parallel model requests at roughly eight seconds, so a batch of
- * four lands around forty seconds of wall clock — comfortably inside the 150s ceiling
- * with room for a slow call, and small enough that the worker's memory stays flat.
+ * Each transcript is one model request at roughly five seconds, so a batch of four lands
+ * well inside the 150s ceiling with room for a slow call, and small enough that the
+ * worker's memory stays flat.
  */
 const DEFAULT_BATCH = 4;
 
@@ -63,76 +47,14 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  const batch = Math.min(Number(new URL(req.url).searchParams.get("batch")) || DEFAULT_BATCH, 10);
+  const url = new URL(req.url);
+  const batch = Math.min(Number(url.searchParams.get("batch")) || DEFAULT_BATCH, 10);
+  const refresh = url.searchParams.get("refresh") !== "0";
 
   try {
-    // Rows the model has not read yet. `extracted_by=llm*` marks a finished one; a row
-    // still on the regex fallback failed rather than completed, so it stays in the queue
-    // and gets retried here.
-    const pending = await db(
-      "call_logs?select=call_id,from_number,transcript,duration_secs,direction,started_at" +
-        "&direction=eq.inbound&transcript=not.is.null&duration_secs=gte.20" +
-        "&or=(extracted.is.null,extracted->>extracted_by.not.like.llm*)" +
-        `&order=started_at.desc&limit=${batch}`,
-    );
-
-    let extracted = 0;
-    let recordsTouched = 0;
-    let promoted = 0;
-
-    for (const row of pending ?? []) {
-      const transcript = row.transcript as string;
-      const details = await extractRequestDetails(
-        transcript,
-        regexFieldsFor(transcript),
-        row.started_at ? String(row.started_at).slice(0, 10) : undefined,
-      );
-
-      await db(`call_logs?call_id=eq.${encodeURIComponent(row.call_id)}`, {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ extracted: details }),
-      });
-      extracted++;
-
-      const phone = row.from_number ?? "";
-      if (phone && !/^webcall/i.test(phone) && Object.keys(details.fields).length) {
-        const rec = await upsertRecord({
-          phone,
-          source_call_id: String(row.call_id),
-          request_details: details.fields,
-          source_language: details.source_language,
-        });
-        recordsTouched++;
-
-        // An enquiry with a named sailing date and an accepted quote is a booking. The
-        // merged details are read from the record rather than this call's extraction:
-        // the date may have come from one call and the acceptance from the next.
-        const ref = (rec as { ref?: string } | null)?.ref;
-        const merged = (rec as { request_details?: Record<string, unknown> } | null)?.request_details;
-        if (ref && merged) {
-          const p = await autoPromote(ref, merged, row.started_at ? String(row.started_at).slice(0, 10) : undefined);
-          if (p.promoted) promoted++;
-        }
-      }
-    }
-
-    // How many are still queued, so a caller knows whether to run it again.
-    const remaining = await db(
-      "call_logs?select=call_id&direction=eq.inbound&transcript=not.is.null&duration_secs=gte.20" +
-        "&or=(extracted.is.null,extracted->>extracted_by.not.like.llm*)&limit=200",
-    );
-
-    return json({
-      ok: true,
-      extracted,
-      recordsTouched,
-      promoted,
-      remaining: (remaining ?? []).length,
-      extractionError: lastExtractionError(),
-    });
+    return json({ ok: true, ...(await extractPending(batch, refresh)) });
   } catch (e) {
     console.error("[araxys/extract-fields]", e);
-    return json({ ok: false, error: String(e), extractionError: lastExtractionError() }, 500);
+    return json({ ok: false, error: String(e) }, 500);
   }
 });

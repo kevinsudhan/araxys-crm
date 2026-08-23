@@ -9,8 +9,15 @@
  * a transient 500, an event SnapServe never sends — and a missed webhook would otherwise
  * mean a customer who called and was never recorded. Ingestion is idempotent (call_logs
  * merges on call_id, records merge on phone), so the two running together is harmless.
+ *
+ * The whole chain runs here, not just the ingest: pull the transcript, read the fields off
+ * it, promote the record if the call closed a booking, and republish every knowledge pack
+ * the agent reads. Extraction used to wait for its own five-minute cron, which meant a
+ * customer could ring back inside that window and be greeted from a knowledge base that
+ * predated the conversation they had just finished.
  */
 import { ingestRecentCalls } from "../_shared/ingest.ts";
+import { extractPending } from "../_shared/extractQueue.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -41,8 +48,13 @@ Deno.serve(async (req) => {
   // webhook can fire before the transcript is finalised, and the authoritative record is
   // the one the API returns, not whatever was attached to the event.
   try {
-    const result = await ingestRecentCalls(10);
-    return json({ received: true, event, ...result });
+    const ingested = await ingestRecentCalls(10);
+
+    // Just this call, normally: the batch is small because the backlog is the cron's job,
+    // and a webhook that tries to drain everything is the one that hits the timeout.
+    const extraction = await extractPending(2);
+
+    return json({ received: true, event, ...ingested, extraction });
   } catch (e) {
     console.error("[araxys/webhook] ingest failed:", e);
     // Return 200 so SnapServe does not retry into a loop; the cron will catch it.
