@@ -13,8 +13,9 @@
     "test:space": "tsx server/spaceEngine.test.ts",
     "start": "tsx server/index.ts",
     "test:scene": "tsx src/lib/scene3d.test.ts",
-    "test": "npm run test:space && npm run test:scene",
-    "check:secrets": "node scripts/check-bundle-secrets.mjs"
+    "test": "npm run test:space && npm run test:scene && npm run test:fields",
+    "check:secrets": "node scripts/check-bundle-secrets.mjs",
+    "test:fields": "tsx supabase/functions/_shared/requestFields.test.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",

@@ -9,6 +9,7 @@
  * agent invoking a tool mid-conversation, which proved unreliable on the Gemini Live stack.
  */
 import { upsertRecord, syncKb, syncCallerMemory, syncSpaceKb, phoneKey } from "./records.ts";
+import type { RequestDetails } from "./requestFields.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -212,6 +213,30 @@ export function extractCustomer(transcript: string): Extracted {
   return out;
 }
 
+/**
+ * The regex pass, mapped onto catalogue keys.
+ *
+ * `Extracted` predates the field catalogue and its names have drifted from it in two
+ * places. Translating here rather than renaming the columns keeps the mapping in one
+ * readable place instead of spread across every caller.
+ */
+export function regexFieldsFor(transcript: string): RequestDetails {
+  const e = extractCustomer(transcript);
+  return {
+    customer_name: e.customer_name ?? null,
+    company: e.company ?? null,
+    origin: e.origin ?? null,
+    destination: e.destination ?? null,
+    cargo_description: e.cargo_description ?? null,
+    volume_cbm: e.volume_cbm ?? null,
+    container_type: e.container_type ?? null,
+    // quoted_amount_inr is deliberately not mapped. The regex reads amounts from the
+    // whole transcript, so it returns whatever the AGENT quoted — which is not
+    // target_price_inr (what the customer asked for) and must not be written into it.
+    // It continues to reach real_records.quoted_amount_inr through extractCustomer.
+  };
+}
+
 /** Filters wrong numbers, hang-ups and our own outbound tests. */
 export function isWorthRecording(c: { direction?: string; durationSecs?: number; transcript?: string }): boolean {
   if (c.direction !== "inbound") return false;
@@ -302,12 +327,30 @@ export async function ingestRecentCalls(limit = 25) {
   let stored = 0;
   let recordsTouched = 0;
 
+  /**
+   * Calls whose fields have already been read by the model.
+   *
+   * SnapServe ignores the `limit` parameter and returns the whole call history, so every
+   * run sees all 100-odd calls. Without this the ingest re-extracts every transcript it
+   * has ever seen, on every run, forever — which costs real money for an identical
+   * result and, on the first deploy of this, ran the Edge Function past its 150s timeout.
+   *
+   * A transcript does not change after the call ends, so one extraction is the correct
+   * number. Rows still on the regex fallback are deliberately not in this set: those are
+   * the ones a later run should retry, because they failed rather than completed.
+   */
   for (const c of calls) {
     if (!c.transcript) continue;
     const transcript = cleanTranscript(c.transcript);
     const linkPhone = c.direction === "inbound" ? c.fromNumber : c.toNumber;
 
     try {
+      const worthIt = isWorthRecording({
+        direction: c.direction,
+        durationSecs: c.durationSeconds ?? undefined,
+        transcript,
+      });
+
       await db("call_logs", {
         method: "POST",
         headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
@@ -322,13 +365,15 @@ export async function ingestRecentCalls(limit = 25) {
           duration_secs: c.durationSeconds ?? null,
           transcript,
           summary: c.callSummary ?? summarise(transcript, c.durationSeconds ?? undefined),
+          // `extracted` is deliberately not written here. The extract-fields function
+          // owns that column, and sending it from this path would wipe its work.
           started_at: c.createdAt ?? null,
           ended_at: c.endedAt ?? null,
         }),
       });
       stored++;
 
-      if (isWorthRecording({ direction: c.direction, durationSecs: c.durationSeconds ?? undefined, transcript })) {
+      if (worthIt) {
         const phone = c.fromNumber ?? "";
         if (phone && !/^webcall/i.test(phone)) {
           await upsertRecord({ phone, source_call_id: String(c.id), ...extractCustomer(transcript) });

@@ -3,6 +3,7 @@ import { PhoneIncoming, RefreshCw, ChevronDown, ChevronRight } from "lucide-reac
 import RowCard from "./RowCard";
 import StatusPill from "./StatusPill";
 import CallHistoryPanel from "./CallHistoryPanel";
+import RequestDetailsGrid from "./RequestDetailsGrid";
 import { getRealRecords, type RealRecord } from "../services/backend";
 
 /**
@@ -102,7 +103,12 @@ export default function RealRecordsSection({ stage }: { stage: "processing" | "p
           {!r.blNumber && <StatusPill tone="warning">No BL yet</StatusPill>}
           <StatusPill tone={r.stage === "processed" ? "success" : "accent"}>{r.stage}</StatusPill>
         </RowCard>
-        {expanded === r.ref && <CallHistoryPanel phone={r.phone} />}
+        {expanded === r.ref && (
+          <div className="px-3">
+            <RequestDetailsGrid details={r.requestDetails} sourceLanguage={r.sourceLanguage} />
+            <CallHistoryPanel phone={r.phone} />
+          </div>
+        )}
         </div>
       ))}
     </div>

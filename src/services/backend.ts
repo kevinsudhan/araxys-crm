@@ -168,6 +168,8 @@ export interface CheckSpaceResponse {
 }
 
 /** A real customer captured from an actual call — distinct from seeded demo shipments. */
+import type { RequestDetails, SourceLanguage } from "../data/requestFields";
+
 export interface RealRecord {
   ref: string;
   phone: string;
@@ -185,6 +187,9 @@ export interface RealRecord {
   agreedAmountInr?: number;
   sailingDate?: string;
   notes?: string;
+  /** Keyed by the field catalogue in src/data/requestFields.ts — see RequestDetailsGrid. */
+  requestDetails?: RequestDetails;
+  sourceLanguage?: SourceLanguage;
   createdAt: string;
   updatedAt: string;
 }

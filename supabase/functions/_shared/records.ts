@@ -55,6 +55,9 @@ export interface RecordInput {
   status?: string;
   notes?: string;
   source_call_id?: string;
+  /** The full 38-field catalogue extraction. Merged across calls, never replaced. */
+  request_details?: Record<string, string | number | boolean | null | undefined>;
+  source_language?: string;
 }
 
 /** Newest first — the CRM lists most-recently-touched customers at the top. */
@@ -101,6 +104,10 @@ function toCamel(r: Record<string, unknown>) {
     agreedAmountInr: u(r.agreed_amount_inr as number | null),
     sailingDate: u(r.sailing_date as string | null),
     notes: u(r.notes as string | null),
+    // Deliberately not camelised inside: the keys are the field catalogue's own, and the
+    // CRM grid looks them up by the same key the extractor and the schema use.
+    requestDetails: u(r.request_details as Record<string, unknown> | null),
+    sourceLanguage: u(r.source_language as string | null),
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
   };
@@ -122,8 +129,20 @@ export async function upsertRecord(input: RecordInput) {
 
   const row: Record<string, unknown> = { phone: input.phone, phone_key: key };
   for (const [k, v] of Object.entries(input)) {
-    if (k === "phone") continue;
+    if (k === "phone" || k === "request_details") continue;
     if (v !== undefined && v !== null && v !== "") row[k] = v;
+  }
+
+  // request_details is merged key-by-key rather than replaced. A customer who rings back
+  // to give their consignee address has not retracted the dimensions they gave last
+  // week, and a whole-object write would silently drop them.
+  if (input.request_details && Object.keys(input.request_details).length) {
+    const prior = (existing?.[0]?.request_details ?? {}) as Record<string, unknown>;
+    const merged = { ...prior };
+    for (const [k, v] of Object.entries(input.request_details)) {
+      if (v !== undefined && v !== null && v !== "") merged[k] = v;
+    }
+    row.request_details = merged;
   }
 
   if (existing?.length) {
