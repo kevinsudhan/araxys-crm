@@ -25,6 +25,9 @@ snapserve-setup/wallet.json
 # Local fallback store, used only when Supabase is unreachable. Holds real customer
 # names and phone numbers captured from actual calls — genuine PII, never committed.
 # Supabase is the system of record; this file is a cache.
-data/
+/data/
 
 snapserve-setup/agent-717-backup.json
+
+# Generated document samples — regenerate from any record rather than storing binaries.
+sample-documents/

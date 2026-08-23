@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/check-bundle-secrets.mjs",
     "preview": "vite preview",
     "sync:kb": "tsx scripts/generate-kb-docs.ts",
     "tunnel": "node scripts/tunnel.cjs",
@@ -13,7 +13,8 @@
     "test:space": "tsx server/spaceEngine.test.ts",
     "start": "tsx server/index.ts",
     "test:scene": "tsx src/lib/scene3d.test.ts",
-    "test": "npm run test:space && npm run test:scene"
+    "test": "npm run test:space && npm run test:scene",
+    "check:secrets": "node scripts/check-bundle-secrets.mjs"
   },
   "dependencies": {
     "cors": "^2.8.6",
