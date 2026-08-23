@@ -98,6 +98,10 @@ export interface DocGenDetails {
   packageType?: string;
   netWeightKg?: number;
   grossWeightKg?: number;
+  /** Added when the commercial invoice grew a terms block; older records simply omit them. */
+  incoterm?: string;
+  paymentTerms?: string;
+  letterOfCredit?: boolean;
   documentationStatus: DocumentationStatus;
   missingFields?: string;
 }

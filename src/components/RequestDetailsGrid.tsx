@@ -9,6 +9,7 @@ import {
   type SourceLanguage,
 } from "../data/requestFields";
 import DocumentsPanel from "./DocumentsPanel";
+import { documentDataFromRecord } from "../lib/documents";
 import type { RealRecord } from "../services/backend";
 
 /**
@@ -138,7 +139,7 @@ export default function RequestDetailsGrid({
       <Group group="documentation" details={d} />
       <Group group="handling" details={d} />
 
-      {record && <DocumentsPanel record={record} />}
+      {record && <DocumentsPanel data={documentDataFromRecord(record)} />}
 
       <p className="mt-3 text-[11px] leading-relaxed text-text-muted">
         Extracted from call transcripts. A field reads "not stated" when the call did not

@@ -3,8 +3,9 @@ import { ChevronLeft, Check, X, Clock, RefreshCw, PhoneIncoming, FileDown } from
 import StatusPill, { toneForShipmentStatus } from "../components/StatusPill";
 import { shipments } from "../data/mockData";
 import EmptyState from "../components/EmptyState";
-import { generateInvoicePdf } from "../lib/generateInvoicePdf";
 import StowPanel from "../components/StowPanel";
+import DocumentsPanel from "../components/DocumentsPanel";
+import { documentDataFromShipment } from "../lib/documents";
 
 const docStatusTone = { complete: "success", partial_callback_needed: "warning", escalated: "danger" } as const;
 
@@ -54,17 +55,19 @@ export default function ShipmentDetail() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => generateInvoicePdf(shipment)}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-surface-2 text-text-primary"
-          >
-            <FileDown size={13} /> Generate documents
-          </button>
           <StatusPill tone={toneForShipmentStatus(shipment.status)}>{shipment.status.replace(/_/g, " ")}</StatusPill>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-5">
+      <div className="grid gap-4 lg:grid-cols-2 mb-6">
+        <StowPanel
+          query={{
+            blNumber: shipment.blNumber,
+            company: shipment.company,
+            origin: shipment.origin,
+            destination: shipment.destination,
+          }}
+        />
         <div className="rounded-card bg-surface-1 border border-border p-4">
           <p className="text-sm font-medium text-text-primary mb-3">Timeline</p>
           <div className="flex flex-col gap-2.5">
@@ -103,7 +106,9 @@ export default function ShipmentDetail() {
           )}
         </div>
 
-        <div className="flex flex-col gap-4">
+      </div>
+
+      <div className="grid gap-4 mb-5 lg:grid-cols-2">
           <div className="rounded-card bg-surface-1 border border-border p-4">
             <p className="text-sm font-medium text-text-primary mb-3 flex items-center gap-1.5">
               Synced to SnapServe <RefreshCw size={13} className="text-text-success" />
@@ -131,7 +136,6 @@ export default function ShipmentDetail() {
               ))}
             </div>
           </div>
-        </div>
       </div>
 
       {ce && (
@@ -278,14 +282,12 @@ export default function ShipmentDetail() {
         </div>
       )}
 
-      <StowPanel
-        query={{
-          blNumber: shipment.blNumber,
-          company: shipment.company,
-          origin: shipment.origin,
-          destination: shipment.destination,
-        }}
-      />
+      <section className="mt-6">
+        <h2 className="text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-2">
+          Documents
+        </h2>
+        <DocumentsPanel data={documentDataFromShipment(shipment)} defaultOpen />
+      </section>
 
       <div className="rounded-card bg-surface-1 border border-border p-4 mt-6">
         <p className="text-sm font-medium text-text-primary mb-3">Call history</p>

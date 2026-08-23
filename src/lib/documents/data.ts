@@ -165,6 +165,7 @@ export function documentDataFromShipment(shipment: Shipment): DocumentData {
     destination: shipment.destination,
     carrier: shipment.carrier,
     containerId: shipment.containerId,
+    containerType: shipment.callExtraction?.containerTypeRequested,
     etaDate: shipment.etaDate,
     sailingDate: shipment.etaDate,
 
@@ -178,6 +179,9 @@ export function documentDataFromShipment(shipment: Shipment): DocumentData {
 
     invoiceValueInr: dg?.invoiceValueInr ?? (shipment.quoteAmount || undefined),
     freightAmountInr: shipment.quoteAmount || undefined,
+    incoterm: dg?.incoterm,
+    paymentTerms: dg?.paymentTerms,
+    letterOfCredit: dg?.letterOfCredit,
 
     sourceNote: "Generated from confirmed call and shipment data.",
     raw: {},

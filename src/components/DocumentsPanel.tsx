@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { FileDown, Check, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
-import type { RealRecord } from "../services/backend";
-import { documentDataFromRecord, documentStatuses, generateDocument } from "../lib/documents";
+import { documentStatuses, generateDocument, type DocumentData } from "../lib/documents";
 
 /**
  * Every document the desk can issue for this customer, with what each one is still
@@ -16,9 +15,15 @@ import { documentDataFromRecord, documentStatuses, generateDocument } from "../l
  * customer to chase the missing details, so refusing to produce it would remove the tool
  * that closes the gap.
  */
-export default function DocumentsPanel({ record }: { record: RealRecord }) {
-  const [open, setOpen] = useState(false);
-  const data = documentDataFromRecord(record);
+export default function DocumentsPanel({
+  data,
+  defaultOpen = false,
+}: {
+  data: DocumentData;
+  /** Open on a shipment page, where documents are the point; collapsed in a list row. */
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   const statuses = documentStatuses(data);
   const readyCount = statuses.filter((s) => s.ready).length;
 

@@ -19,10 +19,13 @@ export default function StowPanel({ query, title = "In the container" }: { query
   const [state, setState] = useState<"loading" | "ready" | "empty" | "error">("loading");
 
   const key = JSON.stringify(query);
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setState("loading");
+    // Only the first load blanks the panel. A refresh after a restow swaps the plan
+    // underneath, which is far less jarring than the container vanishing and reappearing.
+    setState((s) => (s === "ready" ? s : "loading"));
     findStow(query)
       .then((m) => {
         if (cancelled) return;
@@ -34,7 +37,27 @@ export default function StowPanel({ query, title = "In the container" }: { query
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, nonce]);
+
+  /**
+   * Re-read the plan when this page comes back into view.
+   *
+   * A stow is rearranged on Space & containers, not here, and that write is already
+   * persisted server-side — but this page fetched its copy on mount and would otherwise
+   * keep showing the old arrangement until a reload. Refetching on focus means going and
+   * restowing a container, then coming back to the shipment, shows the new layout.
+   */
+  useEffect(() => {
+    const refresh = () => {
+      if (!document.hidden) setNonce((n) => n + 1);
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
 
   // The scene owns dragging; positions here are simply where the cargo actually sits.
   const positions = useMemo(() => {
@@ -131,7 +154,7 @@ export default function StowPanel({ query, title = "In the container" }: { query
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-6">
+    <section>
       <h2 className="text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-2">
         {title}
       </h2>
