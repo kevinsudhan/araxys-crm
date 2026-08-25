@@ -10,6 +10,7 @@
  */
 import { listRecords, findByAnything, upsertRecord, advanceStage, syncKb, syncCallerMemory, syncSpaceKb, phoneKey, type RecordStage } from "../_shared/records.ts";
 import { refreshKnowledge } from "../_shared/extractQueue.ts";
+import { autoBookSpace } from "../_shared/autoBook.ts";
 import {
   listSlots,
   getSlot,
@@ -129,11 +130,33 @@ Deno.serve(async (req) => {
       }
       const result = await advanceStage(ref, stage, body?.sailing_date ? String(body.sailing_date) : undefined);
       if (!result.ok) return json({ error: result.error }, 409);
+
+      // A record moved by hand is still a booking, and a booking needs floor. Without
+      // this the button promoted a shipment and left it with no container, while the
+      // extractor's automatic promotion allocated one -- the same action producing two
+      // different outcomes depending on which path reached it.
+      let booking = null;
+      if (stage === "processing") {
+        const rec = result.record as Record<string, unknown>;
+        try {
+          booking = await autoBookSpace({
+            reference: ref,
+            clientName: String(rec.company ?? rec.customerName ?? ref),
+            origin: rec.origin as string | undefined,
+            destination: rec.destination as string | undefined,
+            sailingDate: String(rec.sailingDate ?? ""),
+            details: (rec.requestDetails ?? {}) as Record<string, unknown>,
+          });
+        } catch (e) {
+          booking = { booked: false, reason: e instanceof Error ? e.message : String(e) };
+        }
+      }
+
       // The agent greets callers with their stage and status, so a move has to reach it.
-      // Same refresh the call path runs, so a hand-moved record is no less current than
-      // one the extractor promoted.
+      // Refreshed after the allocation, not before, or the space document would publish
+      // the floor as it was a moment before this booking took some of it.
       const refreshed = await refreshKnowledge();
-      return json({ record: result.record, refreshed });
+      return json({ record: result.record, booking, refreshed });
     }
 
     if (path.startsWith("/records/") && req.method === "DELETE") {
