@@ -332,8 +332,18 @@ function kbBlock(r: Record<string, string | number | null>): string {
 
   const who = r.customer_name ?? r.company ?? "this caller";
   const route = r.origin && r.destination ? `${r.origin} to ${r.destination}` : "route not yet confirmed";
+  // Ownership, stated on the record itself. The previous wording — "Say this to the
+  // caller" — named no caller, and a real call ended with one customer being read
+  // another's reference number and destination straight off this page. A pack that holds
+  // every customer has to say, beside each record, who it may be spoken to.
   L.push(
-    `- Say this to the caller: ${who}, reference ${r.ref}. ${route}. Currently ${r.stage}, ${r.status}.` +
+    `- WHOSE RECORD THIS IS: the person calling from ${r.phone}. Do NOT read any part of it ` +
+      `to a caller from a different number, and do NOT offer this reference to someone whose ` +
+      `own record you cannot find. If the caller-memory block names a different reference, ` +
+      `that one is the caller's and this one is not.`
+  );
+  L.push(
+    `- Say this ONLY to the owner named above: ${who}, reference ${r.ref}. ${route}. Currently ${r.stage}, ${r.status}.` +
       (r.bl_number ? ` BL number ${r.bl_number}.` : ` No BL number yet — booking not completed.`)
   );
   return L.join("\n");
@@ -345,7 +355,12 @@ export async function buildKb(): Promise<string> {
   out.push("# Real customer records — Araxys Logistics");
   out.push("");
   out.push(
-    "These are live customers who have actually contacted us. IMPORTANT: recognise a caller by " +
+    "These are live customers who have actually contacted us. EVERY RECORD BELOW BELONGS TO A " +
+      "DIFFERENT CUSTOMER, and each one names the number it belongs to. Never read a record to " +
+      "anyone but its owner: if the caller is not calling from that record's number and has not " +
+      "read out that reference themselves, it is not theirs and must not be mentioned. When the " +
+      "caller-memory block already names this caller's reference, use that and do not search here " +
+      "at all. IMPORTANT: recognise a caller by " +
       "ANY of these — their phone number (the number they are calling from), their reference number, " +
       "their company name, their contact name, or a BL number if one has been issued. Most customers " +
       "here have NO BL number yet because their booking is not finished; never tell such a caller we " +
