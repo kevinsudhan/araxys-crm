@@ -20,6 +20,49 @@ const AGENT_IDS = (Deno.env.get("SNAPSERVE_AGENT_IDS") ?? "717,758")
 import { resolveSailingDate } from "./requestFields.ts";
 
 const KB_SOURCE_NAME = "Araxys real customer records";
+const SPACE_SOURCE_NAME = "Araxys container space availability";
+
+/**
+ * Re-attaches the reference packs to every agent that is missing them.
+ *
+ * Container specs, pricing bands, document rules and port regulations are static: nothing
+ * in this codebase creates, deletes or re-attaches them. Twice now Priya has been found
+ * with only the two synced packs and none of these -- once losing the rate card entirely,
+ * which is how she came to quote a customer a dollar figure that appears nowhere in it.
+ *
+ * The cause is upstream and not reproducible from here: a no-op prompt PATCH does not
+ * strip them, and nothing on our side detaches anything. So rather than keep repairing it
+ * by hand, this runs on every knowledge refresh -- which is after every call -- and puts
+ * back whatever has gone missing. Attaching is additive and idempotent, so a source that
+ * is already there costs one call and changes nothing.
+ */
+export async function ensureReferenceSources(agentIds: number[] = AGENT_IDS) {
+  if (!SNAPSERVE_KEY) return { ok: false as const, error: "SNAPSERVE_API_KEY not set" };
+
+  const list = await snap("/knowledge-sources");
+  if (!list.ok || !Array.isArray(list.body)) return { ok: false as const, error: "could not list sources" };
+
+  // Everything except the two this code rewrites on a schedule. Identified by exclusion so
+  // a reference pack added in the dashboard later is protected without a code change.
+  const reference = (list.body as Array<{ id: number; name: string }>).filter(
+    (s) => s.name !== KB_SOURCE_NAME && s.name !== SPACE_SOURCE_NAME,
+  );
+
+  const repaired: string[] = [];
+  for (const agentId of agentIds) {
+    const agent = await snap(`/agents/${agentId}`);
+    if (!agent.ok) continue;
+    const have = new Set(((agent.body as { knowledgeSourceIds?: number[] }).knowledgeSourceIds) ?? []);
+    for (const src of reference) {
+      if (have.has(src.id)) continue;
+      const a = await snap(`/knowledge-sources/${src.id}/attach-agent/${agentId}`, { method: "POST" });
+      if (a.ok) repaired.push(`${agentId}:${src.name}`);
+    }
+  }
+
+  if (repaired.length) console.log(`[araxys] re-attached reference packs: ${repaired.join(", ")}`);
+  return { ok: true as const, repaired };
+}
 
 /** MUST match server/supabase.ts — a caller is identified by the last 10 digits. */
 export function phoneKey(raw: string): string {

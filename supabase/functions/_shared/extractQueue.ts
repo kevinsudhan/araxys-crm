@@ -13,7 +13,7 @@
  */
 import { extractRequestDetails, lastExtractionError } from "./extractFields.ts";
 import { regexFieldsFor } from "./ingest.ts";
-import { upsertRecord, autoPromote, syncKb, syncCallerMemory, syncSpaceKb } from "./records.ts";
+import { upsertRecord, autoPromote, syncKb, syncCallerMemory, syncSpaceKb, ensureReferenceSources } from "./records.ts";
 import { autoBookSpace, type BookOutcome } from "./autoBook.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -166,6 +166,9 @@ export async function refreshKnowledge(): Promise<string[]> {
     ["customer-records", syncKb],
     ["caller-memory", syncCallerMemory],
     ["space-availability", syncSpaceKb],
+    // Last, and every time: the packs above are rewritten here, and the reference packs
+    // have twice been found detached from an agent by something outside this codebase.
+    ["reference-packs", ensureReferenceSources],
   ] as const) {
     try {
       await fn();

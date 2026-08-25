@@ -33,12 +33,17 @@ async function slotSection(slot: SlotRow): Promise<string> {
   if (!rem) return "";
 
   const L: string[] = [];
-  L.push(`### Sailing ${slot.sailing_date} (${fmtDate(slot.sailing_date)}) — ${slot.container_code}, ${slot.carrier}`);
+  // The route is repeated on every sailing heading and again on its own line. Grouping
+  // under a "## route" heading alone was not enough: the last sailing of one route sits
+  // directly above the next route's heading, and a caller asking about Singapore was
+  // offered a Jebel Ali sailing that happened to be the nearest lines on the page.
+  L.push(`### ${slot.route} — sailing ${slot.sailing_date} (${fmtDate(slot.sailing_date)}) — ${slot.container_code}, ${slot.carrier}`);
+  L.push(`- Route: ${slot.route} (this sailing serves ONLY this route)`);
   L.push(`- Booking must be confirmed by: ${slot.cutoff_date} (${fmtDate(slot.cutoff_date)})`);
   L.push(`- Status: ${slot.status.replace("_", " ")}`);
 
   if (slot.status === "full" || rem.lengthM <= 0.05) {
-    L.push(`- FULL. No space left on this sailing. Offer the next one on this route instead.`);
+    L.push(`- FULL. No space left on this sailing. Offer the next sailing on ${slot.route} — never a sailing on a different route.`);
     return L.join("\n");
   }
 
@@ -126,7 +131,17 @@ export async function buildSpaceKb(): Promise<string> {
   out.push("");
 
   for (const [route, list] of [...byRoute.entries()].sort()) {
+    const dates = [...list].map((s) => s.sailing_date).sort();
     out.push(`## ${route}`);
+    out.push("");
+    // Stated up front so a date that is not on this list can be answered without reading
+    // every block -- and so a date belonging to another route cannot be mistaken for one
+    // of these.
+    out.push(
+      `Sailings on ${route}: ${dates.join(", ")}. These are the ONLY sailings on this route. ` +
+        `If a customer asks for a date that is not in this list, we do not sail this route on that date — ` +
+        `say so and offer one of the dates above. Do not offer a sailing from any other route.`,
+    );
     out.push("");
     const sorted = [...list].sort((a, b) => a.sailing_date.localeCompare(b.sailing_date));
     for (const s of sorted) {
