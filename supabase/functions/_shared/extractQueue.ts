@@ -81,11 +81,26 @@ export async function extractPending(batch = 4, refresh = true): Promise<Extract
 
     const phone = row.from_number ?? "";
     if (phone && !/^webcall/i.test(phone) && Object.keys(details.fields).length) {
+      /**
+       * The model's name and company overwrite the pattern extractor's.
+       *
+       * The regex reads "I am shipping machinery parts" and takes "Shipping Machinery
+       * Parts" as a name, because "I am" is one of the phrases people introduce
+       * themselves with. It landed on a real record that way. The model had Kevin right
+       * in the same call, so where it has a value it wins -- the record column and the
+       * extracted field should never disagree about who the customer is.
+       */
+      const f = details.fields;
       const rec = await upsertRecord({
         phone,
         source_call_id: String(row.call_id),
-        request_details: details.fields,
+        request_details: f,
         source_language: details.source_language,
+        ...(typeof f.customer_name === "string" ? { customer_name: f.customer_name } : {}),
+        ...(typeof f.company === "string" ? { company: f.company } : {}),
+        ...(typeof f.origin === "string" ? { origin: f.origin } : {}),
+        ...(typeof f.destination === "string" ? { destination: f.destination } : {}),
+        ...(typeof f.cargo_description === "string" ? { cargo_description: f.cargo_description } : {}),
       });
       recordsTouched++;
 
