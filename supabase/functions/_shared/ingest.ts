@@ -399,7 +399,7 @@ export async function ingestRecentCalls(limit = 25) {
       if (worthIt) {
         const phone = c.fromNumber ?? "";
         if (phone && !/^webcall/i.test(phone)) {
-          await upsertRecord({ phone, source_call_id: String(c.id), ...extractCustomer(transcript) });
+          await upsertRecord({ phone, source_call_id: String(c.id), ...extractCustomer(transcript), from: "regex" });
           recordsTouched++;
         }
       }

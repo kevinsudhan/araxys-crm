@@ -96,6 +96,7 @@ export async function extractPending(batch = 4, refresh = true): Promise<Extract
         source_call_id: String(row.call_id),
         request_details: f,
         source_language: details.source_language,
+        from: "model",
         ...(typeof f.customer_name === "string" ? { customer_name: f.customer_name } : {}),
         ...(typeof f.company === "string" ? { company: f.company } : {}),
         ...(typeof f.origin === "string" ? { origin: f.origin } : {}),

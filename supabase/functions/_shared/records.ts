@@ -103,7 +103,19 @@ export interface RecordInput {
   /** The full 38-field catalogue extraction. Merged across calls, never replaced. */
   request_details?: Record<string, string | number | boolean | null | undefined>;
   source_language?: string;
+  /**
+   * Where these values came from.
+   *
+   * "regex" is the pattern pass in ingest, which runs on every poll and reads only
+   * English. "model" is the extractor, which reads the whole call in any language. When
+   * they disagree about identity the model is right, and it has to stay right: ingest
+   * runs every five minutes and would otherwise re-clobber the good value forever.
+   */
+  from?: "regex" | "model";
 }
+
+/** Identity fields the pattern pass must not overwrite once the model has established them. */
+const MODEL_OWNED = ["customer_name", "company", "origin", "destination", "cargo_description"] as const;
 
 /** Newest first — the CRM lists most-recently-touched customers at the top. */
 export async function listRecords() {
@@ -173,18 +185,33 @@ export async function upsertRecord(input: RecordInput) {
 
   const existing = await rest(`real_records?select=*&phone_key=eq.${encodeURIComponent(key)}&limit=1`);
 
+  const priorDetails = (existing?.[0]?.request_details ?? {}) as Record<string, unknown>;
+
   const row: Record<string, unknown> = { phone: input.phone, phone_key: key };
   for (const [k, v] of Object.entries(input)) {
-    if (k === "phone" || k === "request_details") continue;
-    if (v !== undefined && v !== null && v !== "") row[k] = v;
+    if (k === "phone" || k === "request_details" || k === "from") continue;
+    if (v === undefined || v === null || v === "") continue;
+
+    // The pattern pass reads "I am shipping machinery parts" and offers "Shipping
+    // Machinery Parts" as a name, because "I am" is how people introduce themselves. Once
+    // the model has read the same call and found Kevin, ingest must stop overwriting it.
+    if (
+      input.from === "regex" &&
+      (MODEL_OWNED as readonly string[]).includes(k) &&
+      typeof priorDetails[k] === "string" &&
+      String(priorDetails[k]).trim()
+    ) {
+      continue;
+    }
+
+    row[k] = v;
   }
 
   // request_details is merged key-by-key rather than replaced. A customer who rings back
   // to give their consignee address has not retracted the dimensions they gave last
   // week, and a whole-object write would silently drop them.
   if (input.request_details && Object.keys(input.request_details).length) {
-    const prior = (existing?.[0]?.request_details ?? {}) as Record<string, unknown>;
-    const merged = { ...prior };
+    const merged = { ...priorDetails };
     for (const [k, v] of Object.entries(input.request_details)) {
       if (v !== undefined && v !== null && v !== "") merged[k] = v;
     }
