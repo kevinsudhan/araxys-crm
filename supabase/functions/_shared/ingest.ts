@@ -8,7 +8,7 @@
  * extracted -> CRM row written -> knowledge base re-synced. Nothing depends on the voice
  * agent invoking a tool mid-conversation, which proved unreliable on the Gemini Live stack.
  */
-import { upsertRecord, syncKb, syncCallerMemory, syncSpaceKb, phoneKey } from "./records.ts";
+import { upsertRecord, syncKb, syncCallerMemory, syncSpaceKb, ensureReferenceSources, phoneKey } from "./records.ts";
 import type { RequestDetails } from "./requestFields.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -419,6 +419,25 @@ export async function ingestRecentCalls(limit = 25) {
   // Space availability is refreshed every run regardless: cutoff dates pass and sailings
   // close with time alone, not only when someone books.
   await syncSpaceKb();
+
+  /**
+   * And the reference packs are checked every run, whether or not anything happened.
+   *
+   * Priya has twice been found holding only the two synced packs, missing the rate card
+   * she quotes from -- which is how a customer came to be told a price in dollars that
+   * appears nowhere in it. The cause is still unknown: six consecutive sync cycles do not
+   * reproduce it, a prompt PATCH does not reproduce it whether the text changes or not,
+   * and SnapServe exposes no detach endpoint to trigger it deliberately.
+   *
+   * Tying the repair to a call would leave her broken through any quiet spell, and the
+   * next caller would get the same invented rate. This runs on the schedule instead, so
+   * the worst case is five minutes rather than until somebody notices.
+   */
+  try {
+    await ensureReferenceSources();
+  } catch (e) {
+    console.error("[araxys] reference pack check failed:", e);
+  }
 
   console.log(
     `[araxys] ingest: ${stored} stored, ${recordsTouched} records touched` +
