@@ -324,8 +324,25 @@ export async function ingestRecentCalls(limit = 25) {
   if (!r.ok) return { ok: false, error: `SnapServe /calls returned ${r.status}` };
 
   const calls = (await r.json()) as SnapCall[];
+
+  /**
+   * Callers who have been forgotten, and the instant they were forgotten at.
+   *
+   * SnapServe cannot delete a call, so a customer wiped from the CRM would otherwise be
+   * rebuilt from their old transcripts on the next run. Anything at or before the cutoff
+   * is skipped; anything after it is ingested normally, which is what lets a number that
+   * has already rung fifty times be tested as if it were new.
+   */
+  const resets = new Map<string, number>();
+  try {
+    const rows = await db("caller_resets?select=phone_key,forget_before");
+    for (const row of rows ?? []) resets.set(String(row.phone_key), new Date(row.forget_before).getTime());
+  } catch (e) {
+    console.error("[araxys] could not read caller resets:", e);
+  }
   let stored = 0;
   let recordsTouched = 0;
+  let forgotten = 0;
 
   /**
    * Calls whose fields have already been read by the model.
@@ -343,6 +360,12 @@ export async function ingestRecentCalls(limit = 25) {
     if (!c.transcript) continue;
     const transcript = cleanTranscript(c.transcript);
     const linkPhone = c.direction === "inbound" ? c.fromNumber : c.toNumber;
+
+    const cutoff = linkPhone ? resets.get(phoneKey(linkPhone)) : undefined;
+    if (cutoff !== undefined && new Date(c.createdAt ?? 0).getTime() <= cutoff) {
+      forgotten++;
+      continue;
+    }
 
     try {
       const worthIt = isWorthRecording({
@@ -397,6 +420,9 @@ export async function ingestRecentCalls(limit = 25) {
   // close with time alone, not only when someone books.
   await syncSpaceKb();
 
-  console.log(`[araxys] ingest: ${stored} stored, ${recordsTouched} records touched`);
-  return { ok: true, stored, recordsTouched, seen: calls.length };
+  console.log(
+    `[araxys] ingest: ${stored} stored, ${recordsTouched} records touched` +
+      (forgotten ? `, ${forgotten} skipped as forgotten` : ""),
+  );
+  return { ok: true, stored, recordsTouched, forgotten, seen: calls.length };
 }
