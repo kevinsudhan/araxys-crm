@@ -3,17 +3,43 @@
  *
  * Everything SnapServe-related goes through here rather than the browser talking to
  * SnapServe directly — the API key stays server-side and never ships in the bundle.
+ *
+ * ---------------------------------------------------------------------------
+ * V2 WORKSPACE: THIS TALKS TO NOTHING BY DEFAULT.
+ *
+ * This clone exists so the CRM can be redesigned without touching the running
+ * one. The production copy shares a Supabase project and a SnapServe account
+ * with the live voice agents, so a booking made here, a container restowed
+ * here, or a record promoted here would change what a real caller is told.
+ *
+ * So the default is the in-memory mock in ./mockBackend, and reaching the real
+ * backend takes a deliberate act: set VITE_MOCK_BACKEND=off *and* point
+ * VITE_API_BASE somewhere. Defaulting the other way -- real unless told
+ * otherwise -- would mean one missing env file silently writes to production,
+ * which is exactly the accident this workspace is meant to make impossible.
+ * ---------------------------------------------------------------------------
  */
+import { mockGet, mockPost } from "./mockBackend";
 
+const USE_MOCK = import.meta.env.VITE_MOCK_BACKEND !== "off";
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8787";
 
+if (USE_MOCK && typeof console !== "undefined") {
+  console.info(
+    "[araxys v2] in-memory backend — no requests leave this machine. " +
+      "Set VITE_MOCK_BACKEND=off to use a real API."
+  );
+}
+
 async function get<T>(path: string): Promise<T> {
+  if (USE_MOCK) return mockGet(path) as Promise<T>;
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
   return r.json() as Promise<T>;
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
+  if (USE_MOCK) return mockPost(path, body) as Promise<T>;
   const r = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
