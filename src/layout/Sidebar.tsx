@@ -10,9 +10,7 @@ import {
   PhoneCall,
   MessageSquareWarning,
   Receipt,
-  Users,
   BarChart3,
-  ShieldCheck,
   Plug,
   BookOpen,
 } from "lucide-react";
@@ -49,18 +47,12 @@ const groups: NavGroup[] = [
     ],
   },
   {
-    title: "Agents",
-    items: [
-      { to: "/agents", label: "Agents & squads", icon: Users },
-      { to: "/knowledge-base", label: "Knowledge base", icon: BookOpen },
-    ],
+    title: "Knowledge",
+    items: [{ to: "/knowledge-base", label: "Knowledge base", icon: BookOpen }],
   },
   {
     title: "Insights",
-    items: [
-      { to: "/analytics", label: "Analytics", icon: BarChart3 },
-      { to: "/compliance", label: "Compliance & audit", icon: ShieldCheck },
-    ],
+    items: [{ to: "/analytics", label: "Analytics", icon: BarChart3 }],
   },
   {
     title: "Setup",

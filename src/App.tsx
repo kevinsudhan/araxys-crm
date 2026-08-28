@@ -18,10 +18,8 @@ const Documentation = lazy(() => import("./pages/Documentation"));
 const LiveCalls = lazy(() => import("./pages/LiveCalls"));
 const Complaints = lazy(() => import("./pages/Complaints"));
 const Billing = lazy(() => import("./pages/Billing"));
-const Agents = lazy(() => import("./pages/Agents"));
 const KnowledgeBase = lazy(() => import("./pages/KnowledgeBase"));
 const Analytics = lazy(() => import("./pages/Analytics"));
-const Compliance = lazy(() => import("./pages/Compliance"));
 const Connections = lazy(() => import("./pages/Connections"));
 
 function PageFallback() {
@@ -56,10 +54,8 @@ export default function App() {
             <Route path="/live-calls" element={<LiveCalls />} />
             <Route path="/complaints" element={<Complaints />} />
             <Route path="/billing" element={<Billing />} />
-            <Route path="/agents" element={<Agents />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             <Route path="/analytics" element={<Analytics />} />
-            <Route path="/compliance" element={<Compliance />} />
             <Route path="/connections" element={<Connections />} />
           </Route>
         </Route>

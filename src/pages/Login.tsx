@@ -16,12 +16,12 @@ export default function Login({ role }: { role: Role }) {
   const { session, signIn } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const userRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = role === "admin";
   const home = isAdmin ? "/admin" : "/";
@@ -32,7 +32,7 @@ export default function Login({ role }: { role: Role }) {
   }, [session, navigate]);
 
   useEffect(() => {
-    userRef.current?.focus();
+    emailRef.current?.focus();
   }, [role]);
 
   // Switching doors should not carry a failed attempt's error across with it.
@@ -45,15 +45,15 @@ export default function Login({ role }: { role: Role }) {
     e.preventDefault();
     setError(null);
 
-    if (!username.trim() || !password) {
-      setError("Enter both a username and a password.");
+    if (!email.trim() || !password) {
+      setError("Enter both an email address and a password.");
       return;
     }
 
     setBusy(true);
     // A short delay so the button's pending state is visible rather than a flash.
     window.setTimeout(() => {
-      const message = signIn(username, password, role);
+      const message = signIn(email, password, role);
       setBusy(false);
       if (message) {
         setError(message);
@@ -163,22 +163,24 @@ export default function Login({ role }: { role: Role }) {
           <form onSubmit={onSubmit} className="mt-7 space-y-4" noValidate>
             <div>
               <label
-                htmlFor="username"
+                htmlFor="email"
                 className="block text-[12px] font-medium text-text-secondary mb-1.5"
               >
-                Username
+                Email
               </label>
               <input
-                id="username"
-                ref={userRef}
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                id="email"
+                ref={emailRef}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 autoComplete="username"
                 autoCapitalize="none"
                 spellCheck={false}
                 className="w-full"
-                placeholder={isAdmin ? "aashish" : "kevin"}
+                placeholder={
+                  isAdmin ? "aashish@aashishlogistics.com" : "name@aashishlogistics.com"
+                }
               />
             </div>
 

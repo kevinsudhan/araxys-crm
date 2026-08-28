@@ -8,36 +8,51 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
  *
  * The credentials below ship inside the JavaScript bundle. Anything in the
  * bundle is readable by anyone who opens the site -- view-source, devtools, or
- * curl on the .js file will show these usernames and passwords in plain text.
+ * curl on the .js file will show these addresses and passwords in plain text.
  * No amount of hashing or obfuscation on this side changes that, because the
  * check itself runs on the visitor's machine and they control it.
+ *
+ * That every account currently shares one password makes it worse, not better:
+ * one address learned is every address learned.
  *
  * So this is a DEMO GATE. It keeps the two roles apart, gives the app a real
  * sign-in flow to show, and stops a casual visitor wandering into the CRM. It
  * is not authentication and must not be treated as any.
  *
- * The real version is Supabase Auth, which this project already has the
- * infrastructure for: users in auth.users, the role in a profiles table, and
- * Row Level Security so the database itself refuses to serve rows to the wrong
- * person. That moves the decision to the server, where the visitor cannot
- * reach it. Until then, assume every page here is public.
+ * The real version is Supabase Auth: users in auth.users, the role in a
+ * profiles table, and Row Level Security so the database itself refuses to
+ * serve rows to the wrong person. That moves the decision to the server, where
+ * the visitor cannot reach it, and lets each person hold their own password.
+ * Until then, assume every page here is public.
  * ---------------------------------------------------------------------------
  */
 
 export type Role = "admin" | "employee";
 
 export interface Session {
-  username: string;
+  email: string;
   /** Display name for the header. */
   name: string;
   role: Role;
   signedInAt: number;
 }
 
-/** Demo accounts. Delete this whole block when Supabase Auth lands. */
-const DEMO_ACCOUNTS: Array<{ username: string; password: string; name: string; role: Role }> = [
-  { username: "aashish", password: "aashish@123", name: "Aashish", role: "admin" },
-  { username: "kevin", password: "kevin@123", name: "Kevin", role: "employee" },
+/**
+ * Desk accounts. Delete this whole block when Supabase Auth lands.
+ *
+ * One shared starter password, to be replaced per-person before this is used
+ * for anything real. `aashish@` is the administrator; the shared desk addresses
+ * (`info@`, `imports@`) are ordinary employee accounts, since a mailbox several
+ * people read is the last thing that should hold admin rights.
+ */
+const SHARED_STARTER_PASSWORD = "Junior@123";
+
+const ACCOUNTS: Array<{ email: string; password: string; name: string; role: Role }> = [
+  { email: "aashish@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Aashish", role: "admin" },
+  { email: "parasu@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Parasu", role: "employee" },
+  { email: "aarathy@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Aarathy", role: "employee" },
+  { email: "info@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Info Desk", role: "employee" },
+  { email: "imports@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Imports Desk", role: "employee" },
 ];
 
 const STORAGE_KEY = "araxys.session";
@@ -54,7 +69,7 @@ const IDLE_LIMIT_MS = 30 * 60 * 1000;
 interface AuthValue {
   session: Session | null;
   /** Returns an error message, or null when the sign-in succeeded. */
-  signIn: (username: string, password: string, expectedRole: Role) => string | null;
+  signIn: (email: string, password: string, expectedRole: Role) => string | null;
   signOut: () => void;
 }
 
@@ -65,7 +80,7 @@ function readStoredSession(): Session | null {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Session;
-    if (!parsed?.username || !parsed?.role) return null;
+    if (!parsed?.email || !parsed?.role) return null;
     // An abandoned tab should not stay signed in indefinitely.
     if (Date.now() - parsed.signedInAt > IDLE_LIMIT_MS) return null;
     return parsed;
@@ -83,13 +98,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(null);
   }, []);
 
-  const signIn = useCallback((username: string, password: string, expectedRole: Role) => {
-    const u = username.trim().toLowerCase();
-    const account = DEMO_ACCOUNTS.find((a) => a.username === u && a.password === password);
+  const signIn = useCallback((email: string, password: string, expectedRole: Role) => {
+    const e = email.trim().toLowerCase();
+    const account = ACCOUNTS.find((a) => a.email === e && a.password === password);
 
-    // One message for both failure modes. Saying "no such user" tells someone
+    // One message for both failure modes. Saying "no such account" tells someone
     // probing the form which half they got right.
-    if (!account) return "Incorrect username or password.";
+    if (!account) return "Incorrect email or password.";
 
     /**
      * The role is checked against the door they came in through, so an employee
@@ -103,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const next: Session = {
-      username: account.username,
+      email: account.email,
       name: account.name,
       role: account.role,
       signedInAt: Date.now(),
