@@ -3,6 +3,7 @@ import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
 import {
   LayoutDashboard,
   Inbox,
+  Mail,
   PackageSearch,
   PackageCheck,
   Boxes,
@@ -41,6 +42,7 @@ const groups: NavGroup[] = [
     items: [
       { to: "/space-containers", label: "Space & containers", icon: Boxes },
       { to: "/documentation", label: "Documentation", icon: FileCheck2 },
+      { to: "/mail", label: "Mail", icon: Mail },
       { to: "/live-calls", label: "Live calls & updates", icon: PhoneCall },
       { to: "/complaints", label: "Complaints", icon: MessageSquareWarning },
       { to: "/billing", label: "Billing & invoices", icon: Receipt },

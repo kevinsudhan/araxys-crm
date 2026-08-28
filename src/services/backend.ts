@@ -282,3 +282,60 @@ export const bookSpace = (body: {
   upright_only?: boolean;
   source?: "crm" | "voice_agent";
 }) => post<{ placement: PlacedConsignment; slot: SpaceSlot }>("/api/space/book", body);
+
+// ---- mail ----------------------------------------------------------------
+
+/**
+ * Outlook, through the CRM.
+ *
+ * Every call names the mailbox explicitly. Against real Microsoft Graph the
+ * mailbox is implied by the signed-in user's token and these become
+ * /me/mailFolders and /me/messages -- but keeping it an argument means the
+ * scoping is something the code states rather than something it assumes, and
+ * a shared desk address is never one bug away from showing someone else's mail.
+ */
+export type { MailMessage, Recipient, FolderId } from "./mockMail";
+import type { MailMessage, FolderId } from "./mockMail";
+
+export interface MailFolder {
+  id: FolderId;
+  label: string;
+  total: number;
+  unread: number;
+}
+
+export const getMailFolders = (mailbox: string) =>
+  get<{ folders: MailFolder[] }>(`/api/mail/folders?mailbox=${encodeURIComponent(mailbox)}`);
+
+export const getMailMessages = (mailbox: string, folder: FolderId, q?: string) =>
+  get<{ messages: MailMessage[] }>(
+    `/api/mail/messages?mailbox=${encodeURIComponent(mailbox)}&folder=${folder}` +
+      (q ? `&q=${encodeURIComponent(q)}` : "")
+  );
+
+export const getMailMessage = (mailbox: string, id: string) =>
+  get<{ message: MailMessage }>(
+    `/api/mail/messages/${encodeURIComponent(id)}?mailbox=${encodeURIComponent(mailbox)}`
+  );
+
+export const setMailRead = (mailbox: string, id: string, isRead: boolean) =>
+  post<{ message: MailMessage }>(`/api/mail/messages/${encodeURIComponent(id)}/read`, {
+    mailbox,
+    isRead,
+  });
+
+export const moveMailMessage = (mailbox: string, id: string, folder: FolderId) =>
+  post<{ message: MailMessage }>(`/api/mail/messages/${encodeURIComponent(id)}/move`, {
+    mailbox,
+    folder,
+  });
+
+export const sendMail = (body: {
+  mailbox: string;
+  fromName: string;
+  to: string[];
+  cc?: string[];
+  subject: string;
+  content: string;
+  conversationId?: string;
+}) => post<{ message: MailMessage }>("/api/mail/send", body);

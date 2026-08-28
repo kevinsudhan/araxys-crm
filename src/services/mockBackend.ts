@@ -26,6 +26,16 @@
  * nothing about whether a screen is right.
  */
 
+import {
+  listFolders,
+  listMessages,
+  getMessage as getMailMessage,
+  setRead,
+  moveMessage,
+  sendMessage,
+  type FolderId,
+} from "./mockMail";
+
 const DAY = 86_400_000;
 const iso = (offsetDays: number) => new Date(Date.now() + offsetDays * DAY).toISOString();
 const day = (offsetDays: number) => iso(offsetDays).slice(0, 10);
@@ -567,6 +577,31 @@ export function mockGet(path: string): Promise<unknown> {
     });
   }
 
+  // ---- mail ---------------------------------------------------------------
+  // Scoped by mailbox on every call. Graph infers the mailbox from the OAuth
+  // token; here it is an explicit parameter, so the scoping stays visible
+  // rather than becoming an implicit assumption the UI could drift away from.
+  if (path.startsWith("/api/mail/")) {
+    const [route, query] = path.split("?");
+    const q = new URLSearchParams(query ?? "");
+    const mailbox = q.get("mailbox") ?? "";
+    if (!mailbox) return Promise.reject(new Error("mail requests must name a mailbox"));
+
+    if (route === "/api/mail/folders") return delay({ folders: listFolders(mailbox) });
+
+    if (route === "/api/mail/messages") {
+      const folder = (q.get("folder") ?? "inbox") as FolderId;
+      return delay({ messages: listMessages(mailbox, folder, q.get("q") ?? undefined) });
+    }
+
+    const one = route.match(/^\/api\/mail\/messages\/([^/]+)$/);
+    if (one) {
+      const m = getMailMessage(mailbox, one[1]);
+      if (!m) return Promise.reject(new Error(`${path} -> 404`));
+      return delay({ message: m });
+    }
+  }
+
   if (path === "/api/records") return delay({ records });
 
   if (path === "/api/space/slots") return delay({ slots: slots.map(slotView) });
@@ -585,6 +620,39 @@ export function mockGet(path: string): Promise<unknown> {
 
 export function mockPost(path: string, body: unknown): Promise<unknown> {
   const b = (body ?? {}) as Record<string, any>;
+
+  // --- mail ----------------------------------------------------------------
+  if (path === "/api/mail/send") {
+    if (!b.mailbox) return Promise.reject(new Error("send must name a mailbox"));
+    const to: string[] = (b.to ?? []).filter((x: string) => x.trim());
+    if (!to.length) return Promise.reject(new Error("add at least one recipient"));
+    if (!String(b.subject ?? "").trim()) return Promise.reject(new Error("add a subject"));
+    return delay({
+      message: sendMessage({
+        mailbox: b.mailbox,
+        fromName: b.fromName ?? "",
+        to,
+        cc: b.cc ?? [],
+        subject: b.subject,
+        content: b.content ?? "",
+        conversationId: b.conversationId,
+      }),
+    });
+  }
+
+  const readMatch = path.match(/^\/api\/mail\/messages\/([^/]+)\/read$/);
+  if (readMatch) {
+    const m = setRead(b.mailbox, readMatch[1], b.isRead !== false);
+    if (!m) return Promise.reject(new Error(`${path} -> 404`));
+    return delay({ message: m });
+  }
+
+  const moveMatch = path.match(/^\/api\/mail\/messages\/([^/]+)\/move$/);
+  if (moveMatch) {
+    const m = moveMessage(b.mailbox, moveMatch[1], b.folder);
+    if (!m) return Promise.reject(new Error(`${path} -> 404`));
+    return delay({ message: m });
+  }
 
   // --- promote / demote a record ------------------------------------------
   const stageMatch = path.match(/^\/api\/records\/([^/]+)\/stage$/);
