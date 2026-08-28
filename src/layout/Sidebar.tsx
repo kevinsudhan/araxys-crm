@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
 import {
   LayoutDashboard,
   Inbox,
@@ -71,13 +72,7 @@ export default function Sidebar() {
   return (
     <aside className="w-60 shrink-0 h-screen sticky top-0 border-r border-border bg-surface-1 flex flex-col">
       <div className="px-5 py-5">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md bg-brand flex items-center justify-center text-white text-sm font-medium">
-            A
-          </div>
-          <span className="text-[15px] font-medium text-text-primary">Araxys</span>
-        </div>
-        <p className="text-xs text-text-muted mt-0.5">Freight ops CRM</p>
+        <CompanyBrand size="sm" descriptor="Freight ops CRM" />
       </div>
       <nav className="flex-1 overflow-y-auto px-3 pb-4">
         {groups.map((group, gi) => (
@@ -106,6 +101,9 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
+      <div className="px-5 py-4 border-t border-border">
+        <PoweredByAraxys />
+      </div>
     </aside>
   );
 }
