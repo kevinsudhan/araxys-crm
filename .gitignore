@@ -41,3 +41,4 @@ sample-documents/
 # v2 Supabase service_role key and db password — bypasses RLS, never commit.
 server-v2/.keys.json
 server-v2/.project.json
+server-v2/.azure.json

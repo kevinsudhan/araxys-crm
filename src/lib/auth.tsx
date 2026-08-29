@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
+import { storeGraphToken, clearGraphToken } from "../services/graphMail";
 
 /**
  * Authentication, for real this time.
@@ -45,6 +46,8 @@ interface AuthValue {
   loading: boolean;
   /** Resolves to an error message, or null on success. */
   signIn: (email: string, password: string, expectedRole: Role) => Promise<string | null>;
+  /** Redirects to Microsoft; returns only if starting the redirect failed. */
+  signInWithMicrosoft: () => Promise<string | null>;
   signOut: () => Promise<void>;
 }
 
@@ -98,6 +101,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getSession().then(async ({ data }) => {
       const user = data.session?.user;
+      // Microsoft's own access token rides along on the session Supabase built
+      // from the OAuth callback. It is the only moment it is available, so it
+      // is stashed here rather than fetched later -- there is no later.
+      storeGraphToken((data.session as { provider_token?: string } | null)?.provider_token ?? null);
       if (!cancelled) {
         setSession(user ? await loadProfile(user.id, user.email ?? "") : null);
         setLoading(false);
@@ -106,6 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
       if (cancelled || signingIn.current) return;
+      storeGraphToken((s as { provider_token?: string } | null)?.provider_token ?? null);
       const user = s?.user;
       setSession(user ? await loadProfile(user.id, user.email ?? "") : null);
       setLoading(false);
@@ -166,14 +174,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  /**
+   * Microsoft sign-in.
+   *
+   * The mail scopes are requested here, not in the Azure app registration, so
+   * the consent screen names exactly what the CRM will do with the mailbox.
+   * offline_access is included because without it Microsoft issues no refresh
+   * token at all.
+   */
+  const signInWithMicrosoft = useCallback(async (): Promise<string | null> => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "azure",
+      options: {
+        scopes: "openid profile email offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send",
+        redirectTo: `${window.location.origin}/`,
+      },
+    });
+    return error?.message ?? null;
+  }, []);
+
   const signOut = useCallback(async () => {
+    // The mailbox token must go with the session. Leaving it behind would let
+    // the next person in this tab read the previous one's Outlook.
+    clearGraphToken();
     await supabase.auth.signOut();
     setSession(null);
   }, []);
 
   const value = useMemo(
-    () => ({ session, loading, signIn, signOut }),
-    [session, loading, signIn, signOut]
+    () => ({ session, loading, signIn, signInWithMicrosoft, signOut }),
+    [session, loading, signIn, signInWithMicrosoft, signOut]
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

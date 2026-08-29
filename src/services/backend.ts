@@ -304,33 +304,58 @@ export interface MailFolder {
   unread: number;
 }
 
-export const getMailFolders = (mailbox: string) =>
-  get<{ folders: MailFolder[] }>(`/api/mail/folders?mailbox=${encodeURIComponent(mailbox)}`);
+import * as graph from "./graphMail";
 
-export const getMailMessages = (mailbox: string, folder: FolderId, q?: string) =>
-  get<{ messages: MailMessage[] }>(
-    `/api/mail/messages?mailbox=${encodeURIComponent(mailbox)}&folder=${folder}` +
-      (q ? `&q=${encodeURIComponent(q)}` : "")
-  );
+export { GraphAuthError, hasGraphToken, clearGraphToken } from "./graphMail";
 
-export const getMailMessage = (mailbox: string, id: string) =>
-  get<{ message: MailMessage }>(
-    `/api/mail/messages/${encodeURIComponent(id)}?mailbox=${encodeURIComponent(mailbox)}`
-  );
+/**
+ * Real Outlook when this session has a Microsoft token, the in-memory mailbox
+ * otherwise.
+ *
+ * The fallback is not a convenience -- it is what keeps the mail screens usable
+ * for design work, and what the app shows before anyone has connected Outlook.
+ * `hasGraphToken()` is checked per call rather than once at module load because
+ * the token arrives after sign-in, not before this file is imported.
+ */
+const live = () => graph.hasGraphToken();
 
-export const setMailRead = (mailbox: string, id: string, isRead: boolean) =>
-  post<{ message: MailMessage }>(`/api/mail/messages/${encodeURIComponent(id)}/read`, {
+export const getMailFolders = async (mailbox: string) =>
+  live()
+    ? { folders: await graph.listFolders(mailbox) }
+    : get<{ folders: MailFolder[] }>(`/api/mail/folders?mailbox=${encodeURIComponent(mailbox)}`);
+
+export const getMailMessages = async (mailbox: string, folder: FolderId, q?: string) =>
+  live()
+    ? { messages: await graph.listMessages(mailbox, folder, q) }
+    : get<{ messages: MailMessage[] }>(
+        `/api/mail/messages?mailbox=${encodeURIComponent(mailbox)}&folder=${folder}` +
+          (q ? `&q=${encodeURIComponent(q)}` : "")
+      );
+
+export const getMailMessage = async (mailbox: string, id: string, folder: FolderId = "inbox") =>
+  live()
+    ? { message: await graph.getMessage(mailbox, id, folder) }
+    : get<{ message: MailMessage }>(
+        `/api/mail/messages/${encodeURIComponent(id)}?mailbox=${encodeURIComponent(mailbox)}`
+      );
+
+export const setMailRead = async (mailbox: string, id: string, isRead: boolean) => {
+  if (live()) return graph.setRead(mailbox, id, isRead);
+  return post<{ message: MailMessage }>(`/api/mail/messages/${encodeURIComponent(id)}/read`, {
     mailbox,
     isRead,
   });
+};
 
-export const moveMailMessage = (mailbox: string, id: string, folder: FolderId) =>
-  post<{ message: MailMessage }>(`/api/mail/messages/${encodeURIComponent(id)}/move`, {
+export const moveMailMessage = async (mailbox: string, id: string, folder: FolderId) => {
+  if (live()) return graph.moveMessage(mailbox, id, folder);
+  return post<{ message: MailMessage }>(`/api/mail/messages/${encodeURIComponent(id)}/move`, {
     mailbox,
     folder,
   });
+};
 
-export const sendMail = (body: {
+export const sendMail = async (body: {
   mailbox: string;
   fromName: string;
   to: string[];
@@ -338,4 +363,20 @@ export const sendMail = (body: {
   subject: string;
   content: string;
   conversationId?: string;
-}) => post<{ message: MailMessage }>("/api/mail/send", body);
+  replyToId?: string;
+}) => {
+  if (live()) {
+    await graph.sendMessage({
+      to: body.to,
+      cc: body.cc,
+      subject: body.subject,
+      content: body.content,
+      replyToId: body.replyToId,
+    });
+    return;
+  }
+  return post<{ message: MailMessage }>("/api/mail/send", body);
+};
+
+/** True when this session is talking to a real Outlook mailbox. */
+export const mailIsLive = () => graph.hasGraphToken();

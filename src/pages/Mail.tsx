@@ -22,6 +22,8 @@ import {
   getMailMessages,
   moveMailMessage,
   setMailRead,
+  mailIsLive,
+  GraphAuthError,
   type FolderId,
   type MailFolder,
   type MailMessage,
@@ -56,6 +58,7 @@ export default function Mail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [composing, setComposing] = useState<null | { replyTo?: MailMessage }>(null);
+  const live = mailIsLive();
 
   const load = useCallback(async () => {
     if (!mailbox) return;
@@ -69,7 +72,13 @@ export default function Mail() {
       setFolders(f.folders);
       setMessages(m.messages);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load the mailbox.");
+      setError(
+        e instanceof GraphAuthError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Could not load the mailbox."
+      );
     } finally {
       setLoading(false);
     }
@@ -122,6 +131,20 @@ export default function Mail() {
         title="Mail"
         subtitle={`Outlook for ${mailbox} — the desk's mailbox, alongside the shipments it is about.`}
       />
+
+      {/*
+        Whether this is a real mailbox is not a detail to leave people guessing
+        about: "Send" means something very different in each case.
+      */}
+      {!live && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg bg-bg-warning px-3 py-2.5 text-[12px] text-text-warning">
+          <AlertCircle size={13} className="mt-px shrink-0" />
+          <span>
+            Demonstration mailbox — these messages are samples and nothing sent from here leaves
+            the building. Sign in with Microsoft to connect the real {mailbox} inbox.
+          </span>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 mb-3">
         <button

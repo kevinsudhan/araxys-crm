@@ -13,7 +13,7 @@ import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
  * product -- while the markup stays in one place.
  */
 export default function Login({ role }: { role: Role }) {
-  const { session, loading: restoring, signIn } = useAuth();
+  const { session, loading: restoring, signIn, signInWithMicrosoft } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -168,7 +168,38 @@ export default function Login({ role }: { role: Role }) {
               : "Access the operations desk — requests, shipments and documents."}
           </p>
 
-          <form onSubmit={onSubmit} className="mt-7 space-y-4" noValidate>
+          {/*
+            Microsoft first, and visually primary. It is the only route that
+            also connects the person's Outlook mailbox, so it is the one we want
+            people taking; the password form below stays for accounts that have
+            not been moved across yet.
+          */}
+          <button
+            type="button"
+            onClick={async () => {
+              setError(null);
+              setBusy(true);
+              const message = await signInWithMicrosoft();
+              if (message) {
+                setError(message);
+                setBusy(false);
+              }
+              // On success the browser leaves for Microsoft; nothing to do here.
+            }}
+            disabled={busy}
+            className="mt-7 w-full h-10 rounded-lg border border-border-strong bg-surface-1 hover:bg-surface-2 disabled:opacity-60 text-[13px] font-medium text-text-primary flex items-center justify-center gap-2.5 transition-colors"
+          >
+            <MicrosoftLogo />
+            Sign in with Microsoft
+          </button>
+
+          <div className="flex items-center gap-3 my-5">
+            <span className="flex-1 h-px bg-border" />
+            <span className="text-[11px] text-text-muted">or use a password</span>
+            <span className="flex-1 h-px bg-border" />
+          </div>
+
+          <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <div>
               <label
                 htmlFor="email"
@@ -251,8 +282,8 @@ export default function Login({ role }: { role: Role }) {
           </div>
 
           <p className="mt-8 text-[11px] leading-relaxed text-text-muted">
-            Passwords are verified by Supabase and never stored in this application. Use the
-            starter password only until your own has been set.
+            Signing in with Microsoft also connects your Outlook mailbox to the CRM. Passwords
+            are verified by Supabase and never stored in this application.
           </p>
 
           <div className="mt-5 pt-4 border-t border-border lg:hidden">
@@ -261,5 +292,17 @@ export default function Login({ role }: { role: Role }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Microsoft's four squares, drawn rather than fetched — no external asset. */
+function MicrosoftLogo() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 23 23" aria-hidden="true">
+      <rect x="1" y="1" width="10" height="10" fill="#f25022" />
+      <rect x="12" y="1" width="10" height="10" fill="#7fba00" />
+      <rect x="1" y="12" width="10" height="10" fill="#00a4ef" />
+      <rect x="12" y="12" width="10" height="10" fill="#ffb900" />
+    </svg>
   );
 }
