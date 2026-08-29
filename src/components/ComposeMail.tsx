@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, Send, X } from "lucide-react";
-import { sendMail, type MailMessage } from "../services/backend";
+import { sendMail, mailIsLive, type MailMessage } from "../services/backend";
 
 /**
  * Compose, and reply.
@@ -41,6 +41,17 @@ export default function ComposeMail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * Whether this will actually leave the building.
+   *
+   * Read once when the dialog opens, and everything the user sees follows from
+   * it -- the banner, the footer, and the wording on the button. The dialog
+   * previously said "Demo mailbox" no matter what, which is worse than saying
+   * nothing: it was wrong when the mailbox was real, and it was a footnote
+   * nobody reads when the mailbox was not.
+   */
+  const live = mailIsLive();
 
   // A reply opens with the cursor above the quoted text, where you write.
   useEffect(() => {
@@ -121,6 +132,17 @@ export default function ComposeMail({
         </header>
 
         <form onSubmit={submit} className="flex-1 overflow-y-auto px-5 py-4" noValidate>
+          {!live && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg bg-bg-warning px-3 py-2.5 text-[12px] text-text-warning">
+              <AlertCircle size={13} className="mt-px shrink-0" />
+              <span>
+                <strong className="font-medium">This will not be delivered.</strong> Outlook is
+                not connected on this session, so the message is only filed in the demo Sent
+                folder. Sign in with Microsoft to send for real.
+              </span>
+            </div>
+          )}
+
           <Row label="From">
             {/* Fixed, not a field. You send as the account you signed in with. */}
             <span className="text-[13px] text-text-secondary">{mailbox}</span>
@@ -177,7 +199,9 @@ export default function ComposeMail({
 
         <footer className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border">
           <p className="text-[11px] text-text-muted">
-            Demo mailbox — this is delivered to the Sent folder, not to the internet.
+            {live
+              ? `Sending as ${mailbox} — this will be delivered.`
+              : "Demo mailbox — nothing leaves this machine."}
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -193,7 +217,7 @@ export default function ComposeMail({
               className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-[12px] font-medium"
             >
               {busy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-              {busy ? "Sending…" : "Send"}
+              {busy ? (live ? "Sending…" : "Saving…") : live ? "Send" : "Save to demo Sent"}
             </button>
           </div>
         </footer>

@@ -47,7 +47,7 @@ const FOLDER_ICON: Record<FolderId, React.ElementType> = {
  * aarathy@ -- and a picker is how that ends up happening by accident.
  */
 export default function Mail() {
-  const { session } = useAuth();
+  const { session, signInWithMicrosoft } = useAuth();
   const mailbox = session?.email ?? "";
 
   const [folders, setFolders] = useState<MailFolder[]>([]);
@@ -136,13 +136,27 @@ export default function Mail() {
         Whether this is a real mailbox is not a detail to leave people guessing
         about: "Send" means something very different in each case.
       */}
+      {/*
+        Connecting is offered here rather than only on the login page. Someone who
+        signed in with a password has no way back to Microsoft short of signing
+        out, and "sign out to fix your mail" is not an instruction worth giving.
+      */}
       {!live && (
         <div className="mb-3 flex items-start gap-2 rounded-lg bg-bg-warning px-3 py-2.5 text-[12px] text-text-warning">
           <AlertCircle size={13} className="mt-px shrink-0" />
-          <span>
-            Demonstration mailbox — these messages are samples and nothing sent from here leaves
-            the building. Sign in with Microsoft to connect the real {mailbox} inbox.
-          </span>
+          <div className="flex-1">
+            <p>
+              <strong className="font-medium">Demonstration mailbox.</strong> These messages are
+              samples, and anything sent from here is filed locally rather than delivered.
+            </p>
+            <button
+              onClick={() => void signInWithMicrosoft()}
+              className="mt-2 inline-flex items-center gap-2 h-7 px-2.5 rounded-lg border border-border-strong bg-surface-1 text-[12px] font-medium text-text-primary hover:bg-surface-2"
+            >
+              <MicrosoftMark />
+              Connect Outlook for {mailbox}
+            </button>
+          </div>
         </div>
       )}
 
@@ -409,4 +423,16 @@ function fullTime(isoDate: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Microsoft's four squares, drawn rather than fetched. */
+function MicrosoftMark() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 23 23" aria-hidden="true">
+      <rect x="1" y="1" width="10" height="10" fill="#f25022" />
+      <rect x="12" y="1" width="10" height="10" fill="#7fba00" />
+      <rect x="1" y="12" width="10" height="10" fill="#00a4ef" />
+      <rect x="12" y="12" width="10" height="10" fill="#ffb900" />
+    </svg>
+  );
 }
