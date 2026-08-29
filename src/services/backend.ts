@@ -306,7 +306,7 @@ export interface MailFolder {
 
 import * as graph from "./graphMail";
 
-export { GraphAuthError, hasGraphToken, clearGraphToken } from "./graphMail";
+export { GraphAuthError, hasGraphToken, clearGraphToken, whoami } from "./graphMail";
 
 /**
  * Real Outlook when this session has a Microsoft token, the in-memory mailbox

@@ -23,6 +23,7 @@ import {
   moveMailMessage,
   setMailRead,
   mailIsLive,
+  whoami,
   GraphAuthError,
   type FolderId,
   type MailFolder,
@@ -59,6 +60,30 @@ export default function Mail() {
   const [error, setError] = useState<string | null>(null);
   const [composing, setComposing] = useState<null | { replyTo?: MailMessage }>(null);
   const live = mailIsLive();
+
+  /**
+   * The address Microsoft says the token belongs to.
+   *
+   * Not the same thing as the CRM profile's email, and the difference matters:
+   * /me/sendMail sends as whoever the token is, regardless of what this app
+   * believes. A tenant with two domains can easily end up signing someone in as
+   * one address while their Microsoft account sits on the other -- and mail then
+   * goes out from a domain whose SPF may not be set up, which looks like the CRM
+   * failing to send when it is actually sending as somebody else.
+   */
+  const [graphMailbox, setGraphMailbox] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!live) {
+      setGraphMailbox(null);
+      return;
+    }
+    let cancelled = false;
+    void whoami().then((who) => !cancelled && setGraphMailbox(who));
+    return () => {
+      cancelled = true;
+    };
+  }, [live]);
 
   const load = useCallback(async () => {
     if (!mailbox) return;
@@ -129,8 +154,27 @@ export default function Mail() {
     <div>
       <PageHeader
         title="Mail"
-        subtitle={`Outlook for ${mailbox} — the desk's mailbox, alongside the shipments it is about.`}
+        subtitle={
+          live && graphMailbox
+            ? `Connected to Outlook as ${graphMailbox} — mail sent from here is sent as this address.`
+            : `Outlook for ${mailbox} — the desk's mailbox, alongside the shipments it is about.`
+        }
       />
+
+      {/*
+        A mismatch here is not cosmetic: mail leaves as the Microsoft address, so
+        if the two disagree the sender is not who the CRM has been claiming.
+      */}
+      {live && graphMailbox && graphMailbox.toLowerCase() !== mailbox.toLowerCase() && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg bg-bg-warning px-3 py-2.5 text-[12px] text-text-warning">
+          <AlertCircle size={13} className="mt-px shrink-0" />
+          <span>
+            You are signed into the CRM as <strong className="font-medium">{mailbox}</strong> but
+            Outlook is connected as <strong className="font-medium">{graphMailbox}</strong>.
+            Mail sent from here will come from the Outlook address, not the CRM one.
+          </span>
+        </div>
+      )}
 
       {/*
         Whether this is a real mailbox is not a detail to leave people guessing
