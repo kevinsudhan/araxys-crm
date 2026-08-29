@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2, ShieldCheck, AlertCircle } from "lucide-react";
-import { useAuth, type Role } from "../lib/auth";
+import { useAuth, canAccess, type Role } from "../lib/auth";
 import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
 
 /**
@@ -26,10 +26,19 @@ export default function Login({ role }: { role: Role }) {
   const isAdmin = role === "admin";
   const home = isAdmin ? "/admin" : "/";
 
-  // Already signed in: don't show a sign-in form, go where they were going.
+  /**
+   * Already signed in: skip the form.
+   *
+   * Sent to the door they came to when their role allows it, not to whatever
+   * their role's default is -- an admin who deliberately opens the employee
+   * sign-in wants the CRM, and bouncing them to /admin would make that
+   * impossible.
+   */
   useEffect(() => {
-    if (session) navigate(session.role === "admin" ? "/admin" : "/", { replace: true });
-  }, [session, navigate]);
+    if (!session) return;
+    const to = canAccess(session.role, role) ? home : session.role === "admin" ? "/admin" : "/";
+    navigate(to, { replace: true });
+  }, [session, role, home, navigate]);
 
   useEffect(() => {
     emailRef.current?.focus();

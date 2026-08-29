@@ -33,6 +33,18 @@ import { storeGraphToken, clearGraphToken } from "../services/graphMail";
 
 export type Role = "admin" | "employee";
 
+/**
+ * Admin is a superset of employee, not a sibling of it.
+ *
+ * Treating the two as separate sets meant an administrator could not open the
+ * operations CRM at all: the link on the admin page navigated to it and the
+ * guard bounced them straight back, so the button looked dead. The person who
+ * runs the company is not locked out of the desk their staff use.
+ */
+export function canAccess(userRole: Role, areaRole: Role): boolean {
+  return userRole === "admin" || userRole === areaRole;
+}
+
 export interface Session {
   userId: string;
   email: string;
@@ -156,11 +168,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
          * place would let someone who signed in at the wrong door simply
          * navigate to the right one.
          */
-        if (profile.role !== expectedRole) {
+        if (!canAccess(profile.role, expectedRole)) {
           await supabase.auth.signOut();
-          return expectedRole === "admin"
-            ? "This account does not have admin access. Use the employee sign-in."
-            : "This is an admin account. Use the admin sign-in.";
+          return "This account does not have admin access. Use the employee sign-in.";
         }
 
         setSession(profile);

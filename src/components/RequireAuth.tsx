@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { useAuth, type Role } from "../lib/auth";
+import { useAuth, canAccess, type Role } from "../lib/auth";
 
 /**
  * Route guard. Wraps a group of routes and sends anyone without the right
@@ -28,7 +28,7 @@ export default function RequireAuth({ role }: { role: Role }) {
     return <Navigate to={to} state={{ from: location.pathname }} replace />;
   }
 
-  if (session.role !== role) {
+  if (!canAccess(session.role, role)) {
     return <Navigate to={session.role === "admin" ? "/admin" : "/"} replace />;
   }
 
