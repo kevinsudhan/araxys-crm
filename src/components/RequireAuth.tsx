@@ -10,8 +10,17 @@ import { useAuth, type Role } from "../lib/auth";
  * in the wrong place, and showing them a login box implies the wrong fix.
  */
 export default function RequireAuth({ role }: { role: Role }) {
-  const { session } = useAuth();
+  const { session, loading } = useAuth();
   const location = useLocation();
+
+  /**
+   * Restoring a stored session is asynchronous. Redirecting before that settles
+   * would bounce a signed-in user to the login page on every refresh, so hold
+   * the render until we actually know.
+   */
+  if (loading) {
+    return <div className="min-h-screen grid place-items-center text-sm text-text-muted">Loading…</div>;
+  }
 
   if (!session) {
     const to = role === "admin" ? "/admin/login" : "/login";

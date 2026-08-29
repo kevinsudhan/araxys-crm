@@ -29,15 +29,38 @@ const dist = join(root, "dist");
 const CREDENTIALS = [
   { name: "Anthropic API key", re: /sk-ant-api\d{2}-[A-Za-z0-9_-]{20,}/ },
   { name: "OpenAI-style API key", re: /\bsk-[A-Za-z0-9]{32,}/ },
-  // Supabase service_role and anon keys are JWTs. Neither belongs in the browser here:
-  // the CRM talks to an Edge Function, which holds the keys itself.
-  { name: "JWT (service_role / anon key)", re: /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/ },
+  // A service_role JWT bypasses RLS and must never ship. The anon key is also a
+  // JWT but is publishable by design, so it is excluded by role below rather
+  // than by loosening the pattern -- the shape alone cannot tell them apart.
+  {
+    name: "JWT (service_role key)",
+    re: /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/,
+    allow: (match) => {
+      try {
+        const claims = JSON.parse(Buffer.from(match.split(".")[1], "base64").toString("utf8"));
+        return claims.role === "anon";
+      } catch {
+        return false;
+      }
+    },
+  },
   { name: "service_role reference", re: /service_role/ },
   { name: "secret env var name", re: /\b(?:ANTHROPIC_API_KEY|SNAPSERVE_API_KEY|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_ACCESS_TOKEN|ARAXYS_CRON_SECRET)\b/ },
 ];
 
 /** A VITE_ name containing any of these is a secret about to be published. */
 const SUSPICIOUS_VITE = /\bVITE_[A-Z0-9_]*(KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)[A-Z0-9_]*\b/g;
+
+/**
+ * The one name that is meant to be in the bundle.
+ *
+ * A Supabase anon key is a publishable key: it names the project, carries no
+ * privileges of its own, and every table it can reach is behind Row Level
+ * Security. Auth cannot work from the browser without it. This is a deliberate,
+ * single-name exception -- SUPABASE_SERVICE_ROLE_KEY stays caught, and so does
+ * every other VITE_ name, because that is the check that earns its keep.
+ */
+const PUBLISHABLE_VITE = new Set(["VITE_SUPABASE_ANON_KEY"]);
 
 /** Never print the value — a leak report that reproduces the leak into CI logs is worse. */
 function redact(match) {
@@ -68,9 +91,16 @@ const files = walk(dist).filter((f) => /\.(js|mjs|cjs|css|html|json|map|txt)$/i.
 
 for (const file of files) {
   const text = readFileSync(file, "utf-8");
-  for (const { name, re } of CREDENTIALS) {
-    const hit = text.match(re);
-    if (hit) findings.push(`${relative(root, file)}: ${name} — ${redact(hit[0])}`);
+  for (const { name, re, allow } of CREDENTIALS) {
+    // Every occurrence, not just the first: a bundle can carry a publishable key
+    // and a real one, and stopping at the first match would let the second hide
+    // behind the first being allowed.
+    const all = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
+    for (const hit of text.match(all) ?? []) {
+      if (allow?.(hit)) continue;
+      findings.push(`${relative(root, file)}: ${name} — ${redact(hit)}`);
+      break;
+    }
   }
 }
 
@@ -86,6 +116,7 @@ const sourceFiles = existsSync(join(root, "src"))
 for (const file of [...configFiles, ...sourceFiles]) {
   const text = readFileSync(file, "utf-8");
   for (const match of text.match(SUSPICIOUS_VITE) ?? []) {
+    if (PUBLISHABLE_VITE.has(match)) continue;
     findings.push(
       `${relative(root, file)}: ${match} — a VITE_ name is inlined into the bundle. ` +
         `Drop the VITE_ prefix and read it server-side instead.`,

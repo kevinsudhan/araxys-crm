@@ -1,153 +1,180 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "./supabase";
 
 /**
- * Sign-in for the CRM.
+ * Authentication, for real this time.
  *
  * ---------------------------------------------------------------------------
- * READ THIS BEFORE PUTTING IT IN FRONT OF REAL CUSTOMER DATA.
+ * WHAT CHANGED, AND WHY IT MATTERS
  *
- * The credentials below ship inside the JavaScript bundle. Anything in the
- * bundle is readable by anyone who opens the site -- view-source, devtools, or
- * curl on the .js file will show these addresses and passwords in plain text.
- * No amount of hashing or obfuscation on this side changes that, because the
- * check itself runs on the visitor's machine and they control it.
+ * This used to be a list of email/password pairs compiled into the bundle. That
+ * could never be secure: the check ran on the visitor's machine, and anyone who
+ * opened devtools could read every credential. It was a gate, not a lock.
  *
- * That every account currently shares one password makes it worse, not better:
- * one address learned is every address learned.
+ * Now Supabase holds bcrypt hashes and does the verification. The browser sends
+ * a password to Supabase's auth endpoint and gets back a signed JWT; it never
+ * sees another user's credential, and no password exists anywhere in this
+ * codebase. Rate limiting, lockout, refresh-token rotation and password reset
+ * come with it.
  *
- * So this is a DEMO GATE. It keeps the two roles apart, gives the app a real
- * sign-in flow to show, and stops a casual visitor wandering into the CRM. It
- * is not authentication and must not be treated as any.
+ * THE ROLE IS NOT SELF-REPORTED. It is read from the `profiles` table, whose RLS
+ * policy lets a signed-in user select only their own row and gives nobody an
+ * UPDATE path. The underlying claim lives in auth.users.app_metadata, which the
+ * user cannot write to -- deliberately not user_metadata, which they can. If the
+ * role were stored where the user could edit it, any employee could PATCH
+ * themselves to admin and this app would believe them.
  *
- * The real version is Supabase Auth: users in auth.users, the role in a
- * profiles table, and Row Level Security so the database itself refuses to
- * serve rows to the wrong person. That moves the decision to the server, where
- * the visitor cannot reach it, and lets each person hold their own password.
- * Until then, assume every page here is public.
+ * STILL TO DO before this faces the public internet: serve over HTTPS (a JWT on
+ * a plain connection is readable in transit), and replace the shared starter
+ * password so each person holds their own.
  * ---------------------------------------------------------------------------
  */
 
 export type Role = "admin" | "employee";
 
 export interface Session {
+  userId: string;
   email: string;
-  /** Display name for the header. */
   name: string;
   role: Role;
-  signedInAt: number;
 }
-
-/**
- * Desk accounts. Delete this whole block when Supabase Auth lands.
- *
- * One shared starter password, to be replaced per-person before this is used
- * for anything real. `aashish@` is the administrator; the shared desk addresses
- * (`info@`, `imports@`) are ordinary employee accounts, since a mailbox several
- * people read is the last thing that should hold admin rights.
- */
-const SHARED_STARTER_PASSWORD = "Junior@123";
-
-const ACCOUNTS: Array<{ email: string; password: string; name: string; role: Role }> = [
-  { email: "aashish@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Aashish", role: "admin" },
-  { email: "parasu@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Parasu", role: "employee" },
-  { email: "aarathy@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Aarathy", role: "employee" },
-  { email: "info@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Info Desk", role: "employee" },
-  { email: "imports@aashishlogistics.com", password: SHARED_STARTER_PASSWORD, name: "Imports Desk", role: "employee" },
-];
-
-const STORAGE_KEY = "araxys.session";
-
-/**
- * Sessions live in sessionStorage, not localStorage.
- *
- * sessionStorage is scoped to the tab and cleared when it closes, so walking
- * away from a shared desk machine does not leave the CRM signed in for the next
- * person who opens the browser.
- */
-const IDLE_LIMIT_MS = 30 * 60 * 1000;
 
 interface AuthValue {
   session: Session | null;
-  /** Returns an error message, or null when the sign-in succeeded. */
-  signIn: (email: string, password: string, expectedRole: Role) => string | null;
-  signOut: () => void;
+  /** True until the stored session has been checked, so guards do not bounce too early. */
+  loading: boolean;
+  /** Resolves to an error message, or null on success. */
+  signIn: (email: string, password: string, expectedRole: Role) => Promise<string | null>;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
 
-function readStoredSession(): Session | null {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Session;
-    if (!parsed?.email || !parsed?.role) return null;
-    // An abandoned tab should not stay signed in indefinitely.
-    if (Date.now() - parsed.signedInAt > IDLE_LIMIT_MS) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+/** Reads the caller's own profile row. RLS makes any other row unreachable. */
+async function loadProfile(userId: string, fallbackEmail: string): Promise<Session | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, email, full_name, role")
+    .eq("id", userId)
+    .single();
+
+  if (error || !data) return null;
+
+  return {
+    userId: data.id,
+    email: data.email ?? fallbackEmail,
+    name: data.full_name || (data.email ?? fallbackEmail).split("@")[0],
+    role: data.role === "admin" ? "admin" : "employee",
+  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(readStoredSession);
-  const timer = useRef<number | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const signOut = useCallback(() => {
-    sessionStorage.removeItem(STORAGE_KEY);
+  /**
+   * Held while an explicit sign-in is in flight.
+   *
+   * signInWithPassword makes Supabase emit SIGNED_IN the moment the password is
+   * accepted -- before this code has checked whether the account's role matches
+   * the door it came in through. Without this guard the listener publishes a
+   * session, the login page's redirect effect fires on it, and the user is sent
+   * into the app a beat before being signed out again: no error message, and a
+   * visible flash of a page they are not entitled to.
+   *
+   * So during signIn the listener stays quiet and signIn alone decides what the
+   * session becomes.
+   */
+  const signingIn = useRef(false);
+
+  /**
+   * Restore an existing session on load, and follow it thereafter.
+   *
+   * onAuthStateChange covers token refresh and sign-out from another tab, so the
+   * app cannot sit on a session Supabase has already invalidated.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    supabase.auth.getSession().then(async ({ data }) => {
+      const user = data.session?.user;
+      if (!cancelled) {
+        setSession(user ? await loadProfile(user.id, user.email ?? "") : null);
+        setLoading(false);
+      }
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
+      if (cancelled || signingIn.current) return;
+      const user = s?.user;
+      setSession(user ? await loadProfile(user.id, user.email ?? "") : null);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  const signIn = useCallback(
+    async (email: string, password: string, expectedRole: Role): Promise<string | null> => {
+      signingIn.current = true;
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+        });
+
+        // Supabase returns one message for a bad address and a bad password
+        // alike, which is what we want: telling someone which half they got
+        // right is a gift to whoever is guessing.
+        if (error || !data.user) {
+          return (
+            error?.message?.replace(/^Invalid login credentials$/, "Incorrect email or password.") ??
+            "Incorrect email or password."
+          );
+        }
+
+        const profile = await loadProfile(data.user.id, data.user.email ?? "");
+        if (!profile) {
+          await supabase.auth.signOut();
+          return "This account has no profile set up. Contact your administrator.";
+        }
+
+        /**
+         * The door has to match the account. Signing out on a mismatch matters:
+         * the credentials were valid, so a session now exists, and leaving it in
+         * place would let someone who signed in at the wrong door simply
+         * navigate to the right one.
+         */
+        if (profile.role !== expectedRole) {
+          await supabase.auth.signOut();
+          return expectedRole === "admin"
+            ? "This account does not have admin access. Use the employee sign-in."
+            : "This is an admin account. Use the admin sign-in.";
+        }
+
+        setSession(profile);
+        return null;
+      } finally {
+        // Cleared only once the outcome is decided, so the listener never
+        // publishes a session this function is about to reject.
+        signingIn.current = false;
+      }
+    },
+    []
+  );
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
     setSession(null);
   }, []);
 
-  const signIn = useCallback((email: string, password: string, expectedRole: Role) => {
-    const e = email.trim().toLowerCase();
-    const account = ACCOUNTS.find((a) => a.email === e && a.password === password);
-
-    // One message for both failure modes. Saying "no such account" tells someone
-    // probing the form which half they got right.
-    if (!account) return "Incorrect email or password.";
-
-    /**
-     * The role is checked against the door they came in through, so an employee
-     * cannot obtain an admin session by signing in on the admin form, and vice
-     * versa. Without this the two pages would be cosmetic.
-     */
-    if (account.role !== expectedRole) {
-      return expectedRole === "admin"
-        ? "This account does not have admin access. Use the employee sign-in."
-        : "This is an admin account. Use the admin sign-in.";
-    }
-
-    const next: Session = {
-      email: account.email,
-      name: account.name,
-      role: account.role,
-      signedInAt: Date.now(),
-    };
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    setSession(next);
-    return null;
-  }, []);
-
-  /** Sign out after a period of no interaction, refreshed on real activity. */
-  useEffect(() => {
-    if (!session) return;
-
-    const reset = () => {
-      if (timer.current) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(signOut, IDLE_LIMIT_MS);
-    };
-
-    const events: Array<keyof WindowEventMap> = ["mousedown", "keydown", "scroll", "touchstart"];
-    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
-    reset();
-
-    return () => {
-      events.forEach((e) => window.removeEventListener(e, reset));
-      if (timer.current) window.clearTimeout(timer.current);
-    };
-  }, [session, signOut]);
-
-  const value = useMemo(() => ({ session, signIn, signOut }), [session, signIn, signOut]);
+  const value = useMemo(
+    () => ({ session, loading, signIn, signOut }),
+    [session, loading, signIn, signOut]
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

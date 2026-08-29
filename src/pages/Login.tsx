@@ -13,7 +13,7 @@ import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
  * product -- while the markup stays in one place.
  */
 export default function Login({ role }: { role: Role }) {
-  const { session, signIn } = useAuth();
+  const { session, loading: restoring, signIn } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -41,7 +41,7 @@ export default function Login({ role }: { role: Role }) {
     setPassword("");
   }, [role]);
 
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
@@ -51,17 +51,25 @@ export default function Login({ role }: { role: Role }) {
     }
 
     setBusy(true);
-    // A short delay so the button's pending state is visible rather than a flash.
-    window.setTimeout(() => {
-      const message = signIn(email, password, role);
-      setBusy(false);
-      if (message) {
-        setError(message);
-        setPassword("");
-        return;
-      }
-      navigate(home, { replace: true });
-    }, 350);
+    const message = await signIn(email, password, role);
+    setBusy(false);
+
+    if (message) {
+      setError(message);
+      setPassword("");
+      return;
+    }
+    navigate(home, { replace: true });
+  }
+
+  // Don't flash the form at someone who is already signed in and about to be
+  // redirected away from it.
+  if (restoring) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-surface-0 text-sm text-text-muted">
+        Loading…
+      </div>
+    );
   }
 
   return (
@@ -243,8 +251,8 @@ export default function Login({ role }: { role: Role }) {
           </div>
 
           <p className="mt-8 text-[11px] leading-relaxed text-text-muted">
-            Demo environment. Credentials are bundled with the client and this sign-in is a
-            demonstration gate, not authentication — do not put real customer data behind it.
+            Passwords are verified by Supabase and never stored in this application. Use the
+            starter password only until your own has been set.
           </p>
 
           <div className="mt-5 pt-4 border-t border-border lg:hidden">

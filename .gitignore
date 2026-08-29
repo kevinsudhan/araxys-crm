@@ -37,3 +37,7 @@ snapserve-setup/agent-*-backup.json
 
 # Regenerable from scripts/generate-sample-documents.mjs
 sample-documents/
+
+# v2 Supabase service_role key and db password — bypasses RLS, never commit.
+server-v2/.keys.json
+server-v2/.project.json
