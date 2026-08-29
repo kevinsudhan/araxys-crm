@@ -36,6 +36,23 @@ export const supabase = createClient(url, anonKey, {
     storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false,
+
+    /**
+     * Required for OAuth, and previously set to false.
+     *
+     * Microsoft sends the browser back to this app with the authorisation code
+     * in the URL. If the client is told not to look there, the redirect lands on
+     * a page that quietly does nothing: no session, no error, no clue why. That
+     * was a safe default while sign-in was email and password only, and became
+     * a silent breakage the moment Microsoft was added.
+     */
+    detectSessionInUrl: true,
+
+    /**
+     * PKCE rather than the implicit flow. The code arrives as a query parameter
+     * and is exchanged for tokens, so no access token is ever written into the
+     * URL bar, browser history, or a Referer header on the way out.
+     */
+    flowType: "pkce",
   },
 });
