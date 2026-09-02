@@ -15,9 +15,11 @@ import {
 import { useAuth } from "../lib/auth";
 import QuotePanel from "../components/QuotePanel";
 import CargoPanel from "../components/CargoPanel";
+import PromotePanel from "../components/PromotePanel";
 import {
   callsFor,
   correspondenceFor,
+  shipmentFor,
   eventsFor,
   getEnquiry,
   partiesFor,
@@ -30,6 +32,7 @@ import {
   type Party,
   type Quote,
   type Call,
+  type Shipment,
 } from "../services/enquiries";
 import { mailIsLive } from "../services/backend";
 import { ROLE_LABEL, ROLE_ORDER, type PartyRole } from "../services/caseFile";
@@ -51,6 +54,7 @@ export default function CaseFile() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [events, setEvents] = useState<EnquiryEvent[]>([]);
   const [calls, setCalls] = useState<Call[]>([]);
+  const [shipment, setShipment] = useState<Shipment | null>(null);
   const [mail, setMail] = useState<FiledMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,16 +69,18 @@ export default function CaseFile() {
       const e = await getEnquiry(ref);
       setEnquiry(e);
       if (!e) return;
-      const [p, q, ev, cl] = await Promise.all([
+      const [p, q, ev, cl, sh] = await Promise.all([
         partiesFor(ref),
         quotesFor(ref),
         eventsFor(ref),
         callsFor(ref),
+        shipmentFor(ref),
       ]);
       setParties(p);
       setQuotes(q);
       setEvents(ev);
       setCalls(cl);
+      setShipment(sh);
       // Mail is best-effort: a mailbox that will not load must not blank the file.
       setMail(await correspondenceFor(ref, mailbox).catch(() => []));
     } catch (err) {
@@ -170,6 +176,9 @@ export default function CaseFile() {
 
       {/* ---- quoting and acceptance ---- */}
       <QuotePanel enquiry={enquiry} quotes={quotes} onChanged={load} />
+
+      {/* ---- the handover to operations ---- */}
+      <PromotePanel enquiry={enquiry} shipment={shipment} onChanged={load} />
 
       {/* ---- parties ---- */}
       <section className="mt-4 rounded-card border border-border bg-surface-1 p-5">

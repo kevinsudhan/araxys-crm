@@ -50,7 +50,7 @@ export default function RecordDetail() {
 
   const backTo =
     record.stage === "enquiry"
-      ? "/inbound"
+      ? "/enquiries"
       : record.stage === "processed"
         ? "/shipments/completed"
         : "/shipments/in-process";

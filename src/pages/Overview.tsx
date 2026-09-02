@@ -25,7 +25,7 @@ export default function Overview() {
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <Link to="/inbound" className="block">
+        <Link to="/enquiries" className="block">
           <MetricCard label="Open inbound requests" value={String(kpis.inboundRequestsOpen ?? "—")} hint="Needs quote or human review" />
         </Link>
         <Link to="/shipments/in-process" className="block">

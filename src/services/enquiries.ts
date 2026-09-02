@@ -134,6 +134,62 @@ export interface Quote {
   created_at: string;
 }
 
+export type ShipmentStage =
+  | "booked"
+  | "cargo_received"
+  | "stuffed"
+  | "gated_in"
+  | "sailed"
+  | "arrived"
+  | "delivered"
+  | "cancelled";
+
+export const SHIPMENT_STAGE_LABEL: Record<ShipmentStage, string> = {
+  booked: "Booked",
+  cargo_received: "Cargo received",
+  stuffed: "Stuffed",
+  gated_in: "Gated in",
+  sailed: "Sailed",
+  arrived: "Arrived",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+/** The order operations actually moves through, for the stage control. */
+export const SHIPMENT_STAGES: ShipmentStage[] = [
+  "booked",
+  "cargo_received",
+  "stuffed",
+  "gated_in",
+  "sailed",
+  "arrived",
+  "delivered",
+];
+
+export interface Shipment {
+  id: string;
+  enquiry_ref: string;
+  customer_id: string;
+  stage: ShipmentStage;
+  origin: string | null;
+  destination: string | null;
+  cargo: string | null;
+  piece_count: number | null;
+  volume_cbm: number | null;
+  gross_weight_kg: number | null;
+  agreed_inr: number | null;
+  sailing_date: string | null;
+  carrier: string | null;
+  booking_number: string | null;
+  container_number: string | null;
+  bl_number: string | null;
+  vessel: string | null;
+  etd: string | null;
+  eta: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Call {
   call_id: string;
   enquiry_ref: string | null;
@@ -216,6 +272,51 @@ export async function eventsFor(ref: string): Promise<EnquiryEvent[]> {
     .order("at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as EnquiryEvent[];
+}
+
+/**
+ * Turns an accepted enquiry into a shipment.
+ *
+ * The database refuses unless a quote has actually been accepted, so the guard
+ * cannot be bypassed by calling this directly. Pressing twice returns the
+ * existing shipment rather than raising: the second press means "did that
+ * work?", and an error there would read as a failure.
+ */
+export async function promoteToShipment(ref: string): Promise<Shipment> {
+  const { data, error } = await supabase.rpc("promote_enquiry", { p_ref: ref.toUpperCase() });
+  if (error) throw error;
+  void refreshAgentKnowledge();
+  return data as Shipment;
+}
+
+export async function shipmentFor(ref: string): Promise<Shipment | null> {
+  const { data, error } = await supabase
+    .from("shipments")
+    .select("*")
+    .eq("enquiry_ref", ref.toUpperCase())
+    .maybeSingle();
+  if (error) throw error;
+  return (data as Shipment | null) ?? null;
+}
+
+export async function listShipments(
+  stages?: ShipmentStage[]
+): Promise<Array<Shipment & { customer: Customer | null }>> {
+  let q = supabase.from("shipments").select("*, customer:customers(*)");
+  if (stages?.length) q = q.in("stage", stages);
+  const { data, error } = await q.order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Array<Shipment & { customer: Customer | null }>;
+}
+
+export async function setShipmentStage(id: string, stage: ShipmentStage): Promise<Shipment> {
+  const { data, error } = await supabase.rpc("set_shipment_stage", {
+    p_id: id,
+    p_stage: stage,
+  });
+  if (error) throw error;
+  void refreshAgentKnowledge();
+  return data as Shipment;
 }
 
 export async function callsFor(ref: string): Promise<Call[]> {
