@@ -44,6 +44,13 @@ const day = (offsetDays: number) => iso(offsetDays).slice(0, 10);
 // Containers
 // ---------------------------------------------------------------------------
 
+/**
+ * No seeded sailings, placements, records or calls.
+ *
+ * The space board and the pipeline show nothing until something real is in
+ * them. Container specifications stay, because those are physical facts about
+ * standard boxes rather than invented business data.
+ */
 const CONTAINERS: Record<
   string,
   { code: string; lengthM: number; widthM: number; heightM: number; maxPayloadKg: number }
@@ -86,26 +93,9 @@ interface Slot {
   mode: "LCL" | "FCL";
 }
 
-const slots: Slot[] = [
-  { id: "sl-1", route: "Chennai to Jebel Ali", carrier: "MSC", sailingDate: day(4), cutoffDate: day(2), containerCode: "40HC", mode: "LCL" },
-  { id: "sl-2", route: "Chennai to Singapore", carrier: "ONE", sailingDate: day(7), cutoffDate: day(5), containerCode: "40HC", mode: "LCL" },
-  { id: "sl-3", route: "Chennai to Colombo", carrier: "CMA CGM", sailingDate: day(3), cutoffDate: day(1), containerCode: "20GP", mode: "LCL" },
-  { id: "sl-4", route: "Chennai to Jeddah", carrier: "Maersk", sailingDate: day(11), cutoffDate: day(9), containerCode: "40GP", mode: "LCL" },
-];
+const slots: Slot[] = [];
 
-const placements: Placement[] = [
-  // sl-1 — three consignments, loaded front to back with a gap at 5.4m that the
-  // trapped-floor figure should pick up.
-  mkPlacement("pl-1", "sl-1", "Kavitha Textiles", "ARX-ENQ-0001", 0, 1.2, 0.6, 0.4, 0.35, 96, 18, 2, 2, 0),
-  mkPlacement("pl-2", "sl-1", "Surya Auto Components", "ARX-ENQ-0004", 1.2, 2.4, 1.2, 1.0, 1.1, 8, 240, 2, 1, 1),
-  mkPlacement("pl-3", "sl-1", "Anand Marine Supplies", "ARX-ENQ-0007", 6.0, 1.8, 1.2, 0.8, 0.9, 12, 95, 2, 2, 2),
-
-  // sl-2 — nearly empty, the obvious place to test a booking.
-  mkPlacement("pl-4", "sl-2", "Rajesh Exports", "ARX-ENQ-0002", 0, 2.4, 1.2, 1.0, 1.1, 8, 180, 2, 1, 0),
-
-  // sl-3 — a 20GP almost full, for testing the "does not fit" path.
-  mkPlacement("pl-5", "sl-3", "Meenakshi Spices", "ARX-ENQ-0005", 0, 4.8, 1.2, 0.8, 0.9, 32, 60, 2, 2, 0),
-];
+const placements: Placement[] = [];
 
 function mkPlacement(
   id: string,
@@ -167,173 +157,7 @@ interface Record_ {
   updatedAt: string;
 }
 
-const records: Record_[] = [
-  {
-    ref: "ARX-ENQ-0001",
-    phone: "+919840112233",
-    customerName: "Meera Raghavan",
-    company: "Kavitha Textiles",
-    blNumber: "MSCU7845120",
-    stage: "processing",
-    processingStartedAt: iso(-3),
-    status: "booked",
-    origin: "Chennai",
-    destination: "Jebel Ali",
-    cargoDescription: "Cotton bed linen sets",
-    volumeCbm: 8.06,
-    containerType: "40HC",
-    quotedAmountInr: 195_000,
-    agreedAmountInr: 185_000,
-    sailingDate: day(4),
-    sourceLanguage: "ta",
-    createdAt: iso(-9),
-    updatedAt: iso(-1),
-    requestDetails: {
-      customer_name: "Meera Raghavan",
-      company: "Kavitha Textiles",
-      origin: "Chennai",
-      destination: "Jebel Ali",
-      cargo_description: "Cotton bed linen sets",
-      cargo_type: "textiles_garments",
-      piece_length_cm: 60,
-      piece_width_cm: 40,
-      piece_height_cm: 35,
-      piece_count: 96,
-      weight_per_piece_kg: 18,
-      total_gross_weight_kg: 1728,
-      volume_cbm: 8.06,
-      container_type: "40HC",
-      preferred_sailing_date: day(4),
-      quote_accepted: true,
-      shipper_legal_name: "Kavitha Textiles Private Limited",
-      shipper_gstin_iec: "33AAGCK4521M1Z8",
-      consignee_name: "Al Noor Trading LLC",
-      consignee_address: "Warehouse 12, Jebel Ali Free Zone, Dubai",
-      consignee_country: "United Arab Emirates",
-      hs_code: "6302.31",
-      invoice_value_inr: 850_000,
-      package_count: 96,
-      package_type: "cartons",
-      net_weight_kg: 1_640,
-      gross_weight_kg: 1_728,
-      incoterm: "FOB",
-      payment_terms: "30 days from bill of lading date",
-      wood_packaging_used: true,
-    },
-  },
-  {
-    ref: "ARX-ENQ-0002",
-    phone: "+919176554321",
-    customerName: "Rajesh Kumar",
-    company: "Rajesh Exports",
-    stage: "processing",
-    processingStartedAt: iso(-2),
-    status: "booked",
-    origin: "Chennai",
-    destination: "Singapore",
-    cargoDescription: "Machined steel fittings",
-    volumeCbm: 10.56,
-    containerType: "40HC",
-    quotedAmountInr: 142_000,
-    agreedAmountInr: 138_000,
-    sailingDate: day(7),
-    sourceLanguage: "en",
-    createdAt: iso(-6),
-    updatedAt: iso(-2),
-    requestDetails: {
-      customer_name: "Rajesh Kumar",
-      company: "Rajesh Exports",
-      origin: "Chennai",
-      destination: "Singapore",
-      cargo_description: "Machined steel fittings",
-      cargo_type: "machinery_parts",
-      piece_length_cm: 120,
-      piece_width_cm: 100,
-      piece_height_cm: 110,
-      piece_count: 8,
-      weight_per_piece_kg: 180,
-      total_gross_weight_kg: 1_440,
-      volume_cbm: 10.56,
-      container_type: "40HC",
-      preferred_sailing_date: day(7),
-      quote_accepted: true,
-    },
-  },
-  {
-    ref: "ARX-ENQ-0003",
-    phone: "+918939153390",
-    customerName: "Kevin",
-    company: "Sudhan Trading",
-    stage: "enquiry",
-    status: "quoted",
-    origin: "Chennai",
-    destination: "Colombo",
-    cargoDescription: "Packaged food products",
-    volumeCbm: 4.2,
-    quotedAmountInr: 68_000,
-    sourceLanguage: "ta",
-    createdAt: iso(-1),
-    updatedAt: iso(-1),
-    requestDetails: {
-      customer_name: "Kevin",
-      company: "Sudhan Trading",
-      origin: "Chennai",
-      destination: "Colombo",
-      cargo_description: "Packaged food products",
-      cargo_type: "food_perishable",
-      piece_length_cm: 50,
-      piece_width_cm: 40,
-      piece_height_cm: 30,
-      piece_count: 70,
-      weight_per_piece_kg: 22,
-      volume_cbm: 4.2,
-      // No sailing date and no acceptance yet -- this is what keeps it an enquiry,
-      // and what the promote button on the detail page needs before it will move.
-    },
-  },
-  {
-    ref: "ARX-ENQ-0004",
-    phone: "+917448506170",
-    customerName: "Priya Nair",
-    company: "Surya Auto Components",
-    blNumber: "ONEU4471209",
-    stage: "processed",
-    status: "delivered",
-    origin: "Chennai",
-    destination: "Jebel Ali",
-    cargoDescription: "Automotive castings",
-    volumeCbm: 10.56,
-    containerType: "40HC",
-    quotedAmountInr: 210_000,
-    agreedAmountInr: 205_000,
-    sailingDate: day(-14),
-    sourceLanguage: "en",
-    createdAt: iso(-30),
-    updatedAt: iso(-5),
-  },
-  {
-    ref: "ARX-ENQ-0005",
-    phone: "+919094887766",
-    customerName: "Suresh Babu",
-    company: "Meenakshi Spices",
-    stage: "enquiry",
-    status: "awaiting_details",
-    origin: "Chennai",
-    destination: "Jeddah",
-    cargoDescription: "Ground spices in sacks",
-    sourceLanguage: "ta",
-    createdAt: iso(-1),
-    updatedAt: iso(-1),
-    requestDetails: {
-      customer_name: "Suresh Babu",
-      company: "Meenakshi Spices",
-      origin: "Chennai",
-      destination: "Jeddah",
-      cargo_description: "Ground spices in sacks",
-      cargo_type: "food_dry",
-    },
-  },
-];
+const records: Record_[] = [];
 
 const TRANSCRIPT_1 = `Agent: Hi, this is Priya from the Aashish Logistics Global desk. How can I help you today?
 Customer: Hi, I need to send some bed linen to Dubai.
@@ -354,52 +178,21 @@ Agent: I can bring it to one lakh eighty-five thousand. That's the best I can do
 Customer: That works. Let's book it.
 Agent: Booked. I'll pass you to Arun who'll take the documentation details.`;
 
-const callLogs = [
-  {
-    call_id: "12970",
-    agent_name: "Priya",
-    direction: "inbound",
-    from_number: "+919840112233",
-    to_number: "+917965854267",
-    status: "completed",
-    duration_secs: 214,
-    transcript: TRANSCRIPT_1,
-    summary:
-      "Meera Raghavan of Kavitha Textiles booked 96 cartons of cotton bed linen, Chennai to Jebel Ali, on the MSC sailing. Negotiated from ₹195,000 to ₹185,000 and accepted. Handed to documentation.",
-    extracted: { extracted_by: "llm-mock", fields: 21 },
-    started_at: iso(-1),
-  },
-  {
-    call_id: "12968",
-    agent_name: "Priya",
-    direction: "inbound",
-    from_number: "+918939153390",
-    to_number: "+917965854267",
-    status: "completed",
-    duration_secs: 138,
-    transcript:
-      "Agent: வணக்கம், ஆஷிஷ் லாஜிஸ்டிக்ஸ் ப்ரியா பேசுறேன். எப்படி உதவ முடியும்?\nCustomer: கொழும்புக்கு சரக்கு அனுப்பணும்.\nAgent: கண்டிப்பா. என்ன சரக்கு?\nCustomer: பேக் பண்ண food products.\nAgent: எத்தனை பெட்டி?\nCustomer: எழுபது.\nAgent: சரி, ஒரு மணி நேரத்துல quote அனுப்புறேன்.",
-    summary:
-      "Kevin of Sudhan Trading enquired about 70 cartons of packaged food, Chennai to Colombo. Quoted ₹68,000. No sailing date agreed yet — call back needed.",
-    extracted: { extracted_by: "llm-mock", fields: 11 },
-    started_at: iso(-1),
-  },
-  {
-    call_id: "12965",
-    agent_name: "Arun",
-    direction: "inbound",
-    from_number: "+919176554321",
-    to_number: "+917965854267",
-    status: "completed",
-    duration_secs: 96,
-    transcript:
-      "Agent: Hi, this is Arun from the documentation desk. Priya's passed me your shipment — I just need a few more details.\nCustomer: Go ahead.\nAgent: What's the full legal name of the shipper?\nCustomer: Rajesh Exports Private Limited.\nAgent: Thank you. And the consignee in Singapore?\nCustomer: I'll have to send that across, I don't have it here.\nAgent: No problem at all — call back whenever you have it and we'll pick up right here.",
-    summary:
-      "Arun collected shipper legal name for ARX-ENQ-0002. Consignee details still outstanding; customer to call back.",
-    extracted: { extracted_by: "llm-mock", fields: 4 },
-    started_at: iso(-2),
-  },
-];
+interface CallLogRow {
+  call_id: string;
+  agent_name: string;
+  direction: string;
+  from_number: string;
+  to_number: string;
+  status: string;
+  duration_secs: number;
+  transcript: string;
+  summary: string;
+  extracted: Record<string, unknown>;
+  started_at: string;
+}
+
+const callLogs: CallLogRow[] = [];
 
 // ---------------------------------------------------------------------------
 // Derived figures — computed, never stored, exactly as the real backend does it

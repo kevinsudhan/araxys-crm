@@ -18,10 +18,10 @@ export default function Analytics() {
       <PageHeader title="Analytics & reporting" subtitle="What the forwarder is paying for at renewal time." />
 
       <div className="grid grid-cols-4 gap-3 mb-6">
-        <MetricCard label="Demurrage avoided" value={`₹${(kpis.demurrageAvoidedInr / 1000).toFixed(0)}k`} />
-        <MetricCard label="Calls deflected" value={String(kpis.callsDeflected)} />
-        <MetricCard label="Quote → booking" value={`${kpis.quoteToBookingPct}%`} />
-        <MetricCard label="Active shipments" value={String(kpis.activeShipments)} />
+        <MetricCard label="Demurrage avoided" value={kpis.demurrageAvoidedInr === null ? "—" : `₹${(kpis.demurrageAvoidedInr / 1000).toFixed(0)}k`} />
+        <MetricCard label="Calls deflected" value={String(kpis.callsDeflected ?? "—")} />
+        <MetricCard label="Quote → booking" value={kpis.quoteToBookingPct === null ? "—" : `${kpis.quoteToBookingPct}%`} />
+        <MetricCard label="Active shipments" value={String(kpis.activeShipments ?? "—")} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">

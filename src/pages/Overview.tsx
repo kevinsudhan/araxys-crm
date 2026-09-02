@@ -18,21 +18,21 @@ export default function Overview() {
       <PageHeader title="Ops overview" subtitle="Snapshot across inbound requests, active shipments, and support." />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <MetricCard label="Demurrage avoided" value={`₹${(kpis.demurrageAvoidedInr / 1000).toFixed(0)}k`} />
-        <MetricCard label="Calls deflected" value={String(kpis.callsDeflected)} />
-        <MetricCard label="Quote → booking" value={`${kpis.quoteToBookingPct}%`} />
-        <MetricCard label="Active shipments" value={String(kpis.activeShipments)} />
+        <MetricCard label="Demurrage avoided" value={kpis.demurrageAvoidedInr === null ? "—" : `₹${(kpis.demurrageAvoidedInr / 1000).toFixed(0)}k`} />
+        <MetricCard label="Calls deflected" value={String(kpis.callsDeflected ?? "—")} />
+        <MetricCard label="Quote → booking" value={kpis.quoteToBookingPct === null ? "—" : `${kpis.quoteToBookingPct}%`} />
+        <MetricCard label="Active shipments" value={String(kpis.activeShipments ?? "—")} />
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-6">
         <Link to="/inbound" className="block">
-          <MetricCard label="Open inbound requests" value={String(kpis.inboundRequestsOpen)} hint="Needs quote or human review" />
+          <MetricCard label="Open inbound requests" value={String(kpis.inboundRequestsOpen ?? "—")} hint="Needs quote or human review" />
         </Link>
         <Link to="/shipments/in-process" className="block">
           <MetricCard label="In-process shipments" value={String(shipments.filter((s) => s.stage === "in_process").length)} hint="Booked through delivery" />
         </Link>
         <Link to="/complaints" className="block">
-          <MetricCard label="Open complaints" value={String(kpis.openComplaints)} hint="Billing, damage, delay" />
+          <MetricCard label="Open complaints" value={String(kpis.openComplaints ?? "—")} hint="Billing, damage, delay" />
         </Link>
       </div>
 
