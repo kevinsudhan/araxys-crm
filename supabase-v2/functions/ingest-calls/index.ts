@@ -24,6 +24,8 @@
  * ---------------------------------------------------------------------------
  */
 
+import { extractFromTranscript, fillBlanks, lastExtractionError } from "./extract.ts";
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SNAP_KEY = Deno.env.get("SNAPSERVE_API_KEY")!;
@@ -72,14 +74,6 @@ function referenceIn(text: string): string | null {
   return m ? `ARX-C${m[1]}-E${m[2]}` : null;
 }
 
-/** The language the caller used, for the per-caller memory the agent reads. */
-function languageOf(transcript: string): string {
-  const tamil = (transcript.match(/[஀-௿]/g) ?? []).length;
-  if (!tamil) return "English";
-  const latin = (transcript.match(/[A-Za-z]/g) ?? []).length;
-  return tamil > latin * 0.15 ? "Tamil" : "Tamil / English";
-}
-
 interface SnapCall {
   id: number | string;
   agentId?: number;
@@ -113,6 +107,8 @@ Deno.serve(async (req) => {
     phonesLinked: 0,
     skippedShort: 0,
     skippedSuppressed: 0,
+    extracted: 0,
+    fieldsFilled: 0,
     matched: { phone: 0, reference: 0, unmatched: 0 },
     errors: [] as string[],
   };
@@ -272,6 +268,94 @@ Deno.serve(async (req) => {
         }
       }
 
+      /**
+       * Read the conversation into the enquiry.
+       *
+       * This is what turns a call from a phone number and a wall of text into a
+       * file somebody can act on. Extraction failing is not a reason to lose the
+       * call -- the transcript is stored either way and the desk can read it.
+       */
+      const found = await extractFromTranscript(transcript, detail.createdAt);
+      if (found.summary || found.origin || found.destination || found.cargo) report.extracted++;
+      if (lastExtractionError()) report.errors.push(lastExtractionError()!);
+
+      if (enquiryRef) {
+        const [current] = await db(
+          `enquiries?select=*&ref=eq.${encodeURIComponent(enquiryRef)}`
+        );
+
+        /**
+         * Only blanks are filled. A second call that mentions the destination in
+         * passing must not wipe the dimensions the first one established, and a
+         * value somebody typed at the desk outranks one a model heard.
+         */
+        const patch = fillBlanks(current ?? {}, found as unknown as Record<string, unknown>, [
+          "origin",
+          "destination",
+          "cargo",
+          "incoterm",
+          "piece_count",
+          "piece_length_cm",
+          "piece_width_cm",
+          "piece_height_cm",
+          "weight_per_piece_kg",
+          "ready_date",
+          "pickup_location",
+          "consignee_name",
+          "consignee_country",
+          "special_handling",
+        ]);
+
+        // Volume and weight stay derived, never taken from the transcript.
+        const l = (patch.piece_length_cm ?? current?.piece_length_cm) as number | null;
+        const w = (patch.piece_width_cm ?? current?.piece_width_cm) as number | null;
+        const h = (patch.piece_height_cm ?? current?.piece_height_cm) as number | null;
+        const n = (patch.piece_count ?? current?.piece_count) as number | null;
+        const kg = (patch.weight_per_piece_kg ?? current?.weight_per_piece_kg) as number | null;
+
+        if (l && w && h && n) patch.volume_cbm = Number(((l * w * h * n) / 1_000_000).toFixed(2));
+        if (kg && n) patch.gross_weight_kg = Number((kg * n).toFixed(2));
+
+        // A call that establishes anything has moved the enquiry past "new".
+        if (Object.keys(patch).length && current?.status === "new") patch.status = "qualifying";
+
+        if (Object.keys(patch).length) {
+          patch.updated_at = new Date().toISOString();
+          await db(`enquiries?ref=eq.${encodeURIComponent(enquiryRef)}`, {
+            method: "PATCH",
+            headers: { Prefer: "return=minimal" },
+            body: JSON.stringify(patch),
+          });
+          report.fieldsFilled += Object.keys(patch).length;
+        }
+
+        /**
+         * A name the caller gave replaces "Caller 9188...", but only on a
+         * provisional record. A customer somebody entered by hand is not
+         * renamed because a transcript heard something else.
+         */
+        if (customer && found.customer_name && String(customer.name).startsWith("Caller ")) {
+          await db(`customers?id=eq.${customer.id}`, {
+            method: "PATCH",
+            headers: { Prefer: "return=minimal" },
+            body: JSON.stringify({
+              name: found.customer_name,
+              ...(found.company ? { company: found.company } : {}),
+              updated_at: new Date().toISOString(),
+            }),
+          });
+        }
+
+        // An address heard on the call is the bridge to their mail, so it goes
+        // on the customer as soon as it is offered.
+        if (customer && found.email) {
+          await db("rpc/link_email_to_customer", {
+            method: "POST",
+            body: JSON.stringify({ p_customer_id: customer.id, p_email: found.email }),
+          }).catch(() => {});
+        }
+      }
+
       await db("calls", {
         method: "POST",
         headers: { Prefer: "resolution=merge-duplicates" },
@@ -285,9 +369,9 @@ Deno.serve(async (req) => {
           to_number: detail.toNumber ?? "",
           status: detail.status ?? "",
           duration_secs: seconds,
-          language: languageOf(transcript),
+          language: found.language ?? "",
           transcript,
-          summary: detail.callSummary ?? "",
+          summary: found.summary ?? detail.callSummary ?? "",
           started_at: detail.createdAt ?? null,
           ended_at: detail.endedAt ?? null,
           matched_by: matchedBy,
@@ -301,6 +385,7 @@ Deno.serve(async (req) => {
             enquiry_ref: enquiryRef,
             kind: "call",
             summary:
+              found.summary?.slice(0, 300) ||
               detail.callSummary?.slice(0, 300) ||
               `${Math.round(seconds / 60)} minute call from ${from}`,
             detail: { call_id: callId, matched_by: matchedBy, seconds },
