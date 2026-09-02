@@ -50,6 +50,8 @@ export interface Session {
   email: string;
   name: string;
   role: Role;
+  /** Appended to new messages. Graph cannot read the Outlook one, so we keep our own. */
+  signature: string;
 }
 
 interface AuthValue {
@@ -60,6 +62,8 @@ interface AuthValue {
   signIn: (email: string, password: string, expectedRole: Role) => Promise<string | null>;
   /** Redirects to Microsoft; returns only if starting the redirect failed. */
   signInWithMicrosoft: () => Promise<string | null>;
+  /** Saves the caller's own signature. Returns an error message, or null. */
+  saveSignature: (signature: string) => Promise<string | null>;
   signOut: () => Promise<void>;
 }
 
@@ -69,7 +73,7 @@ const AuthContext = createContext<AuthValue | null>(null);
 async function loadProfile(userId: string, fallbackEmail: string): Promise<Session | null> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, email, full_name, role")
+    .select("id, email, full_name, role, signature")
     .eq("id", userId)
     .single();
 
@@ -80,6 +84,7 @@ async function loadProfile(userId: string, fallbackEmail: string): Promise<Sessi
     email: data.email ?? fallbackEmail,
     name: data.full_name || (data.email ?? fallbackEmail).split("@")[0],
     role: data.role === "admin" ? "admin" : "employee",
+    signature: data.signature ?? "",
   };
 }
 
@@ -203,6 +208,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return error?.message ?? null;
   }, []);
 
+  /**
+   * Writes the signature to the caller's own profile row.
+   *
+   * RLS allows this update and nothing else: the policy pins `role` to its
+   * current value, so this path cannot be turned into self-promotion.
+   */
+  const saveSignature = useCallback(
+    async (signature: string): Promise<string | null> => {
+      if (!session) return "Not signed in.";
+      const { error } = await supabase
+        .from("profiles")
+        .update({ signature })
+        .eq("id", session.userId);
+      if (error) return error.message;
+      setSession({ ...session, signature });
+      return null;
+    },
+    [session]
+  );
+
   const signOut = useCallback(async () => {
     // The mailbox token must go with the session. Leaving it behind would let
     // the next person in this tab read the previous one's Outlook.
@@ -212,8 +237,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ session, loading, signIn, signInWithMicrosoft, signOut }),
-    [session, loading, signIn, signInWithMicrosoft, signOut]
+    () => ({ session, loading, signIn, signInWithMicrosoft, saveSignature, signOut }),
+    [session, loading, signIn, signInWithMicrosoft, saveSignature, signOut]
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

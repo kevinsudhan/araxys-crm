@@ -13,16 +13,28 @@ import { sendMail, mailIsLive, type MailMessage } from "../services/backend";
 export default function ComposeMail({
   mailbox,
   fromName,
+  signature = "",
   replyTo,
   onClose,
   onSent,
 }: {
   mailbox: string;
   fromName: string;
+  /** The sender's saved signature, pre-filled into the body. */
+  signature?: string;
   replyTo?: MailMessage;
   onClose: () => void;
   onSent: () => void;
 }) {
+  /**
+   * The signature is seeded into the editable body rather than bolted on at
+   * send time, so what is on screen is what goes out. Appending it invisibly
+   * during send would mean nobody could shorten it for a one-line reply, or
+   * see that it is doubled when they have also typed their name.
+   */
+  const sig = signature.trim() ? `
+
+${signature.trim()}` : "";
   const [to, setTo] = useState(replyTo ? replyTo.from.emailAddress.address : "");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(
@@ -30,13 +42,13 @@ export default function ComposeMail({
   );
   const [content, setContent] = useState(
     replyTo
-      ? `\n\n---\nOn ${new Date(replyTo.receivedDateTime).toLocaleString()}, ` +
+      ? `${sig}\n\n---\nOn ${new Date(replyTo.receivedDateTime).toLocaleString()}, ` +
           `${replyTo.from.emailAddress.name || replyTo.from.emailAddress.address} wrote:\n\n` +
           replyTo.body.content
               .split("\n")
               .map((l) => `> ${l}`)
               .join("\n")
-      : ""
+      : sig
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

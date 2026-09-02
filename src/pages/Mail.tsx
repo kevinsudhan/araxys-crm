@@ -6,6 +6,7 @@ import {
   Mail as MailIcon,
   Paperclip,
   PenSquare,
+  PenLine,
   RefreshCw,
   Reply,
   Search,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import ComposeMail from "../components/ComposeMail";
+import SignatureEditor from "../components/SignatureEditor";
 import { useAuth } from "../lib/auth";
 import {
   getMailFolders,
@@ -48,7 +50,7 @@ const FOLDER_ICON: Record<FolderId, React.ElementType> = {
  * aarathy@ -- and a picker is how that ends up happening by accident.
  */
 export default function Mail() {
-  const { session, signInWithMicrosoft } = useAuth();
+  const { session, signInWithMicrosoft, saveSignature } = useAuth();
   const mailbox = session?.email ?? "";
 
   const [folders, setFolders] = useState<MailFolder[]>([]);
@@ -59,6 +61,7 @@ export default function Mail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [composing, setComposing] = useState<null | { replyTo?: MailMessage }>(null);
+  const [editingSignature, setEditingSignature] = useState(false);
   const live = mailIsLive();
 
   /**
@@ -229,6 +232,14 @@ export default function Mail() {
         >
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
           Refresh
+        </button>
+
+        <button
+          onClick={() => setEditingSignature(true)}
+          className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-surface-1 text-[12px] text-text-secondary hover:text-text-primary"
+        >
+          <PenLine size={13} />
+          Signature
         </button>
       </div>
 
@@ -403,10 +414,19 @@ export default function Mail() {
         </div>
       </div>
 
+      {editingSignature && (
+        <SignatureEditor
+          initial={session?.signature ?? ""}
+          onSave={saveSignature}
+          onClose={() => setEditingSignature(false)}
+        />
+      )}
+
       {composing && (
         <ComposeMail
           mailbox={mailbox}
           fromName={session?.name ?? ""}
+          signature={session?.signature ?? ""}
           replyTo={composing.replyTo}
           onClose={() => setComposing(null)}
           onSent={() => {
