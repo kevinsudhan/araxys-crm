@@ -109,6 +109,7 @@ Deno.serve(async (req) => {
     skippedSuppressed: 0,
     extracted: 0,
     fieldsFilled: 0,
+    quotesRecorded: 0,
     matched: { phone: 0, reference: 0, unmatched: 0 },
     errors: [] as string[],
   };
@@ -327,6 +328,70 @@ Deno.serve(async (req) => {
             body: JSON.stringify(patch),
           });
           report.fieldsFilled += Object.keys(patch).length;
+        }
+
+        /**
+         * A price the agent named on the call becomes a quote.
+         *
+         * She said it to a customer, so it exists whether or not anybody at the
+         * desk types it in later. Recorded as 'sent' because that is what
+         * happened -- it was communicated -- and marked accepted only when the
+         * caller said yes to that specific figure.
+         *
+         * This does not book anything. Turning an accepted quote into a
+         * shipment is still a button somebody presses, which is the right place
+         * for the human gate: a transcript can be misread, and a booking should
+         * not appear because a model heard "okay".
+         */
+        if (found.quoted_amount_inr) {
+          const priced: Array<{ id: string; version: number; amount_inr: string }> = await db(
+            `quotes?select=id,version,amount_inr&enquiry_ref=eq.${encodeURIComponent(enquiryRef)}` +
+              `&order=version.desc&limit=1`
+          );
+
+          const same =
+            priced.length && Number(priced[0].amount_inr) === Number(found.quoted_amount_inr);
+
+          if (!same) {
+            const [created] = await db("quotes", {
+              method: "POST",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify({
+                enquiry_ref: enquiryRef,
+                version: (priced[0]?.version ?? 0) + 1,
+                amount_inr: found.quoted_amount_inr,
+                basis: [found.quoted_basis, "quoted on call"].filter(Boolean).join(" — "),
+                sailing_date: found.agreed_sailing_date,
+                status: found.quote_accepted ? "accepted" : "sent",
+                sent_at: new Date().toISOString(),
+                responded_at: found.quote_accepted ? new Date().toISOString() : null,
+              }),
+            });
+
+            await db("enquiries?ref=eq." + encodeURIComponent(enquiryRef), {
+              method: "PATCH",
+              headers: { Prefer: "return=minimal" },
+              body: JSON.stringify({
+                status: found.quote_accepted ? "accepted" : "quoted",
+                updated_at: new Date().toISOString(),
+              }),
+            });
+
+            await db("enquiry_events", {
+              method: "POST",
+              body: JSON.stringify({
+                enquiry_ref: enquiryRef,
+                kind: found.quote_accepted ? "accepted" : "quote_sent",
+                summary: found.quote_accepted
+                  ? `Caller accepted ₹${found.quoted_amount_inr.toLocaleString("en-IN")}` +
+                    `${found.quoted_basis ? ` ${found.quoted_basis}` : ""} on the call`
+                  : `Quoted ₹${found.quoted_amount_inr.toLocaleString("en-IN")}` +
+                    `${found.quoted_basis ? ` ${found.quoted_basis}` : ""} on the call`,
+                detail: { call_id: callId, from: "call transcript", quote_id: created?.id },
+              }),
+            });
+            report.quotesRecorded++;
+          }
         }
 
         /**

@@ -55,6 +55,16 @@ export interface Extracted {
   special_handling: string | null;
   /** What the agent actually named as a figure, if anything. */
   quoted_amount_inr: number | null;
+  /**
+   * How that figure was expressed.
+   *
+   * "4,200 per CBM" and "4,200 all-in" are different offers, and storing the
+   * number without the basis makes a rate look like a total. On the real call
+   * the agent named a per-CBM rate before she had a piece count, so the total
+   * did not exist yet -- and a quote row saying "₹4,200" would have been a lie
+   * about what was agreed.
+   */
+  quoted_basis: string | null;
   /** A sailing the caller settled on, not one merely mentioned. */
   agreed_sailing_date: string | null;
   /** Only true for an unambiguous yes to a specific price. */
@@ -83,6 +93,7 @@ const EMPTY: Extracted = {
   consignee_country: null,
   special_handling: null,
   quoted_amount_inr: null,
+  quoted_basis: null,
   agreed_sailing_date: null,
   quote_accepted: false,
   language: null,
@@ -98,6 +109,7 @@ Specifically:
 - Never derive a piece count from a weight, a volume from dimensions, or a total from a rate. If they gave dimensions but no count, the count is null.
 - Never fill an origin because the desk is in Chennai. Only if it was said.
 - A sailing date the AGENT offered is not agreed. Only a date the CALLER settled on goes in agreed_sailing_date.
+- quoted_basis records HOW the price was expressed, in the agent's own terms: "per CBM", "all-in", "per CBM plus THC and documentation". A rate and a total are different offers and must not be confused.
 - quote_accepted is true only for an unambiguous yes to a specific figure. "Okay" straight after a named price is a yes. "Okay" after "let me check and call you back" is not. Hesitation, "I'll think about it", or silence is not.
 
 MEASUREMENTS. Callers speak in mixed units and Indian idiom:
@@ -125,7 +137,7 @@ const SHAPE = `{
   "ready_date": "YYYY-MM-DD"|null, "pickup_location": string|null,
   "consignee_name": string|null, "consignee_country": string|null,
   "special_handling": string|null,
-  "quoted_amount_inr": number|null, "agreed_sailing_date": "YYYY-MM-DD"|null,
+  "quoted_amount_inr": number|null, "quoted_basis": string|null, "agreed_sailing_date": "YYYY-MM-DD"|null,
   "quote_accepted": boolean,
   "language": string|null, "summary": string|null
 }`;
@@ -253,6 +265,7 @@ function normalise(e: Extracted): Extracted {
     consignee_country: str(e.consignee_country),
     special_handling: str(e.special_handling),
     quoted_amount_inr: num(e.quoted_amount_inr),
+    quoted_basis: str(e.quoted_basis),
     agreed_sailing_date: date(e.agreed_sailing_date),
     quote_accepted: e.quote_accepted === true,
     language: str(e.language),

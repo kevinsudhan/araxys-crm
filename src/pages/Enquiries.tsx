@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertCircle, Inbox, Plus, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, Check, Inbox, Loader2, Plus, RefreshCw, Search, Truck } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import NewEnquiry from "../components/NewEnquiry";
 import { useAuth } from "../lib/auth";
 import {
   listEnquiries,
+  listShipments,
+  promoteToShipment,
   unfiledMail,
   STATUS_LABEL,
   INBOUND_STATUSES,
   type Customer,
   type Enquiry,
   type EnquiryStatus,
+  type Shipment,
 } from "../services/enquiries";
 import { mailIsLive, type MailMessage } from "../services/backend";
 
@@ -44,13 +47,17 @@ export default function Enquiries() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState<null | { from?: MailMessage }>(null);
+  /** Which enquiries already have a shipment, so the row shows the right thing. */
+  const [shipped, setShipped] = useState<Map<string, Shipment>>(new Map());
+  const [pushing, setPushing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const list = await listEnquiries();
+      const [list, ships] = await Promise.all([listEnquiries(), listShipments()]);
       setRows(list);
+      setShipped(new Map(ships.map((s) => [s.enquiry_ref, s])));
       // Triage only makes sense once a mailbox is connected.
       setUnfiled(mailIsLive() ? await unfiledMail(mailbox) : []);
     } catch (e) {
@@ -82,6 +89,26 @@ export default function Enquiries() {
     for (const s of INBOUND_STATUSES) c[s] = rows.filter((r) => r.status === s).length;
     return c;
   }, [rows]);
+
+  /**
+   * Pushing from the list rather than the case file.
+   *
+   * The guard is unchanged -- the database refuses without an accepted quote --
+   * but somebody working through a morning's enquiries should not have to open
+   * each one to move it on.
+   */
+  async function push(ref: string) {
+    setPushing(ref);
+    setError(null);
+    try {
+      await promoteToShipment(ref);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start the shipment.");
+    } finally {
+      setPushing(null);
+    }
+  }
 
   return (
     <div>
@@ -187,6 +214,41 @@ export default function Enquiries() {
                   <p className="mt-1 text-[11px] text-text-muted capitalize">via {r.source}</p>
                 </div>
               </div>
+
+              {/*
+                Only on an accepted enquiry, and only when it is not already a
+                shipment. A row that offers a button which then errors is worse
+                than one that explains why it is not offering it.
+              */}
+              {r.status === "accepted" && (
+                <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
+                  {shipped.has(r.ref) ? (
+                    <span className="inline-flex items-center gap-1.5 text-[12px] text-text-success">
+                      <Truck size={13} />
+                      In process as{" "}
+                      <span className="font-mono">{shipped.get(r.ref)!.id}</span>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        // The row is a link; pushing is not navigation.
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void push(r.ref);
+                      }}
+                      disabled={pushing !== null}
+                      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-[12px] font-medium"
+                    >
+                      {pushing === r.ref ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Check size={12} />
+                      )}
+                      Push to in-process shipments
+                    </button>
+                  )}
+                </div>
+              )}
             </Link>
           ))}
           {!visible.length && (
