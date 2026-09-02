@@ -112,6 +112,7 @@ Deno.serve(async (req) => {
     enquiriesOpened: 0,
     phonesLinked: 0,
     skippedShort: 0,
+    skippedSuppressed: 0,
     matched: { phone: 0, reference: 0, unmatched: 0 },
     errors: [] as string[],
   };
@@ -122,16 +123,47 @@ Deno.serve(async (req) => {
       ? listed
       : (listed.calls ?? listed.data ?? []);
 
-    // Only v2's agents. The live desk's calls are none of this function's business.
-    const mine = calls.filter((c) => V2_AGENTS.has(Number(c.agentId)));
+    /**
+     * Only completed calls, and only v2's agents.
+     *
+     * A call picked up while it is still running arrives with a duration of
+     * zero and no transcript. Storing that and then never looking again -- which
+     * is what "skip anything we have already seen" does -- leaves it stuck as
+     * an unidentified caller forever, which is exactly what happened to the
+     * first real call to this desk.
+     */
+    const mine = calls.filter(
+      (c) => V2_AGENTS.has(Number(c.agentId)) && String(c.status ?? "") === "completed"
+    );
     report.seen = mine.length;
 
-    const existing: Array<{ call_id: string }> = await db("calls?select=call_id");
-    const known = new Set(existing.map((r) => r.call_id));
+    const [existing, suppressed]: [
+      Array<{ call_id: string; duration_secs: number; transcript: string | null }>,
+      Array<{ call_id: string }>,
+    ] = await Promise.all([
+      db("calls?select=call_id,duration_secs,transcript"),
+      db("suppressed_calls?select=call_id"),
+    ]);
+
+    // Complete means we have both a duration and a transcript. Anything less was
+    // captured mid-flight and deserves another look now the call has ended.
+    const complete = new Set(
+      existing
+        .filter((r) => Number(r.duration_secs) > 0 && (r.transcript ?? "").length > 0)
+        .map((r) => r.call_id)
+    );
+    const ignored = new Set(suppressed.map((r) => r.call_id));
 
     for (const c of mine) {
       const callId = String(c.id);
-      if (known.has(callId)) continue;
+      if (complete.has(callId)) continue;
+
+      // Deliberately kept out. SnapServe will not delete a call, so forgetting
+      // one means refusing to import it however many times it comes round.
+      if (ignored.has(callId)) {
+        report.skippedSuppressed++;
+        continue;
+      }
 
       // The list endpoint does not carry the transcript; the detail one does.
       let detail: SnapCall = c;
