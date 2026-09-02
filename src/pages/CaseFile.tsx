@@ -16,6 +16,7 @@ import { useAuth } from "../lib/auth";
 import QuotePanel from "../components/QuotePanel";
 import CargoPanel from "../components/CargoPanel";
 import {
+  callsFor,
   correspondenceFor,
   eventsFor,
   getEnquiry,
@@ -28,6 +29,7 @@ import {
   type FiledMessage,
   type Party,
   type Quote,
+  type Call,
 } from "../services/enquiries";
 import { mailIsLive } from "../services/backend";
 import { ROLE_LABEL, ROLE_ORDER, type PartyRole } from "../services/caseFile";
@@ -48,6 +50,7 @@ export default function CaseFile() {
   const [parties, setParties] = useState<Party[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [events, setEvents] = useState<EnquiryEvent[]>([]);
+  const [calls, setCalls] = useState<Call[]>([]);
   const [mail, setMail] = useState<FiledMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,10 +65,16 @@ export default function CaseFile() {
       const e = await getEnquiry(ref);
       setEnquiry(e);
       if (!e) return;
-      const [p, q, ev] = await Promise.all([partiesFor(ref), quotesFor(ref), eventsFor(ref)]);
+      const [p, q, ev, cl] = await Promise.all([
+        partiesFor(ref),
+        quotesFor(ref),
+        eventsFor(ref),
+        callsFor(ref),
+      ]);
       setParties(p);
       setQuotes(q);
       setEvents(ev);
+      setCalls(cl);
       // Mail is best-effort: a mailbox that will not load must not blank the file.
       setMail(await correspondenceFor(ref, mailbox).catch(() => []));
     } catch (err) {
@@ -93,10 +102,15 @@ export default function CaseFile() {
   const timeline = useMemo(() => {
     const entries = [
       ...mail.map((m) => ({ kind: "mail" as const, at: m.message.receivedDateTime, mail: m })),
-      ...events.map((e) => ({ kind: "event" as const, at: e.at, event: e })),
+      // Calls carry their own row; the matching event exists for the audit trail
+      // and would otherwise say the same thing twice on screen.
+      ...events
+        .filter((e) => e.kind !== "call")
+        .map((e) => ({ kind: "event" as const, at: e.at, event: e })),
+      ...calls.map((c) => ({ kind: "call" as const, at: c.started_at ?? "", call: c })),
     ];
     return entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-  }, [mail, events]);
+  }, [mail, events, calls]);
 
   if (loading && !enquiry) {
     return <p className="text-[13px] text-text-muted py-8">Loading…</p>;
@@ -194,7 +208,7 @@ export default function CaseFile() {
           <MailIcon size={13} /> By party
         </Toggle>
         <span className="ml-auto text-[11px] text-text-muted">
-          {mail.length} messages · {events.length} events
+          {mail.length} messages · {calls.length} calls · {events.length} events
         </span>
       </div>
 
@@ -229,7 +243,41 @@ export default function CaseFile() {
       {view === "timeline" ? (
         <ol className="mt-3 space-y-2">
           {timeline.map((entry) =>
-            entry.kind === "event" ? (
+            entry.kind === "call" ? (
+              <li key={entry.call.call_id}>
+                <div className="rounded-card border border-border bg-surface-1 p-4">
+                  <div className="flex items-center gap-2 text-[11px] text-text-muted flex-wrap">
+                    <PhoneCall size={12} className="text-text-success" />
+                    <span className="font-medium text-text-success uppercase tracking-wide">
+                      Call
+                    </span>
+                    <span>{entry.call.agent_name}</span>
+                    <span>{entry.call.from_number}</span>
+                    {entry.call.language && <span>{entry.call.language}</span>}
+                    <span>{Math.round(entry.call.duration_secs / 60)} min</span>
+                    {/*
+                      A caller identified by reading out a reference is a
+                      different kind of certainty from one matched on their
+                      number, and an unmatched one is a guess. Say which.
+                    */}
+                    {entry.call.matched_by === "reference" && (
+                      <span className="rounded bg-bg-accent px-1.5 py-0.5 text-[10px] text-text-accent">
+                        matched by reference
+                      </span>
+                    )}
+                    {entry.call.matched_by === "unmatched" && (
+                      <span className="rounded bg-bg-warning px-1.5 py-0.5 text-[10px] text-text-warning">
+                        caller not identified
+                      </span>
+                    )}
+                    <span className="ml-auto">{when(entry.at)}</span>
+                  </div>
+                  <p className="mt-1.5 text-[13px] text-text-primary">
+                    {entry.call.summary || "No summary available for this call."}
+                  </p>
+                </div>
+              </li>
+            ) : entry.kind === "event" ? (
               <li key={entry.event.id}>
                 <div className="rounded-card border border-border bg-surface-1 px-4 py-2.5">
                   <div className="flex items-center gap-2 text-[11px] text-text-muted">

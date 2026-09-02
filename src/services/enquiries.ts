@@ -134,6 +134,21 @@ export interface Quote {
   created_at: string;
 }
 
+export interface Call {
+  call_id: string;
+  enquiry_ref: string | null;
+  customer_id: string | null;
+  agent_name: string;
+  from_number: string;
+  duration_secs: number;
+  language: string;
+  transcript: string | null;
+  summary: string | null;
+  started_at: string | null;
+  /** How the caller was tied to a customer — shown, so a guess never reads as a fact. */
+  matched_by: "phone" | "reference" | "manual" | "unmatched" | null;
+}
+
 export interface EnquiryEvent {
   id: string;
   enquiry_ref: string;
@@ -201,6 +216,16 @@ export async function eventsFor(ref: string): Promise<EnquiryEvent[]> {
     .order("at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as EnquiryEvent[];
+}
+
+export async function callsFor(ref: string): Promise<Call[]> {
+  const { data, error } = await supabase
+    .from("calls")
+    .select("*")
+    .eq("enquiry_ref", ref.toUpperCase())
+    .order("started_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Call[];
 }
 
 export async function threadsFor(ref: string): Promise<string[]> {
