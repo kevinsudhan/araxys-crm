@@ -16,6 +16,8 @@ const ShipmentDetail = lazy(() => import("./pages/ShipmentDetail"));
 const SpaceContainers = lazy(() => import("./pages/SpaceContainers"));
 const Documentation = lazy(() => import("./pages/Documentation"));
 const Mail = lazy(() => import("./pages/Mail"));
+const Enquiries = lazy(() => import("./pages/Enquiries"));
+const CaseFile = lazy(() => import("./pages/CaseFile"));
 const LiveCalls = lazy(() => import("./pages/LiveCalls"));
 const Complaints = lazy(() => import("./pages/Complaints"));
 const Billing = lazy(() => import("./pages/Billing"));
@@ -53,6 +55,8 @@ export default function App() {
             <Route path="/space-containers" element={<SpaceContainers />} />
             <Route path="/documentation" element={<Documentation />} />
             <Route path="/mail" element={<Mail />} />
+            <Route path="/enquiries" element={<Enquiries />} />
+            <Route path="/enquiries/:ref" element={<CaseFile />} />
             <Route path="/live-calls" element={<LiveCalls />} />
             <Route path="/complaints" element={<Complaints />} />
             <Route path="/billing" element={<Billing />} />

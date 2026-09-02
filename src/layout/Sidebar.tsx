@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Inbox,
   Mail,
+  FolderOpen,
   PackageSearch,
   PackageCheck,
   Boxes,
@@ -32,6 +33,7 @@ const groups: NavGroup[] = [
   {
     title: "Pipeline",
     items: [
+      { to: "/enquiries", label: "Enquiries", icon: FolderOpen },
       { to: "/inbound", label: "Inbound requests", icon: Inbox },
       { to: "/shipments/in-process", label: "In-process shipments", icon: PackageSearch },
       { to: "/shipments/completed", label: "Completed shipments", icon: PackageCheck },

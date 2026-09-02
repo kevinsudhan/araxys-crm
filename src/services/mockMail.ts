@@ -332,6 +332,15 @@ export const FOLDERS: Array<{ id: FolderId; label: string }> = [
 
 const forMailbox = (mailbox: string) => messages.filter((m) => m.mailbox === mailbox);
 
+/**
+ * Every message across every desk mailbox.
+ *
+ * The case file needs this: a shipment's correspondence is spread over info@,
+ * imports@ and whoever else was involved, and filing by enquiry has to see all
+ * of it rather than one person's inbox.
+ */
+export const allMessages = () => messages;
+
 export function listFolders(mailbox: string) {
   return FOLDERS.map((f) => {
     const inFolder = forMailbox(mailbox).filter((m) => m.folder === f.id);
