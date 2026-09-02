@@ -309,7 +309,7 @@ export async function sendMessage(input: {
         // among the easiest things for a strict receiver to reject, and the
         // same message composed in Outlook Web -- same sender, same recipient --
         // was being delivered where this one was not.
-        body: { contentType: "HTML", content: textToHtml(input.content) },
+        body: { contentType: "HTML", content: input.content },
         toRecipients: recipients(input.to),
         // Omitted entirely when empty. An explicit empty array is legal but
         // there is no reason to send a header nobody asked for.
@@ -318,26 +318,6 @@ export async function sendMessage(input: {
       saveToSentItems: true,
     }),
   });
-}
-
-/**
- * The composer is a plain textarea, so what the user typed has to become HTML
- * without becoming a markup injection on the way.
- *
- * Escaped first, then newlines turned into breaks -- doing it the other way
- * round would escape the tags this function just added.
- */
-function textToHtml(text: string): string {
-  const escaped = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
-  return `<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#1c1d1a">${escaped.replace(
-    /\r?\n/g,
-    "<br>"
-  )}</div>`;
 }
 
 /** The address Microsoft says this token belongs to — used to label the mailbox. */

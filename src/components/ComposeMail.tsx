@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, Send, X } from "lucide-react";
 import { sendMail, mailIsLive, type MailMessage } from "../services/backend";
+import RichTextEditor from "./RichTextEditor";
 
 /**
  * Compose, and reply.
@@ -32,9 +33,7 @@ export default function ComposeMail({
    * during send would mean nobody could shorten it for a one-line reply, or
    * see that it is doubled when they have also typed their name.
    */
-  const sig = signature.trim() ? `
-
-${signature.trim()}` : "";
+  const sig = signature.trim() ? `<br><br>${signature.trim()}` : "";
   const [to, setTo] = useState(replyTo ? replyTo.from.emailAddress.address : "");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(
@@ -42,17 +41,18 @@ ${signature.trim()}` : "";
   );
   const [content, setContent] = useState(
     replyTo
-      ? `${sig}\n\n---\nOn ${new Date(replyTo.receivedDateTime).toLocaleString()}, ` +
-          `${replyTo.from.emailAddress.name || replyTo.from.emailAddress.address} wrote:\n\n` +
-          replyTo.body.content
-              .split("\n")
-              .map((l) => `> ${l}`)
-              .join("\n")
+      ? `${sig}<br><br><hr><div>On ${new Date(replyTo.receivedDateTime).toLocaleString()}, ` +
+          `${escapeHtml(replyTo.from.emailAddress.name || replyTo.from.emailAddress.address)} ` +
+          `wrote:</div>` +
+          `<blockquote style="margin:0 0 0 12px;padding-left:10px;border-left:2px solid #ccc">` +
+          (replyTo.body.contentType === "html"
+            ? replyTo.body.content
+            : escapeHtml(replyTo.body.content).replace(/\r?\n/g, "<br>")) +
+          `</blockquote>`
       : sig
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   /**
    * Whether this will actually leave the building.
@@ -64,15 +64,6 @@ ${signature.trim()}` : "";
    * nobody reads when the mailbox was not.
    */
   const live = mailIsLive();
-
-  // A reply opens with the cursor above the quoted text, where you write.
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(0, 0);
-    el.scrollTop = 0;
-  }, []);
 
   // Escape closes, as it does in every mail client.
   useEffect(() => {
@@ -189,14 +180,14 @@ ${signature.trim()}` : "";
             />
           </Row>
 
-          <textarea
-            ref={bodyRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={12}
-            placeholder="Write your message…"
-            className="w-full mt-3 resize-y leading-relaxed"
-          />
+          <div className="mt-3">
+            <RichTextEditor
+              value={content}
+              onChange={setContent}
+              minHeight={220}
+              placeholder="Write your message…"
+            />
+          </div>
 
           {error && (
             <div
@@ -246,3 +237,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     </div>
   );
 }
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

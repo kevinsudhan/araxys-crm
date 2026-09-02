@@ -85,3 +85,32 @@ button {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---------------------------------------------------------------------------
+ * Rich text editor
+ *
+ * The placeholder is drawn with a pseudo-element because contentEditable has no
+ * placeholder attribute, and :empty alone is not enough — the browser leaves a
+ * stray <br> behind after the last character is deleted, so the element is not
+ * technically empty even when it looks it.
+ * ------------------------------------------------------------------------- */
+.rich-editor:empty::before,
+.rich-editor:has(> br:only-child)::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.rich-editor a {
+  color: var(--text-accent);
+  text-decoration: underline;
+}
+
+.rich-editor img {
+  max-width: 100%;
+  height: auto;
+}
+
+.rich-editor blockquote {
+  color: var(--text-secondary);
+}

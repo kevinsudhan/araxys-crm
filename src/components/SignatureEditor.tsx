@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Check, Loader2, X } from "lucide-react";
+import RichTextEditor from "./RichTextEditor";
 
 /**
  * The sender's email signature.
@@ -64,17 +65,17 @@ export default function SignatureEditor({
 
         <div className="px-5 py-4">
           <p className="text-[12px] text-text-secondary mb-3">
-            Paste the signature you use in Outlook. It will be added to the bottom of new
-            messages and replies, where you can still edit or delete it before sending.
+            Build the signature you want on outgoing mail. Select text and use the link
+            button to make it clickable — an email address becomes a mailto link, so
+            recipients can click it to start a message to you.
           </p>
 
-          <textarea
+          <RichTextEditor
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={9}
+            onChange={setText}
             autoFocus
-            placeholder={"Regards,\nYour Name\nAashish Logistics Global\n+91 …"}
-            className="w-full resize-y leading-relaxed"
+            minHeight={200}
+            placeholder="Regards, your name, company, phone…"
           />
 
           {error && (
@@ -90,7 +91,7 @@ export default function SignatureEditor({
 
         <footer className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border">
           <p className="text-[11px] text-text-muted">
-            Plain text. Images and formatting are not carried across from Outlook.
+            Images are uploaded and linked, so they display in the recipient's mail client.
           </p>
           <div className="flex items-center gap-2">
             <button
