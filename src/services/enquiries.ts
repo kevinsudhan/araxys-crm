@@ -3,6 +3,35 @@ import { refFromSubject, type PartyRole } from "./caseFile";
 import { getMailMessages, mailIsLive, type MailMessage } from "./backend";
 
 /**
+ * Republishes the agents' knowledge packs.
+ *
+ * Fired after anything that changes what the desk should know about a caller.
+ * A cron runs the same function every five minutes, so this is not the only
+ * path -- it is what makes the common case immediate rather than eventual. A
+ * customer who accepts at 14:02 and rings back at 14:06 should find the agent
+ * already knows.
+ *
+ * Failure is swallowed on purpose. The CRM write has already succeeded and is
+ * the record; a knowledge-base hiccup should not surface as though saving the
+ * quote had failed. The cron picks it up.
+ */
+export async function refreshAgentKnowledge(): Promise<void> {
+  try {
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kb-sync`;
+    await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ trigger: "crm" }),
+    });
+  } catch {
+    // Deliberately quiet — see above.
+  }
+}
+
+/**
  * Enquiries, against v2's own Supabase project.
  *
  * ---------------------------------------------------------------------------
@@ -243,6 +272,7 @@ export async function updateEnquiry(
   if (error) throw error;
 
   if (summary) await logEvent(ref, "field_updated", summary, patch as Record<string, unknown>);
+  void refreshAgentKnowledge();
   return data as Enquiry;
 }
 
@@ -365,6 +395,7 @@ export async function markQuoteSent(quoteId: string, ref: string, amount: number
 
   await updateEnquiry(ref, { status: "quoted" });
   await logEvent(ref, "quote_sent", `Quoted ₹${amount.toLocaleString("en-IN")}`);
+  void refreshAgentKnowledge();
 }
 
 /**
@@ -384,6 +415,7 @@ export async function acceptQuote(quoteId: string, ref: string, amount: number) 
 
   await updateEnquiry(ref, { status: "accepted" });
   await logEvent(ref, "accepted", `Customer accepted ₹${amount.toLocaleString("en-IN")}`);
+  void refreshAgentKnowledge();
 }
 
 export async function declineQuote(quoteId: string, ref: string, reason: string) {
