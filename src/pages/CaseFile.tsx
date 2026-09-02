@@ -35,6 +35,16 @@ export default function CaseFile() {
   const { ref = "" } = useParams();
   const [view, setView] = useState<"timeline" | "grouped">("timeline");
 
+  /**
+   * Which party groups are showing.
+   *
+   * Empty means all of them: opening "By party" to a blank screen would make
+   * the view look broken, so nothing selected is treated as no filter rather
+   * than as an empty filter. Clicking a chip narrows to it.
+   */
+  const [shown, setShown] = useState<PartyRole[]>([]);
+  const [showCalls, setShowCalls] = useState(true);
+
   const enquiry = useMemo(() => getEnquiry(ref), [ref]);
   const customer = enquiry ? getCustomer(enquiry.customerId) : null;
   const parties = useMemo(() => partiesFor(ref), [ref]);
@@ -53,10 +63,17 @@ export default function CaseFile() {
     );
   }
 
-  const byRole = ROLE_ORDER.map((role) => ({
+  const allGroups = ROLE_ORDER.map((role) => ({
     role,
     items: correspondence.filter((c) => c.role === role),
   })).filter((g) => g.items.length);
+
+  const filtering = shown.length > 0;
+  const byRole = filtering ? allGroups.filter((g) => shown.includes(g.role)) : allGroups;
+  const callsVisible = filtering ? showCalls && shown.length === 0 : showCalls;
+
+  const toggleRole = (role: PartyRole) =>
+    setShown((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
 
   return (
     <div>
@@ -125,6 +142,42 @@ export default function CaseFile() {
         </span>
       </div>
 
+      {/*
+        The party chips live under the toggle rather than in a sidebar, because
+        they only mean anything in this view and a filter that persists across a
+        view it does not apply to is a filter people forget they left on.
+      */}
+      {view === "grouped" && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <Chip active={!filtering} onClick={() => { setShown([]); setShowCalls(true); }}>
+            All
+            <Count n={correspondence.length + calls.length} />
+          </Chip>
+          {allGroups.map((g) => (
+            <Chip
+              key={g.role}
+              active={shown.includes(g.role)}
+              onClick={() => toggleRole(g.role)}
+            >
+              {ROLE_LABEL[g.role]}
+              <Count n={g.items.length} />
+            </Chip>
+          ))}
+          {calls.length > 0 && (
+            <Chip
+              active={!filtering && showCalls}
+              onClick={() => {
+                setShown([]);
+                setShowCalls(true);
+              }}
+            >
+              Calls
+              <Count n={calls.length} />
+            </Chip>
+          )}
+        </div>
+      )}
+
       {view === "timeline" ? (
         /**
          * Chronology is the default: a customs query at 11am and the broker's
@@ -172,7 +225,13 @@ export default function CaseFile() {
             </section>
           ))}
 
-          {calls.length > 0 && (
+          {!byRole.length && (
+            <p className="text-[13px] text-text-muted py-4">
+              Nothing in that group.
+            </p>
+          )}
+
+          {callsVisible && calls.length > 0 && (
             <section>
               <h3 className="text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-2">
                 Calls <span className="ml-1.5 text-text-muted">{calls.length}</span>
@@ -248,6 +307,33 @@ function MailRow({ filed, showRole = false }: { filed: FiledMessage; showRole?: 
       <p className="mt-0.5 text-[12px] text-text-secondary line-clamp-2">{m.bodyPreview}</p>
     </div>
   );
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12px] border transition-colors ${
+        active
+          ? "border-brand bg-brand text-white"
+          : "border-border bg-surface-1 text-text-secondary hover:text-text-primary hover:border-border-strong"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Count({ n }: { n: number }) {
+  return <span className="opacity-60">{n}</span>;
 }
 
 function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
