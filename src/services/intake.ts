@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import type { Call, Enquiry } from "./enquiries";
+import type { Enquiry } from "./enquiries";
 import type { MailMessage } from "./backend";
 import { looksLikeWebEnquiry, parseWebEnquiry } from "./webEnquiry";
 
@@ -79,32 +79,6 @@ export async function listIntake(status?: IntakeStatus): Promise<Intake[]> {
   const { data, error } = await q.order("received_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as Intake[];
-}
-
-/**
- * Calls that ingest could not tie to anybody, and that are not already queued.
- *
- * These are the reason the queue exists. A call with no enquiry currently
- * appears on no board at all: it is in the calls table, it happened, and
- * nothing in the CRM asks anybody to look at it.
- *
- * The filtering is done here rather than in one query because PostgREST has no
- * clean way to express "not in this other table" without a view, and the counts
- * involved are small enough that it does not matter.
- */
-export async function unmatchedCalls(): Promise<Call[]> {
-  const [{ data: calls, error }, { data: queued }] = await Promise.all([
-    supabase
-      .from("calls")
-      .select("*")
-      .is("enquiry_ref", null)
-      .order("started_at", { ascending: false })
-      .limit(50),
-    supabase.from("intake").select("call_id").not("call_id", "is", null),
-  ]);
-  if (error) throw error;
-  const taken = new Set((queued ?? []).map((r) => r.call_id as string));
-  return ((calls ?? []) as Call[]).filter((c) => !taken.has(c.call_id));
 }
 
 /** How many rows are waiting, counted by the database rather than by us. */
@@ -222,13 +196,6 @@ export async function updateIntake(id: string, patch: Partial<Intake>): Promise<
     .eq("id", id)
     .select()
     .single();
-  if (error) throw error;
-  return data as Intake;
-}
-
-/** Lifts an unmatched call into the queue. Safe to call twice on one call. */
-export async function captureCall(callId: string): Promise<Intake> {
-  const { data, error } = await supabase.rpc("capture_call_as_intake", { p_call_id: callId });
   if (error) throw error;
   return data as Intake;
 }

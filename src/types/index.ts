@@ -37,17 +37,6 @@ export interface TimelineStep {
   state: "done" | "current" | "pending";
 }
 
-export interface CallHistoryEntry {
-  date: string;
-  agent: string;
-  disposition: string;
-}
-
-export interface TranscriptTurn {
-  speaker: "agent" | "customer";
-  text: string;
-}
-
 export type CargoTypeCode =
   | "general_dry"
   | "textiles_garments"
@@ -55,56 +44,6 @@ export type CargoTypeCode =
   | "hazardous_dg"
   | "electronics"
   | "agri_grain";
-
-export type CallOutcome =
-  | "quote_provided"
-  | "negotiating"
-  | "booked"
-  | "status_check"
-  | "docs_missing"
-  | "escalated"
-  | "complaint";
-
-/** Structured fields extracted by the SnapServe agent's disposition schema for one call. */
-export interface CallExtraction {
-  snapserveCallId: string;
-  callDate: string;
-  channel: Channel;
-  transcript: TranscriptTurn[];
-  cargoDescription?: string;
-  cargoType?: CargoTypeCode;
-  volumeCbm?: number;
-  containerTypeRequested?: string;
-  priceAskedInr?: number;
-  priceNegotiatedInr?: number;
-  callOutcome?: CallOutcome;
-  nextStep?: string;
-}
-
-export type DocumentationStatus = "complete" | "partial_callback_needed" | "escalated";
-
-/** Structured fields extracted by Arun's (documentation-desk agent) disposition schema. */
-export interface DocGenDetails {
-  snapserveCallId: string;
-  callDate: string;
-  shipperName?: string;
-  shipperGstinIec?: string;
-  consigneeName?: string;
-  consigneeAddress?: string;
-  consigneeCountry?: string;
-  hsCode?: string;
-  invoiceValueInr?: number;
-  packageCount?: number;
-  packageType?: string;
-  netWeightKg?: number;
-  grossWeightKg?: number;
-  /** Added when the commercial invoice grew a terms block; older records simply omit them. */
-  incoterm?: string;
-  paymentTerms?: string;
-  letterOfCredit?: boolean;
-  documentationStatus: DocumentationStatus;
-  missingFields?: string;
-}
 
 export interface Shipment {
   id: string;
@@ -127,27 +66,7 @@ export interface Shipment {
   timeline: TimelineStep[];
   pickup?: { date: string; window: string; confirmed: boolean };
   delivery?: { date: string; window: string; confirmed: boolean };
-  callHistory: CallHistoryEntry[];
-  lastSyncedToSnapserve: string;
   quoteAmount: number;
-  /** Present when this shipment record originated from (or was updated by) a real SnapServe call. */
-  callExtraction?: CallExtraction;
-  /** Present once the customer has gone through the documentation handoff with Arun. */
-  docGenDetails?: DocGenDetails;
-}
-
-export interface CallRecord {
-  id: string;
-  phone: string;
-  customerName: string;
-  agent: string;
-  status: "live" | "ended";
-  durationSec: number;
-  channel: Channel;
-  transcriptSnippet: string;
-  disposition?: string;
-  squadHandoff?: string;
-  blNumber?: string;
 }
 
 export interface Complaint {

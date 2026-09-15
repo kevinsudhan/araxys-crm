@@ -3,20 +3,6 @@ import { refFromSubject, type PartyRole } from "./caseFile";
 import { getMailMessages, mailIsLive, type MailMessage } from "./backend";
 
 /**
- * Formerly: republished the voice agents' knowledge packs.
- *
- * The desk is worked through mail now, and the voice agents are gone with it.
- * The function stays as a no-op rather than being deleted from six call sites,
- * because those call sites mark exactly the moments the desk's knowledge of a
- * customer changes — which is where a republish would have to go back if the
- * agents ever return. Removing them would lose that information and leave
- * nothing to say where it used to be.
- */
-export async function refreshAgentKnowledge(): Promise<void> {
-  /* nothing to publish to */
-}
-
-/**
  * Enquiries, against v2's own Supabase project.
  *
  * ---------------------------------------------------------------------------
@@ -304,21 +290,6 @@ export async function updateShipment(
   return data as Shipment;
 }
 
-export interface Call {
-  call_id: string;
-  enquiry_ref: string | null;
-  customer_id: string | null;
-  agent_name: string;
-  from_number: string;
-  duration_secs: number;
-  language: string;
-  transcript: string | null;
-  summary: string | null;
-  started_at: string | null;
-  /** How the caller was tied to a customer — shown, so a guess never reads as a fact. */
-  matched_by: "phone" | "reference" | "manual" | "unmatched" | null;
-}
-
 export interface EnquiryEvent {
   id: string;
   enquiry_ref: string;
@@ -557,17 +528,6 @@ export async function countCalls(): Promise<number> {
   return count ?? 0;
 }
 
-/** The last calls the desk took, newest first. */
-export async function recentCalls(limit = 5): Promise<Call[]> {
-  const { data, error } = await supabase
-    .from("calls")
-    .select("*")
-    .order("started_at", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as Call[];
-}
-
 /**
  * Turns an accepted enquiry into a shipment.
  *
@@ -579,7 +539,6 @@ export async function recentCalls(limit = 5): Promise<Call[]> {
 export async function promoteToShipment(ref: string): Promise<Shipment> {
   const { data, error } = await supabase.rpc("promote_enquiry", { p_ref: ref.toUpperCase() });
   if (error) throw error;
-  void refreshAgentKnowledge();
   return data as Shipment;
 }
 
@@ -713,18 +672,7 @@ export async function setShipmentStage(id: string, stage: ShipmentStage): Promis
     p_stage: stage,
   });
   if (error) throw error;
-  void refreshAgentKnowledge();
   return data as Shipment;
-}
-
-export async function callsFor(ref: string): Promise<Call[]> {
-  const { data, error } = await supabase
-    .from("calls")
-    .select("*")
-    .eq("enquiry_ref", ref.toUpperCase())
-    .order("started_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as Call[];
 }
 
 export async function threadsFor(ref: string): Promise<string[]> {
@@ -796,7 +744,6 @@ export async function updateEnquiry(
   if (error) throw error;
 
   if (summary) await logEvent(ref, "field_updated", summary, patch as Record<string, unknown>);
-  void refreshAgentKnowledge();
   return data as Enquiry;
 }
 
@@ -919,7 +866,6 @@ export async function markQuoteSent(quoteId: string, ref: string, amount: number
 
   await updateEnquiry(ref, { status: "quoted" });
   await logEvent(ref, "quote_sent", `Quoted ₹${amount.toLocaleString("en-IN")}`);
-  void refreshAgentKnowledge();
 }
 
 /**
@@ -939,7 +885,6 @@ export async function acceptQuote(quoteId: string, ref: string, amount: number) 
 
   await updateEnquiry(ref, { status: "accepted" });
   await logEvent(ref, "accepted", `Customer accepted ₹${amount.toLocaleString("en-IN")}`);
-  void refreshAgentKnowledge();
 }
 
 export async function declineQuote(quoteId: string, ref: string, reason: string) {
@@ -1145,6 +1090,5 @@ export async function confirmAcceptance(
     p_note: note,
   });
   if (error) throw new Error(error.message);
-  void refreshAgentKnowledge();
   return data as Quote;
 }

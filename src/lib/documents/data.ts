@@ -87,63 +87,6 @@ function dimensions(d: RequestDetails): string | undefined {
   return l && w && h ? `${l} x ${w} x ${h} cm` : undefined;
 }
 
-export function documentDataFromRecord(record: RealRecord): DocumentData {
-  const d: RequestDetails = record.requestDetails ?? {};
-
-  return {
-    reference: record.blNumber ?? record.ref,
-    // The stem only. The renderer builds ARX-<prefix>-<stem>, and the enquiry ref already
-    // starts with ARX- — leaving it in produces ARX-VGM-ARX-ENQ-0003.
-    documentNumber: record.ref.replace(/^ARX-/, ""),
-    blNumber: record.blNumber,
-
-    shipperName: str(d.shipper_legal_name),
-    shipperGstinIec: str(d.shipper_gstin_iec),
-    consigneeName: str(d.consignee_name),
-    consigneeAddress: str(d.consignee_address),
-    consigneeCountry: str(d.consignee_country),
-
-    customerName: str(d.customer_name) ?? record.customerName,
-    company: str(d.company) ?? record.company,
-    phone: record.phone,
-
-    origin: str(d.origin) ?? record.origin,
-    destination: str(d.destination) ?? record.destination,
-    containerType: str(d.container_type) ?? record.containerType,
-    sailingDate: str(d.preferred_sailing_date) ?? record.sailingDate,
-
-    cargoDescription: str(d.cargo_description) ?? record.cargoDescription,
-    cargoType: str(d.cargo_type),
-    hsCode: str(d.hs_code),
-    pieceCount: num(d.piece_count),
-    pieceDimensions: dimensions(d),
-    packageCount: num(d.package_count),
-    packageType: str(d.package_type),
-    netWeightKg: num(d.net_weight_kg),
-    grossWeightKg: num(d.gross_weight_kg),
-    volumeCbm: num(d.volume_cbm) ?? record.volumeCbm,
-    stackable: bool(d.stackable),
-    uprightOnly: bool(d.upright_only),
-
-    invoiceValueInr: num(d.invoice_value_inr),
-    freightAmountInr: record.agreedAmountInr ?? record.quotedAmountInr,
-    targetPriceInr: num(d.target_price_inr),
-    incoterm: str(d.incoterm),
-    paymentTerms: str(d.payment_terms),
-    letterOfCredit: bool(d.letter_of_credit),
-
-    temperatureSetpointC: num(d.temperature_setpoint_c),
-    preCoolingRequired: bool(d.pre_cooling_required),
-    woodPackagingUsed: bool(d.wood_packaging_used),
-    msdsProvided: bool(d.msds_provided),
-    unPackagingSpec: str(d.un_packaging_spec),
-    carrierDgApproval: str(d.carrier_dg_approval),
-
-    sourceNote: "Fields extracted from this customer's call transcripts.",
-    raw: d,
-  };
-}
-
 /**
  * An enquiry, before anything is booked.
  *
@@ -345,49 +288,7 @@ export function documentDataFromBooking(
   };
 }
 
-/** The seeded-shipment path, so the existing shipment pages keep working unchanged. */
-export function documentDataFromShipment(shipment: Shipment): DocumentData {
-  const dg = shipment.docGenDetails;
 
-  return {
-    reference: shipment.blNumber,
-    documentNumber: shipment.blNumber,
-    blNumber: shipment.blNumber,
-
-    shipperName: dg?.shipperName ?? shipment.company,
-    shipperGstinIec: dg?.shipperGstinIec,
-    consigneeName: dg?.consigneeName,
-    consigneeAddress: dg?.consigneeAddress,
-    consigneeCountry: dg?.consigneeCountry ?? shipment.destination,
-
-    company: shipment.company,
-
-    origin: shipment.origin,
-    destination: shipment.destination,
-    carrier: shipment.carrier,
-    containerId: shipment.containerId,
-    containerType: shipment.callExtraction?.containerTypeRequested,
-    etaDate: shipment.etaDate,
-    sailingDate: shipment.etaDate,
-
-    cargoDescription: shipment.callExtraction?.cargoDescription,
-    hsCode: dg?.hsCode,
-    packageCount: dg?.packageCount,
-    packageType: dg?.packageType,
-    netWeightKg: dg?.netWeightKg,
-    grossWeightKg: dg?.grossWeightKg,
-    volumeCbm: shipment.callExtraction?.volumeCbm,
-
-    invoiceValueInr: dg?.invoiceValueInr ?? (shipment.quoteAmount || undefined),
-    freightAmountInr: shipment.quoteAmount || undefined,
-    incoterm: dg?.incoterm,
-    paymentTerms: dg?.paymentTerms,
-    letterOfCredit: dg?.letterOfCredit,
-
-    sourceNote: "Generated from confirmed call and shipment data.",
-    raw: {},
-  };
-}
 
 /** Which of a document's required fields are still outstanding. */
 export function readiness(data: DocumentData, requires: DataKey[]) {

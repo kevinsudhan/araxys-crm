@@ -41,7 +41,7 @@ import {
 type Row = Enquiry & { customer: Customer | null };
 
 const SOURCE_LABEL: Record<string, string> = {
-  call: "Voice",
+  call: "Phone call",
   email: "Email",
   whatsapp: "WhatsApp",
   web: "Website form",
