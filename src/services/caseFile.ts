@@ -22,6 +22,9 @@
 /** Who a correspondent is to a shipment. Drives the grouping on the case file. */
 export type PartyRole =
   | "client"
+  // The far-end agent. Filing them under "Other" was always wrong, and became
+  // untenable once assigning a partner started creating parties by itself.
+  | "overseas_agent"
   | "consol_partner"
   | "carrier"
   | "cha_customs"
@@ -30,6 +33,7 @@ export type PartyRole =
 
 export const ROLE_LABEL: Record<PartyRole, string> = {
   client: "Client side",
+  overseas_agent: "Overseas agents",
   consol_partner: "Consol partners",
   carrier: "Carrier / line",
   cha_customs: "CHA / customs",
@@ -40,6 +44,7 @@ export const ROLE_LABEL: Record<PartyRole, string> = {
 /** Display order on the case file — the customer first, incidental parties last. */
 export const ROLE_ORDER: PartyRole[] = [
   "client",
+  "overseas_agent",
   "consol_partner",
   "carrier",
   "cha_customs",

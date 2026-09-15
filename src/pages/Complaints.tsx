@@ -1,11 +1,14 @@
+import { MessageSquareWarning } from "lucide-react";
 import PageHeader from "../components/PageHeader";
-import RowCard from "../components/RowCard";
-import StatusPill from "../components/StatusPill";
-import ChannelBadge from "../components/ChannelBadge";
-import { complaints } from "../data/mockData";
+import { NotWired } from "../components/EmptyState";
 
-const toneFor = { open: "warning", escalated: "danger", resolved: "success" } as const;
-
+/**
+ * Complaints and exceptions.
+ *
+ * Same story as billing: it mapped over an array that no longer holds anything,
+ * so it drew a heading over an empty page. There is no complaints store yet,
+ * and the page says so rather than implying the desk has never had one.
+ */
 export default function Complaints() {
   return (
     <div>
@@ -13,23 +16,11 @@ export default function Complaints() {
         title="Complaints & exceptions"
         subtitle="Resolved on the call where possible, escalated with a real next step otherwise — never a bare 'we'll get back to you.'"
       />
-      {complaints.map((c) => (
-        <div key={c.id} className="mb-2">
-          <RowCard>
-            <ChannelBadge channel={c.channel} />
-            <span className="w-32 text-[13px] font-mono text-text-primary">{c.blNumber}</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] text-text-primary">{c.customerName}</p>
-              <p className="text-xs text-text-secondary capitalize">{c.type}</p>
-            </div>
-            <StatusPill tone={toneFor[c.status]}>{c.status}</StatusPill>
-          </RowCard>
-          <div className="rounded-card bg-surface-2 px-4 py-2.5 -mt-2 mb-2 text-xs text-text-secondary">
-            {c.note}
-            {c.resolutionNote && <p className="text-text-success mt-1">Resolved: {c.resolutionNote}</p>}
-          </div>
-        </div>
-      ))}
+      <NotWired
+        what="Complaint handling"
+        icon={MessageSquareWarning}
+        source="Complaints raised on a call or by email will land here once they are recorded against a shipment."
+      />
     </div>
   );
 }

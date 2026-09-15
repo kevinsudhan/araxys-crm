@@ -66,7 +66,7 @@ export default function PromotePanel({
     const next = at >= 0 && at < SHIPMENT_STAGES.length - 1 ? SHIPMENT_STAGES[at + 1] : null;
 
     return (
-      <section className="mt-4 rounded-card border border-border bg-surface-1 p-5">
+      <section className="mt-4 card p-5">
         <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-3">
           <Truck size={12} /> In process
         </h2>
@@ -132,7 +132,7 @@ export default function PromotePanel({
 
   // ---- not yet a shipment ----
   return (
-    <section className="mt-4 rounded-card border border-border bg-surface-1 p-5">
+    <section className="mt-4 card p-5">
       <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-3">
         <PackageCheck size={12} /> Start the shipment
       </h2>
@@ -154,9 +154,9 @@ export default function PromotePanel({
         </>
       ) : (
         <p className="text-[12px] text-text-muted">
-          Available once the customer has accepted a quote. A booking is a commitment somebody
-          made — starting one from an enquiry nobody said yes to would put cargo on a sailing on
-          the strength of a conversation.
+          Available once the customer's acceptance is confirmed in writing. A yes on a call is
+          recorded above and is worth chasing, but it is not something we could show them if they
+          later said they never agreed — and a booking commits cargo, space and a container.
         </p>
       )}
 

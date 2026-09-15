@@ -5,21 +5,47 @@
  * the platform underneath, credited quietly — a corner byline, never competing
  * with the customer's own name.
  *
- * The ARAXYS wordmark is set in type rather than shipped as an image: the mark
- * is a thin, wide-tracked geometric uppercase, which CSS reproduces faithfully
- * at the size it is used here, stays sharp on any display, and costs no request.
- * To use the original asset instead, drop it at `public/araxys-wordmark.svg`
- * and swap the <span> in AraxysWordmark for an <img> — nothing else changes.
+ * ---------------------------------------------------------------------------
+ * BOTH MARKS ARE NOW THE REAL ARTWORK
+ *
+ * The company mark used to be an SVG globe drawn by hand, and the Araxys
+ * wordmark was set in CSS as tracked-out uppercase. Both were stand-ins that
+ * looked close enough at small sizes and were wrong in the ways stand-ins
+ * always are: the drawn globe was a flat two-colour outline where the real mark
+ * is a rendered sphere, and the set text matched neither the weight nor the
+ * letterforms of the real wordmark.
+ *
+ * They are served from `public/`, trimmed to their own edges so the layout
+ * controls the spacing rather than inheriting whatever margin the export had.
+ *
+ * WHY THE WORDMARK SHIPS TWICE
+ *
+ * The byline appears on a light sidebar and over dark video on the login
+ * screen. The artwork is near-black navy, which vanishes against the second.
+ * A CSS filter could invert it, but only correctly while the mark stays one
+ * flat colour, so a white copy is generated instead and picked by `tone`. Both
+ * come from the same source file and keep identical letterforms and edges.
+ * ---------------------------------------------------------------------------
  */
 
-export function AraxysWordmark({ className = "" }: { className?: string }) {
+/** The Araxys wordmark. `tone` picks the copy that will be legible. */
+export function AraxysWordmark({
+  className = "",
+  tone = "light",
+}: {
+  className?: string;
+  /** "light" means a light background, so the dark artwork is used. */
+  tone?: "light" | "dark";
+}) {
   return (
-    <span
-      className={`font-sans uppercase leading-none ${className}`}
-      style={{ fontWeight: 300, letterSpacing: "0.16em" }}
-    >
-      Araxys
-    </span>
+    <img
+      src={tone === "dark" ? "/araxys-wordmark-light.png" : "/araxys-wordmark.png"}
+      alt="Araxys"
+      // Height is set by the caller and the width follows, because the mark is
+      // much wider than it is tall and a fixed width would crush it.
+      className={`w-auto object-contain ${className}`}
+      draggable={false}
+    />
   );
 }
 
@@ -32,21 +58,26 @@ export function PoweredByAraxys({
   className?: string;
 }) {
   const muted = tone === "dark" ? "text-white/40" : "text-text-muted";
-  const mark = tone === "dark" ? "text-white/70" : "text-text-secondary";
 
   return (
-    <span className={`inline-flex items-baseline gap-1.5 text-[10px] ${muted} ${className}`}>
+    <span className={`inline-flex items-center gap-1.5 text-[10px] ${muted} ${className}`}>
       Powered by
-      <AraxysWordmark className={`text-[11px] ${mark}`} />
+      {/*
+        Slightly under the cap height of the words beside it, so the lockup
+        reads as one line rather than as a logo dropped into a sentence. The
+        opacity keeps it a credit rather than a second brand competing with the
+        customer's own name at the foot of their sidebar.
+      */}
+      <AraxysWordmark tone={tone} className={`h-[9px] ${tone === "dark" ? "opacity-80" : "opacity-70"}`} />
     </span>
   );
 }
 
 /**
- * The company lockup: monogram plus name.
+ * The company lockup: mark plus name.
  *
- * `stacked` puts the descriptor under the name for the sidebar; inline keeps it
- * on one line for headers where vertical space is tight.
+ * `descriptor` puts a second line under the name for the sidebar; leaving it
+ * out keeps the lockup to one line where vertical space is tight.
  */
 export function CompanyBrand({
   size = "md",
@@ -57,20 +88,26 @@ export function CompanyBrand({
   descriptor?: string;
   tone?: "light" | "dark";
 }) {
-  const box = size === "lg" ? "w-9 h-9" : size === "sm" ? "w-7 h-7" : "w-8 h-8";
+  const box = size === "lg" ? "w-10 h-10" : size === "sm" ? "w-8 h-8" : "w-9 h-9";
   const name = size === "lg" ? "text-[16px]" : size === "sm" ? "text-[13px]" : "text-[14px]";
   const nameColor = tone === "dark" ? "text-white" : "text-text-primary";
   const descColor = tone === "dark" ? "text-white/50" : "text-text-muted";
-  const markBg = tone === "dark" ? "bg-white/15 backdrop-blur text-white" : "bg-brand text-white";
 
   return (
     <div className="flex items-center gap-2.5">
-      <div
-        className={`${box} ${markBg} rounded-lg flex items-center justify-center shrink-0`}
+      {/*
+        No tinted tile behind it any more. The mark is a full-colour rendered
+        sphere that brings its own shape and its own light; boxing it in a flat
+        green square would fight both. It is a touch larger than the old glyph
+        to compensate for losing that box.
+      */}
+      <img
+        src="/aashish-mark.png"
+        alt=""
         aria-hidden="true"
-      >
-        <GlobeMark />
-      </div>
+        className={`${box} shrink-0 object-contain`}
+        draggable={false}
+      />
       <div className="min-w-0">
         <p className={`${name} ${nameColor} font-semibold tracking-tight leading-tight truncate`}>
           Aashish Logistics Global
@@ -78,31 +115,5 @@ export function CompanyBrand({
         {descriptor && <p className={`text-[11px] ${descColor} leading-tight`}>{descriptor}</p>}
       </div>
     </div>
-  );
-}
-
-/** Globe and forwarding arrow — the company's mark, drawn rather than raster. */
-function GlobeMark() {
-  return (
-    <svg viewBox="0 0 24 24" className="w-[62%] h-[62%]" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.5" />
-      <ellipse cx="12" cy="12" rx="3.6" ry="8.5" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M3.9 9.2h16.2M3.9 14.8h16.2" stroke="currentColor" strokeWidth="1.3" />
-      {/* The arrow reads as movement through the network, not just a globe. */}
-      <path
-        d="M7.5 15.5 16 7"
-        stroke="currentColor"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-      />
-      <path
-        d="M11.4 6.6H16.4V11.6"
-        stroke="currentColor"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

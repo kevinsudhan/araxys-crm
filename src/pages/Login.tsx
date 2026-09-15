@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2, ShieldCheck, AlertCircle } from "lucide-react";
 import { useAuth, canAccess, type Role } from "../lib/auth";
 import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
+import { DOCUMENTS } from "../lib/documents";
+
 
 /**
  * Split sign-in: the video carries the brand, the right half does the work.
@@ -122,20 +124,33 @@ export default function Login({ role }: { role: Role }) {
               conversation itself.
             </p>
 
-            <div className="mt-8 flex items-center gap-6 text-[12px] text-white/55">
+            {/*
+              Three figures, each one checkable.
+              -----------------------------------------------------------------
+              Two claims that survive, and one that did not. "24 fields read
+              per call" went with the voice desk: there are no calls now, so the
+              number described something that no longer happens. A figure does
+              not become true again by staying on the screen.
+
+              The document count is read from the registry that renders them, so
+              adding a thirteenth updates this line rather than leaving it
+              quietly wrong. The other two are statements about how the desk
+              works, not counts, so there is nothing behind them to drift.
+            */}
+            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4 text-[12px] text-white/55">
               <span>
-                <span className="block text-[19px] font-semibold text-white">24/7</span>
-                desk coverage
+                <span className="block text-[19px] font-semibold text-white">{DOCUMENTS.length}</span>
+                documents issued
               </span>
               <span className="w-px h-8 bg-white/20" />
               <span>
-                <span className="block text-[19px] font-semibold text-white">39</span>
-                fields per call
+                <span className="block text-[19px] font-semibold text-white">One</span>
+                reference per case
               </span>
               <span className="w-px h-8 bg-white/20" />
               <span>
-                <span className="block text-[19px] font-semibold text-white">12</span>
-                documents
+                <span className="block text-[19px] font-semibold text-white">Nothing</span>
+                shipped on a guess
               </span>
             </div>
           </div>

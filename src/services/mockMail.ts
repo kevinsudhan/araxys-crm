@@ -49,6 +49,15 @@ export interface MailMessage {
   hasAttachments: boolean;
   attachments: Array<{ name: string; size: number; contentType: string }>;
   importance: "low" | "normal" | "high";
+  /**
+   * The raw internet headers, when they were asked for.
+   *
+   * Only ever populated on a message fetched in full: Graph omits them from a
+   * list unless $select names them, and forty sets of headers is a slow request
+   * for something read on one message at a time. Absent means "not fetched",
+   * not "none" — which is why every reader here treats missing as unknown.
+   */
+  internetMessageHeaders?: Array<{ name: string; value: string }>;
 }
 
 const r = (name: string, address: string): Recipient => ({ emailAddress: { name, address } });

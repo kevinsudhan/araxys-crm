@@ -40,7 +40,7 @@ export default function StageAction({
 
   if (record.stage === "processing") {
     return (
-      <div className="mb-5 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface-1 px-4 py-3">
+      <div className="mb-5 flex flex-wrap items-center gap-3 card px-4 py-3">
         <span className="text-[13px] text-text-secondary">
           In process since {record.processingStartedAt?.slice(0, 10) ?? "—"}
           {record.sailingDate ? ` · sailing ${record.sailingDate}` : ""}
@@ -64,7 +64,7 @@ export default function StageAction({
   const ready = Boolean(date);
 
   return (
-    <div className="mb-5 rounded-card border border-border bg-surface-1 px-4 py-3">
+    <div className="mb-5 card px-4 py-3">
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="block text-[11px] uppercase tracking-wide text-text-muted mb-1">

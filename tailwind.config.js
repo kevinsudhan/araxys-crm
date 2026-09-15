@@ -34,8 +34,19 @@ export default {
         },
       },
       borderRadius: {
-        DEFAULT: "8px",
-        card: "12px",
+        // Driven by the same tokens the component layer uses, so a radius is
+        // changed in one place rather than in two that drift apart.
+        DEFAULT: "var(--radius-control)",
+        lg: "var(--radius-control)",
+        card: "var(--radius-card)",
+      },
+      boxShadow: {
+        card: "var(--shadow-card)",
+        raised: "var(--shadow-raised)",
+        pop: "var(--shadow-pop)",
+      },
+      transitionTimingFunction: {
+        DEFAULT: "var(--ease)",
       },
       fontFamily: {
         sans: [

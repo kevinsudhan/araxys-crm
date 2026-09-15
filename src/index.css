@@ -2,29 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+ * Tokens
+ *
+ * The palette is warm off-white and stays warm. What changed is contrast, and
+ * only where contrast carries structure.
+ *
+ * The desk read as soft for three reasons, all of them here:
+ *
+ *   1. --border was #e4e3dd on a white card. That is about 1.1:1 — under the
+ *      threshold where a 1px line reliably shows on a normal monitor. Every
+ *      card had an edge in the markup and no edge on the screen, so a page of
+ *      stacked panels became one continuous sheet.
+ *   2. The page was #f6f7f5 and cards are #ffffff. Three percent of separation,
+ *      with no shadow anywhere in the product, is not enough for a card to sit
+ *      above a page rather than dissolve into it.
+ *   3. --text-muted at #94958c is roughly 2.9:1 on white. It carries the 11px
+ *      uppercase section labels and every hint line under a field — the two
+ *      smallest, hardest-to-read shapes in the interface — and it was below the
+ *      AA floor for both.
+ *
+ * Hues are untouched. Nothing here sets a dimension, so none of it can change
+ * how the layout responds.
+ * ------------------------------------------------------------------------- */
 :root {
-  --surface-0: #f6f7f5;
+  --surface-0: #eceee8;
   --surface-1: #ffffff;
-  --surface-2: #f0f1ee;
+  --surface-2: #f1f2ed;
+  /* A step darker than surface-2, for the inside of a field or a well. */
+  --surface-inset: #f6f7f3;
 
-  --text-primary: #1c1d1a;
-  --text-secondary: #63655e;
-  --text-muted: #94958c;
-  --text-accent: #0c447c;
-  --text-success: #085041;
-  --text-warning: #854f0b;
-  --text-danger: #791f1f;
+  --text-primary: #14150f;
+  --text-secondary: #52544b;
+  /* 5.2:1 on a white card and 4.6:1 on surface-2 — it appears on both, and
+   * carries 11px hints, so it has to clear the floor against the darker of
+   * the two. It stays visibly a third step below secondary. */
+  --text-muted: #6d6e61;
+  --text-accent: #0a3d70;
+  --text-success: #07463a;
+  --text-warning: #74440a;
+  --text-danger: #6b1b1b;
 
-  --border: #e4e3dd;
-  --border-strong: #d3d1c7;
+  --border: #d7d5c9;
+  --border-strong: #b6b3a3;
 
-  --bg-accent: #e6f1fb;
-  --bg-success: #e1f5ee;
-  --bg-warning: #faeeda;
-  --bg-danger: #fcebeb;
+  --bg-accent: #dfedfb;
+  --bg-success: #d7f1e7;
+  --bg-warning: #f8e7cc;
+  --bg-danger: #fbe2e2;
 
   --brand: #0f6e56;
-  --brand-dark: #085041;
+  --brand-dark: #08503f;
+
+  /* Restrained on purpose. The border does the work of defining the edge; the
+   * shadow only has to lift the card off the page. A heavy one on a dense ops
+   * screen with fifty panels reads as clutter, not depth.
+   *
+   * Three layers rather than two, at the same total weight. A single tight
+   * shadow reads as a sticker: the edge is crisp and then nothing. Splitting
+   * the same darkness across a contact shadow, a short one and a wide soft one
+   * is what light actually does, and it is the difference between a panel that
+   * looks drawn and one that looks placed. The total alpha is barely up, so a
+   * page of fifty of them is no heavier than before. */
+  --shadow-card:
+    0 1px 1px rgba(20, 21, 15, 0.04),
+    0 2px 4px -1px rgba(20, 21, 15, 0.04),
+    0 6px 14px -6px rgba(20, 21, 15, 0.06);
+  /* For a panel the pointer is over, when that panel does something. */
+  --shadow-raised:
+    0 1px 1px rgba(20, 21, 15, 0.05),
+    0 4px 8px -2px rgba(20, 21, 15, 0.06),
+    0 12px 24px -8px rgba(20, 21, 15, 0.10);
+  --shadow-pop: 0 12px 32px -12px rgba(20, 21, 15, 0.28), 0 2px 6px rgba(20, 21, 15, 0.08);
+
+  /* Shadows are warm because the surfaces are. A neutral grey shadow on a warm
+   * off-white reads as dirt rather than depth — the hue has to belong to the
+   * same light as the thing casting it. */
+
+  --radius-control: 9px;
+  --radius-card: 13px;
+
+  /* One duration and one curve for everything that moves on hover or press, so
+   * the interface feels like one object rather than a page of separately
+   * animated parts. Slightly eased out: fast to start, settles gently. */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur: 140ms;
 }
 
 html,
@@ -34,10 +96,27 @@ body,
 }
 
 body {
-  background: var(--surface-0);
+  background-color: var(--surface-0);
+  /* Light from above.
+   *
+   * A single flat fill behind white cards gives the page no depth at all — the
+   * cards sit on a slab. A soft lift across the top few hundred pixels reads as
+   * a lit surface, which is what makes the panels look like they are ON
+   * something rather than cut out of it.
+   *
+   * Deliberately not background-attachment: fixed. That repaints the gradient
+   * on every scroll frame, and this runs on the desk machines. Painted once,
+   * no-repeat, it costs nothing. */
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.55) 0px,
+    rgba(255, 255, 255, 0) 340px
+  );
+  background-repeat: no-repeat;
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -56,34 +135,323 @@ textarea {
   color: var(--text-primary);
   background: var(--surface-1);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 7px 10px;
   outline: none;
+  /* An inner hairline at the top. A field is a hole in the page, and light
+   * catching its upper edge is what makes it read as recessed rather than as a
+   * rectangle with a border drawn round it. One pixel, four per cent. */
+  box-shadow: inset 0 1px 1px rgba(20, 21, 15, 0.04);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* The ring is the brand, not the link colour.
+ *
+ * It was a blue wash borrowed from --bg-accent, which is the colour of links
+ * and of the accent chips — so focusing a field lit it up in a hue that means
+ * something else everywhere in the product. Green at low alpha reads as this
+ * application paying attention, and pairs with the border going brand. */
 input:focus,
 select:focus,
 textarea:focus {
+  border-color: var(--brand);
+  box-shadow:
+    inset 0 1px 1px rgba(20, 21, 15, 0.02),
+    0 0 0 3px rgba(15, 110, 86, 0.13);
+}
+
+input:hover:not(:focus),
+select:hover:not(:focus),
+textarea:hover:not(:focus) {
   border-color: var(--border-strong);
-  box-shadow: 0 0 0 3px var(--bg-accent);
 }
 
 button {
   font-family: inherit;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
 }
 
+/* Press feedback.
+ *
+ * A button that does not move under the finger gives no signal that the press
+ * registered, which on a slow connection is the difference between waiting and
+ * pressing again. Half a pixel is enough to feel and too little to notice. */
+button:active:not(:disabled),
+[role="button"]:active {
+  transform: translateY(0.5px);
+}
+
+/* Numbers that line up.
+ *
+ * Proportional digits make a column of references, weights and CBM figures
+ * ripple — every 1 narrower than every 8 — and this is an operations desk that
+ * is mostly columns of numbers. Applied to monospace and to anything explicitly
+ * asking for tabular figures. */
+.font-mono,
+code,
+kbd,
+samp,
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+ * Focus
+ *
+ * Buttons and links had no visible focus ring — only inputs did — so keyboard
+ * navigation went dark the moment it left a form. `:focus-visible` shows the
+ * ring for keyboard and assistive navigation while leaving mouse clicks clean,
+ * which is why the old `:focus` styling was dropped rather than extended.
+ * ------------------------------------------------------------------------- */
+:where(button, a, [role="button"], summary):focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Motion
+ *
+ * The sidebar slides, bars grow, chevrons rotate. All of it is decoration on
+ * top of a layout that works without it, so it all comes off for anyone who has
+ * asked their system for less movement. Kept to near-zero rather than zero so
+ * transition-end handlers still fire.
+ * ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Touch targets
+ *
+ * A 28px control is comfortable with a mouse and fiddly with a thumb. Coarse
+ * pointers get taller controls without changing the desk layout, which is where
+ * the density is actually wanted.
+ * ------------------------------------------------------------------------- */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* Also stops iOS zooming the page on focus. */
+    padding: 9px 11px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Scrollbars
+ *
+ * Inset from the edge and only fully visible while the pointer is over the
+ * thing that scrolls. A permanent hard bar down the side of every list is the
+ * single loudest piece of chrome in a dense interface, and it is chrome about
+ * the container rather than about the work.
+ *
+ * The transparent border plus background-clip is the trick that insets a
+ * webkit thumb — there is no padding property for it.
+ * ------------------------------------------------------------------------- */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 11px;
+  height: 11px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
   border-radius: 8px;
+  /* Dimmed until something is being scrolled. Opacity does not apply to a
+   * scrollbar part, so the colour itself carries it. */
+  opacity: 0.6;
 }
 
-::-webkit-scrollbar-track {
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Firefox has no parts to style, only these two. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* ---------------------------------------------------------------------------
+ * .card
+ *
+ * The same four utilities — rounded-card, border, border-border, bg-surface-1 —
+ * were written out by hand in fifty-six places, in two different orders. That
+ * is not a style problem, it is a maintenance one: there was no single place to
+ * give every panel in the product a shadow, so it never got one.
+ *
+ * It lives in the components layer, which Tailwind emits before utilities, so
+ * anything still written on the element wins over it. A card that wants a
+ * different background or a hover border says so and gets it.
+ * ------------------------------------------------------------------------- */
+@layer components {
+  /* The layer matters as much as the rule.
+   *
+   * Written as bare CSS this far down the file it would sit after
+   * @tailwind utilities, and at equal specificity source order decides — so
+   * `.card` would quietly beat a `bg-surface-2` or `border-dashed` written on
+   * the same element. Inside @layer components Tailwind hoists it above the
+   * utilities, which is the whole point: the class is a default that anything
+   * on the element is free to override. */
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* A panel nested inside another one. It reads as recessed rather than
+   * raised, so it takes the inset surface and drops the shadow entirely. */
+  .card-inset {
+    background: var(--surface-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+
+  /* A card that does something when you click it.
+   *
+   * Opt-in rather than applied to every .card, because most panels on this desk
+   * are containers and a container that lifts under the pointer is a container
+   * pretending to be a button. Only the ones that navigate get it. */
+  .card-interactive {
+    transition:
+      box-shadow var(--dur) var(--ease),
+      border-color var(--dur) var(--ease),
+      transform var(--dur) var(--ease);
+  }
+
+  .card-interactive:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .card-interactive:active {
+    transform: translateY(0.5px);
+    box-shadow: var(--shadow-card);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Message bodies
+ *
+ * Tailwind's preflight resets tables, lists and headings to nothing, which is
+ * right for an application and wrong for a document written somewhere else. An
+ * email arrives expecting browser defaults: a table with borders, a list with
+ * bullets, an h3 that is bigger than the paragraph under it.
+ *
+ * So the defaults are put back, but only inside .mail-body. The sender's own
+ * inline styles win over all of it, because they are more specific — which is
+ * what makes a rate card keep its yellow header row and its cyan cells.
+ * ------------------------------------------------------------------------- */
+.mail-body {
+  /* A document's own line length and colour, not the app's. */
+  word-break: break-word;
+}
+
+.mail-body img {
+  max-width: 100%;
+  height: auto;
+}
+
+.mail-body table {
+  border-collapse: collapse;
+  max-width: 100%;
+}
+
+/* Only where the sender did not say otherwise: an email that draws its own
+ * borders inline keeps them, and one that assumed the browser default gets a
+ * hairline instead of nothing. */
+.mail-body table[border]:not([border="0"]) td,
+.mail-body table[border]:not([border="0"]) th {
+  border: 1px solid var(--border-strong);
+}
+
+.mail-body td,
+.mail-body th {
+  padding: 4px 8px;
+  vertical-align: top;
+}
+
+.mail-body ul {
+  list-style: disc;
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.mail-body ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.mail-body p {
+  margin: 0.5em 0;
+}
+
+.mail-body h1,
+.mail-body h2,
+.mail-body h3,
+.mail-body h4 {
+  font-weight: 600;
+  margin: 0.7em 0 0.3em;
+}
+
+.mail-body h1 { font-size: 1.5em; }
+.mail-body h2 { font-size: 1.3em; }
+.mail-body h3 { font-size: 1.15em; }
+
+.mail-body a {
+  color: var(--text-accent);
+  text-decoration: underline;
+}
+
+.mail-body blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.9em;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.mail-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.9em 0;
+}
+
+.mail-body pre {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ---------------------------------------------------------------------------

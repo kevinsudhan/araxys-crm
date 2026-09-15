@@ -324,13 +324,28 @@ export const getMailFolders = async (mailbox: string) =>
     ? { folders: await graph.listFolders(mailbox) }
     : get<{ folders: MailFolder[] }>(`/api/mail/folders?mailbox=${encodeURIComponent(mailbox)}`);
 
-export const getMailMessages = async (mailbox: string, folder: FolderId, q?: string) =>
+export const getMailMessages = async (
+  mailbox: string,
+  folder: FolderId,
+  q?: string
+): Promise<{ messages: MailMessage[]; nextLink?: string }> =>
   live()
-    ? { messages: await graph.listMessages(mailbox, folder, q) }
+    ? graph.listMessages(mailbox, folder, q)
     : get<{ messages: MailMessage[] }>(
         `/api/mail/messages?mailbox=${encodeURIComponent(mailbox)}&folder=${folder}` +
           (q ? `&q=${encodeURIComponent(q)}` : "")
       );
+
+/**
+ * The next page of a folder. Only the live mailbox pages — the in-memory one
+ * hands back everything it has in one go, so it never produces a link.
+ */
+export const getMoreMailMessages = async (
+  mailbox: string,
+  folder: FolderId,
+  nextLink: string
+): Promise<{ messages: MailMessage[]; nextLink?: string }> =>
+  graph.listMore(mailbox, folder, nextLink);
 
 export const getMailMessage = async (mailbox: string, id: string, folder: FolderId = "inbox") =>
   live()
@@ -355,6 +370,31 @@ export const moveMailMessage = async (mailbox: string, id: string, folder: Folde
   });
 };
 
+/**
+ * Sends one message and reports the conversation it started.
+ *
+ * Only meaningful against a real mailbox: the in-memory one has no threading to
+ * track, so it reports an empty conversation and the caller records the ask
+ * without a way to match a reply — which is correct, because in the demo
+ * mailbox no reply is ever coming.
+ */
+export const sendTrackedMail = async (input: {
+  to: string[];
+  cc?: string[];
+  subject: string;
+  content: string;
+}): Promise<{ conversationId: string | null }> => {
+  if (!live()) return { conversationId: null };
+  const { conversationId } = await graph.sendTracked(input);
+  return { conversationId };
+};
+
+/** Every message in one conversation, wherever it now sits. */
+export const conversationMessages = async (
+  mailbox: string,
+  conversationId: string
+): Promise<MailMessage[]> => (live() ? graph.messagesInConversation(mailbox, conversationId) : []);
+
 export const sendMail = async (body: {
   mailbox: string;
   fromName: string;
@@ -366,12 +406,30 @@ export const sendMail = async (body: {
   replyToId?: string;
 }) => {
   if (live()) {
+    /*
+      A reply goes through the reply path, not the send path.
+      --------------------------------------------------------------------
+      /me/sendMail starts a new conversation and sets no In-Reply-To or
+      References headers, so a reply sent that way lands outside the thread
+      it is answering however right the "Re:" subject looks. Threading is
+      what `replyToId` buys, and it is only correct when it is used.
+    */
+    if (body.replyToId) {
+      await graph.replyTracked({
+        replyToId: body.replyToId,
+        to: body.to,
+        cc: body.cc,
+        subject: body.subject,
+        content: body.content,
+      });
+      return;
+    }
+
     await graph.sendMessage({
       to: body.to,
       cc: body.cc,
       subject: body.subject,
       content: body.content,
-      replyToId: body.replyToId,
     });
     return;
   }
