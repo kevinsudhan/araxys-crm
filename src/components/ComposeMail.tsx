@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Loader2, Send, X } from "lucide-react";
+import { AlertCircle, Loader2, Send, Sparkles, X } from "lucide-react";
 import { sendMail, mailIsLive, type MailMessage } from "../services/backend";
+import { draftReply } from "../services/classify";
 import RichTextEditor from "./RichTextEditor";
+import { greetingHtml } from "../lib/greeting";
 
 /**
  * Compose, and reply.
@@ -16,6 +18,7 @@ export default function ComposeMail({
   fromName,
   signature = "",
   replyTo,
+  initial,
   onClose,
   onSent,
 }: {
@@ -24,6 +27,14 @@ export default function ComposeMail({
   /** The sender's saved signature, pre-filled into the body. */
   signature?: string;
   replyTo?: MailMessage;
+  /**
+   * A message the CRM has drafted -- a quotation, a booking confirmation.
+   *
+   * Pre-filled rather than sent outright, because it goes out under somebody's
+   * name and they should see it first. The subject carries the enquiry
+   * reference, which is what makes the customer's reply file itself.
+   */
+  initial?: { to?: string; subject?: string; body?: string };
   onClose: () => void;
   onSent: () => void;
 }) {
@@ -34,14 +45,26 @@ export default function ComposeMail({
    * see that it is doubled when they have also typed their name.
    */
   const sig = signature.trim() ? `<br><br>${signature.trim()}` : "";
-  const [to, setTo] = useState(replyTo ? replyTo.from.emailAddress.address : "");
+  const [to, setTo] = useState(initial?.to ?? (replyTo ? replyTo.from.emailAddress.address : ""));
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(
-    replyTo ? (/^re:/i.test(replyTo.subject) ? replyTo.subject : `Re: ${replyTo.subject}`) : ""
+    initial?.subject ??
+      (replyTo ? (/^re:/i.test(replyTo.subject) ? replyTo.subject : `Re: ${replyTo.subject}`) : "")
   );
-  const [content, setContent] = useState(
-    replyTo
-      ? `${sig}<br><br><hr><div>On ${new Date(replyTo.receivedDateTime).toLocaleString()}, ` +
+  /**
+   * Everything below where the message gets written: the signature and the
+   * thread being answered.
+   *
+   * Split out from the greeting deliberately. A drafted reply is written as
+   * `draft + tail`, and if the greeting were part of the tail the draft would
+   * land ABOVE it — and the model writes its own salutation, so the reader
+   * would get two.
+   */
+  const tail =
+    initial?.body !== undefined
+      ? sig
+      : replyTo
+        ? `${sig}<br><br><hr><div>On ${new Date(replyTo.receivedDateTime).toLocaleString()}, ` +
           `${escapeHtml(replyTo.from.emailAddress.name || replyTo.from.emailAddress.address)} ` +
           `wrote:</div>` +
           `<blockquote style="margin:0 0 0 12px;padding-left:10px;border-left:2px solid #ccc">` +
@@ -49,10 +72,63 @@ export default function ComposeMail({
             ? replyTo.body.content
             : escapeHtml(replyTo.body.content).replace(/\r?\n/g, "<br>")) +
           `</blockquote>`
-      : sig
-  );
+        : sig;
+
+  /**
+   * What the box opens with.
+   *
+   * The salutation, then room to write, then the tail. Prefilled because every
+   * reply this desk sends opens the same way, and typing it forty times a day
+   * is forty chances to send one without it — deleted in a keystroke when it is
+   * not wanted.
+   */
+  const initialBody =
+    initial?.body !== undefined
+      ? `${initial.body}${tail}`
+      : replyTo
+        ? greetingHtml(replyTo.from.emailAddress.name, replyTo.from.emailAddress.address) + tail
+        : tail;
+
+  const [content, setContent] = useState(initialBody);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Drafting: state, and the one thing that makes re-drafting safe.
+   *
+   * `base` is the body as it was before any draft went in — the signature and
+   * the quoted thread. A draft is written as `draft + base` rather than
+   * appended to whatever is on screen, so pressing the button twice replaces
+   * the draft instead of stacking two of them above the same quote.
+   *
+   * The cost of that is real and is stated on screen: a re-draft discards
+   * anything typed above the quoted thread since the last one.
+   */
+  // The TAIL, not the whole body: a draft supplies its own opening, so writing
+  // it above the prefilled greeting would produce two salutations.
+  const base = useRef(tail);
+  const [drafting, setDrafting] = useState(false);
+  const [drafted, setDrafted] = useState(false);
+  const [instruction, setInstruction] = useState("");
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  async function draft() {
+    if (!replyTo) return;
+    setDrafting(true);
+    setDraftError(null);
+    try {
+      const text = await draftReply(replyTo, instruction);
+      // Plain text into a rich-text field: escaped so an ampersand in a company
+      // name cannot become markup, and line breaks preserved.
+      const html = escapeHtml(text).replace(/\r?\n/g, "<br>");
+      setContent(`${html}${base.current}`);
+      setDrafted(true);
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : "Could not draft a reply.");
+    } finally {
+      setDrafting(false);
+    }
+  }
 
   /**
    * Whether this will actually leave the building.
@@ -102,6 +178,12 @@ export default function ComposeMail({
         subject: subject.trim(),
         content,
         conversationId: replyTo?.conversationId,
+        /*
+          The id is what threads it. conversationId alone was being passed and
+          is ignored by the live send path — Graph threads a reply from the
+          message being replied TO, not from the conversation it sits in.
+        */
+        replyToId: replyTo?.id,
       });
       onSent();
     } catch (err) {
@@ -116,7 +198,7 @@ export default function ComposeMail({
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-2xl rounded-t-card sm:rounded-card border border-border bg-surface-1 shadow-xl max-h-[92vh] flex flex-col"
+        className="w-full sm:max-w-2xl rounded-t-card sm:card shadow-xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={replyTo ? "Reply" : "New message"}
@@ -179,6 +261,74 @@ export default function ComposeMail({
               autoComplete="off"
             />
           </Row>
+
+          {/*
+            Offered on replies only. A new message has no thread to answer, and
+            a model given nothing to work from writes filler.
+          */}
+          {replyTo && (
+            <div className="mt-3 overflow-hidden rounded-card border border-border bg-surface-2">
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                <span
+                  className="grid size-6 shrink-0 place-items-center rounded-lg border border-border bg-surface-1 text-text-secondary"
+                  aria-hidden
+                >
+                  <Sparkles size={12} />
+                </span>
+
+                <input
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Enter drafts rather than submitting the form, which would
+                    // send a half-written reply.
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (!drafting) void draft();
+                    }
+                  }}
+                  placeholder="What should it say? e.g. confirm space, ask for the packing list"
+                  aria-label="What the reply should say"
+                  className="h-8 min-w-0 flex-1 border-border bg-surface-1 text-[12px]"
+                  autoComplete="off"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => void draft()}
+                  disabled={drafting}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border-strong bg-surface-1 px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-surface-2 disabled:opacity-60"
+                >
+                  {drafting ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={13} />
+                  )}
+                  {drafting ? "Writing…" : drafted ? "Draft again" : "Draft a reply"}
+                </button>
+              </div>
+
+              {/*
+                The warning belongs inside this block, not floating under it.
+                What it is warning about is the text this control just wrote,
+                and the strongest line is the one about figures — an invented
+                rate is the failure that actually costs money here.
+              */}
+              {(drafted || draftError) && (
+                <div className="border-t border-border px-3 py-2">
+                  {draftError ? (
+                    <p className="break-words text-[11px] text-text-danger">{draftError}</p>
+                  ) : (
+                    <p className="text-[11px] leading-relaxed text-text-muted">
+                      <span className="font-medium text-text-warning">Check every figure.</span>{" "}
+                      This was written by a model and has not been checked against anything you
+                      quoted. Drafting again replaces everything above the quoted thread.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mt-3">
             <RichTextEditor

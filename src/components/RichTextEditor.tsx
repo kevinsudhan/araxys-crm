@@ -242,7 +242,15 @@ export default function RichTextEditor({
         onKeyUp={remember}
         onMouseUp={remember}
         data-placeholder={placeholder}
-        style={{ minHeight }}
+        /*
+          The same face the message will be sent in.
+          ------------------------------------------------------------------
+          The editor showed the app's UI font and the sent mail arrived in
+          Microsoft YaHei, so what was composed and what was delivered never
+          quite matched — most visibly around a signature, where a line that
+          fitted on screen wrapped in the recipient's client.
+        */
+        style={{ minHeight, fontFamily: "'Microsoft YaHei', 'Segoe UI', Arial, sans-serif" }}
         className="rich-editor w-full rounded-b-lg border border-t-0 border-border bg-surface-1 px-3 py-2.5 text-[13px] leading-relaxed text-text-primary outline-none focus:border-border-strong overflow-y-auto"
       />
 
@@ -310,6 +318,76 @@ const ALLOWED_ATTRS: Record<string, Set<string>> = {
 };
 
 /**
+ * Declarations that mean something in an email, and nothing else.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE STYLE ATTRIBUTE HAS TO BE READ, NOT JUST ALLOWED
+ *
+ * The sanitiser whitelisted `style` by NAME and never looked inside it. So a
+ * paste out of any Tailwind-styled page carried the whole `--tw-*` custom
+ * property block — two hundred declarations of nothing — straight through, and
+ * because a pasted style REPLACES the attribute, it took the
+ * `max-width:220px` off the signature image with it.
+ *
+ * That is exactly how Parasu's signature ended up sending an unconstrained
+ * image: not a bug in the image insert, which sets the width correctly, but a
+ * sanitiser that would let anything survive as long as it was spelled "style".
+ *
+ * Custom properties (--anything) are dropped wholesale. They cannot affect a
+ * mail client, which resolves no variables, and they are where the noise lives.
+ * ---------------------------------------------------------------------------
+ */
+const STYLE_ALLOWED = new Set([
+  "color",
+  "background-color",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-align",
+  "text-decoration",
+  "line-height",
+  "width",
+  "height",
+  "max-width",
+  "max-height",
+  "margin",
+  "margin-top",
+  "margin-bottom",
+  "margin-left",
+  "margin-right",
+  "padding",
+  "padding-top",
+  "padding-bottom",
+  "padding-left",
+  "padding-right",
+  "border",
+  "border-left",
+  "border-collapse",
+  "vertical-align",
+]);
+
+export function sanitiseStyle(value: string): string {
+  return value
+    .split(";")
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .map((d) => {
+      const at = d.indexOf(":");
+      if (at < 0) return null;
+      const prop = d.slice(0, at).trim().toLowerCase();
+      const val = d.slice(at + 1).trim();
+      if (!val || prop.startsWith("--")) return null;
+      if (!STYLE_ALLOWED.has(prop)) return null;
+      // A url() in a style is a fetch the recipient's client would make.
+      if (/url\s*\(|expression\s*\(|javascript:/i.test(val)) return null;
+      return `${prop}:${val}`;
+    })
+    .filter(Boolean)
+    .join(";");
+}
+
+/**
  * Strips anything that should not travel in an email.
  *
  * This output is stored and later sent to other people, so it is treated as
@@ -346,6 +424,30 @@ export function sanitise(html: string): string {
           const v = attr.value.trim().toLowerCase();
           if (!/^https?:/.test(v)) child.removeAttribute("src");
         }
+        if (attr.name.toLowerCase() === "style") {
+          const cleaned = sanitiseStyle(attr.value);
+          if (cleaned) child.setAttribute("style", cleaned);
+          else child.removeAttribute("style");
+        }
+      }
+
+      /*
+        An image in an email is constrained or it is enormous.
+        --------------------------------------------------------------------
+        Outlook renders a signature image at its intrinsic pixel size, so a
+        600px scan of a signature arrives 600px wide however small it looked
+        in the editor. The insert sets a max-width; this is the guarantee for
+        everything else — pasted images, and anything whose style was just
+        stripped for being junk.
+      */
+      if (child.tagName === "IMG") {
+        const style = child.getAttribute("style") ?? "";
+        if (!/max-width/i.test(style)) {
+          child.setAttribute("style", `${style ? style + ";" : ""}max-width:220px;height:auto`);
+        }
+        // width/height attributes fight the style rule and win in some clients.
+        child.removeAttribute("width");
+        child.removeAttribute("height");
       }
 
       // Links leaving in an email should not hand the opener a window reference.

@@ -51,7 +51,7 @@ export default function SignatureEditor({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-card border border-border bg-surface-1 shadow-xl"
+        className="w-full max-w-lg card shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Email signature"
