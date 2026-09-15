@@ -79,7 +79,7 @@ export default function CargoPanel({
   }
 
   return (
-    <section className="mt-4 rounded-card border border-border bg-surface-1 p-5">
+    <section className="mt-4 card p-5">
       <div className="flex items-center justify-between gap-3 mb-3">
         <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
           <Package size={12} /> Shipment details

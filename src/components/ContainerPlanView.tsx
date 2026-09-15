@@ -347,7 +347,7 @@ export default function ContainerPlanView({ slotId, onClose }: { slotId: string;
                 </>
               )}
 
-              <div className="grid grid-cols-3 gap-3 mt-4 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 mb-4">
                 <div className="rounded-card bg-surface-2 p-3">
                   <p className="text-xs text-text-secondary">Floor used</p>
                   <p className="text-[15px] font-medium text-text-primary">

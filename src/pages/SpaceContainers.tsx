@@ -3,6 +3,7 @@ import { Boxes, Check, X, Loader2 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import StatusPill from "../components/StatusPill";
 import ContainerPlanView from "../components/ContainerPlanView";
+import Select from "../components/Select";
 import {
   getSpaceSlots,
   checkSpace,
@@ -34,10 +35,22 @@ export default function SpaceContainers() {
 
   const [openSlotId, setOpenSlotId] = useState<string | null>(null);
 
+  /**
+   * An empty form, not a pre-filled one.
+   *
+   * It used to open holding a client name and a sailing date that were invented
+   * — a customer who does not exist, against a date in the past. Pressing check
+   * without reading the fields returned a confident answer about nothing, and
+   * the name looked enough like a real account to be mistaken for one.
+   *
+   * Dimensions still carry ordinary carton figures because they are units the
+   * field is asking for rather than a claim about anybody's cargo, and a
+   * dimension box opened at zero cannot be checked at all.
+   */
   const [form, setForm] = useState({
     route: "Chennai -> Singapore",
-    sailing_date: "2026-08-20",
-    client_name: "Meera Textiles",
+    sailing_date: "",
+    client_name: "",
     length_cm: 120,
     width_cm: 100,
     height_cm: 110,
@@ -110,32 +123,27 @@ export default function SpaceContainers() {
     <div>
       <PageHeader
         title="Space & containers"
-        subtitle="Live remaining space per sailing, checked in three dimensions — the same service the voice agent queries mid-call."
+        subtitle="Live remaining space per sailing, checked in three dimensions rather than by volume alone."
         action={
           offline ? <StatusPill tone="danger">backend offline</StatusPill> : <StatusPill tone="success">live</StatusPill>
         }
       />
 
-      <div className="rounded-card bg-surface-1 border border-border p-4 mb-5">
+      <div className="card p-4 mb-5">
         <p className="text-sm font-medium text-text-primary mb-3 flex items-center gap-1.5">
           <Boxes size={14} /> Will it fit?
         </p>
 
-        <div className="grid grid-cols-4 gap-3 mb-3">
-          <label className="col-span-2 text-xs text-text-secondary">
-            Route
-            <select
-              className="w-full mt-1"
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <div className="col-span-2">
+            <p className="text-xs text-text-secondary mb-1">Route</p>
+            <Select
+              label="Route"
               value={form.route}
-              onChange={(e) => setForm({ ...form, route: e.target.value })}
-            >
-              {routes.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={(v) => setForm({ ...form, route: v })}
+              options={routes.map((r) => ({ value: r, label: r }))}
+            />
+          </div>
           <label className="text-xs text-text-secondary">
             Sailing date
             <input
@@ -155,7 +163,7 @@ export default function SpaceContainers() {
           </label>
         </div>
 
-        <div className="grid grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <label className="col-span-2 text-xs text-text-secondary">
             Client
             <input
@@ -166,7 +174,7 @@ export default function SpaceContainers() {
           </label>
         </div>
 
-        <div className="grid grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           {(["length_cm", "width_cm", "height_cm", "weight_kg_each"] as const).map((k) => (
             <label key={k} className="text-xs text-text-secondary">
               {k === "weight_kg_each" ? "Weight each (kg)" : `${k.split("_")[0]} (cm)`}
@@ -247,7 +255,7 @@ export default function SpaceContainers() {
       </div>
 
       <p className="text-sm font-medium text-text-primary mb-2">Sailings</p>
-      <div className="rounded-card bg-surface-1 border border-border overflow-hidden">
+      <div className="card overflow-hidden">
         <table className="w-full text-[13px]" style={{ tableLayout: "fixed" }}>
           <thead>
             <tr className="border-b border-border text-left text-xs text-text-secondary">
