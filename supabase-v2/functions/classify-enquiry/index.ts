@@ -1,0 +1,456 @@
+/**
+ * Reads an email and proposes what it is.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT IT DECIDES, AND WHAT IT DOES NOT
+ *
+ * It answers one question — is this an enquiry — and pulls out the fields the
+ * intake queue already has slots for. It writes nothing. The row it describes
+ * is created only when somebody presses the button in the CRM, under the same
+ * RPCs and the same guards as a row typed by hand.
+ *
+ * That is deliberate and it is the whole safety argument. A model that files
+ * enquiries directly would allocate a permanent reference off a guess, and
+ * references are never deleted because the correspondence attached to them is
+ * the record of what a customer was told. So this proposes; a person confirms.
+ *
+ * WHY IT RUNS HERE INSTEAD OF IN THE BROWSER
+ *
+ * The Gemini key. A key in a browser bundle is a key anyone can read and spend,
+ * and this one is attached to a card. It never leaves this function.
+ *
+ * THIS RUNS ON GEMINI'S FREE TIER, AGAINST LIVE CUSTOMER MAIL
+ *
+ * A deliberate choice, recorded here because it is not visible from the code.
+ *
+ * Google's unpaid tier uses submitted content "to provide, improve, and develop
+ * Google products", and human reviewers may see it. India is not covered by the
+ * EEA/UK/Swiss carve-out that applies the paid terms to free usage. What passes
+ * through here is real: rate cards, quotations, and the names, addresses and
+ * phone numbers of customers who have not been asked about it — which under the
+ * DPDP Act makes Aashish Logistics the data fiduciary for that transfer.
+ *
+ * Enabling billing on the Google project flips those terms on its own — no code
+ * change, no key change, nothing here to edit. At this volume it is a few
+ * hundred rupees a month. If nobody has revisited this, revisit it.
+ *
+ * The function cannot tell which tier the key is on; that is a property of the
+ * Google project, not of the request. This comment is the only check there is.
+ * ---------------------------------------------------------------------------
+ */
+
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
+
+/**
+ * Overridable because Google retires models faster than this repo changes.
+ * 2.5 Flash-Lite retires on 16 October 2026; do not pin to it.
+ */
+const MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
+const BASE = "https://generativelanguage.googleapis.com/v1beta";
+
+/**
+ * CORS, and the headers it is easy to forget.
+ *
+ * supabase-js does not send only Authorization: every call from the browser
+ * also carries `apikey` and `x-client-info`. A preflight that allows less than
+ * what the browser is about to send is refused by the browser, the request
+ * never leaves the tab, and what surfaces is "Failed to send a request to the
+ * Edge Function" — which reads like the function is down when it has not been
+ * reached at all.
+ *
+ * The requested headers are reflected rather than listed, so the day the client
+ * adds another one this does not have to be debugged a second time. The static
+ * list is the fallback for a request that names none.
+ */
+function cors(req: Request): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers":
+      req.headers.get("Access-Control-Request-Headers") ??
+      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+let CORS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
+
+/**
+ * The shape of an answer.
+ *
+ * Given to Gemini as a response schema rather than asked for in the prompt,
+ * because a prompt asking for JSON gets JSON most of the time, and the times it
+ * does not are a parse error in front of somebody trying to file an enquiry.
+ * Every field is nullable: a message that does not name a destination should
+ * come back with no destination, not an invented one.
+ */
+const SCHEMA = {
+  type: "object",
+  properties: {
+    is_enquiry: {
+      type: "boolean",
+      description:
+        "True only if the sender is asking about moving cargo, requesting a rate, or following up on one. Replies, invoices, circulars, newsletters and internal mail are not enquiries.",
+    },
+    confidence: { type: "number", description: "0 to 1." },
+    reason: { type: "string", description: "One short sentence. Why it is or is not an enquiry." },
+    reference: {
+      type: "string",
+      nullable: true,
+      description:
+        "Any enquiry, booking or job reference the message already carries — ENQ NO, ENQUIRY NO, job number — copied exactly as written. Null if there is none. Never invent one.",
+    },
+    contact_name: { type: "string", nullable: true },
+    company: { type: "string", nullable: true },
+    email: { type: "string", nullable: true },
+    phone: { type: "string", nullable: true },
+    origin: { type: "string", nullable: true, description: "Port or city of loading." },
+    destination: { type: "string", nullable: true, description: "Port or city of discharge." },
+    cargo: { type: "string", nullable: true, description: "What is being shipped, and how much." },
+    summary: { type: "string", description: "One or two sentences a colleague could act on." },
+  },
+  required: ["is_enquiry", "confidence", "reason", "summary"],
+};
+
+/**
+ * Writing a reply, which is a different job with a different failure.
+ *
+ * A wrong classification costs somebody ten seconds. A wrong reply goes to a
+ * customer over an employee's name, and on a freight desk the expensive version
+ * of that is an invented number: a rate, a transit time, a free-days allowance
+ * that nobody at Aashish agreed to but that the customer has now been quoted in
+ * writing. So the strongest instruction here is the one about figures.
+ *
+ * It writes the reply only. No subject, no sign-off, no signature — the CRM
+ * already seeds the signature into the editor and a second one written by a
+ * model is how a reply goes out signed twice.
+ */
+const DRAFT_SYSTEM = [
+  "You draft replies for a freight forwarder in Chennai — Aashish Logistics Global — handling",
+  "LCL and FCL ocean freight, air freight and customs clearance, mostly on India lanes to and",
+  "from Colombo, Jebel Ali, Singapore and Jeddah.",
+  "",
+  "Write the reply the employee would send. British business English, courteous and direct,",
+  "the register of a shipping desk rather than a marketing email.",
+  "",
+  "Rules, in order of importance:",
+  "- NEVER state a rate, transit time, free-days allowance, validity, schedule or any other",
+  "  figure unless it appears verbatim in the thread you were given. If the customer asked for",
+  "  a number you do not have, say it is being worked out and will follow — do not estimate,",
+  "  do not give a range, do not repeat a figure from a different shipment.",
+  "- Do not promise anything about capacity, timing or acceptance that the thread does not",
+  "  already support.",
+  "- Answer what was actually asked. If the message asks three things, address three.",
+  "- If something essential is missing — commodity, weight, volume, incoterm, ready date —",
+  "  ask for it plainly rather than writing around it.",
+  "- Keep it short. Four sentences is usually enough and a long reply is rarely a better one.",
+  "",
+  "Output the body of the reply as plain text and nothing else. No subject line. No greeting",
+  "block beyond a normal salutation. No sign-off, no name, no signature — those are added",
+  "afterwards. No markdown, no bullet characters unless the content is genuinely a list.",
+].join("\n");
+
+/**
+ * Reading a partner's reply to a rate request.
+ *
+ * A different job again from classifying and from drafting, and the failure it
+ * has to avoid is the same one the drafter avoids from the other side: an
+ * invented number. Here the number is being READ rather than written, so the
+ * rule is absence over approximation — a rate this cannot find must come back
+ * null, because a wrong figure on the comparison board is one somebody quotes
+ * the customer from.
+ */
+const QUOTE_SYSTEM = [
+  "You read replies from freight agents and forwarders to a request for a rate.",
+  "",
+  "Pull out what they quoted. Rules, in order of importance:",
+  "- Copy figures EXACTLY as written. Never convert a currency, never round, never",
+  "  add a number that is not in the message.",
+  "- If several figures appear, take the ALL-IN or total freight rate. If the reply",
+  "  breaks charges down without a total, return null for amount and put the",
+  "  breakdown verbatim in notes. Do not add the components up yourself.",
+  "- currency is the ISO code where you can tell — USD, INR, AED, LKR. Rs and INR",
+  "  are the same thing. If it is genuinely unclear, return null rather than guess.",
+  "- declined is true only if they say they cannot take it or have no space. An",
+  "  agent asking for more information has NOT declined.",
+  "- transit_days is a whole number of days in transit. A sailing date is not a",
+  "  transit time.",
+  "- notes is a short plain-text summary of anything a person would need: what the",
+  "  rate covers, what it excludes, conditions, the vessel offered.",
+  "",
+  "Return nulls freely. An honest gap is useful; a confident wrong number is not.",
+].join("\n");
+
+const QUOTE_SCHEMA = {
+  type: "object",
+  properties: {
+    amount: { type: "number", nullable: true, description: "The all-in rate, exactly as written." },
+    currency: { type: "string", nullable: true },
+    basis: { type: "string", nullable: true, description: "Per CBM, per container, lumpsum." },
+    transit_days: { type: "integer", nullable: true },
+    valid_until: { type: "string", nullable: true, description: "YYYY-MM-DD if a date is given." },
+    space_confirmed: { type: "boolean", nullable: true },
+    declined: { type: "boolean" },
+    notes: { type: "string" },
+  },
+  required: ["declined", "notes"],
+};
+
+/**
+ * Writing the rate request itself, when somebody asks for it to be written.
+ *
+ * ---------------------------------------------------------------------------
+ * THE TEMPLATE IS STILL THE DEFAULT
+ *
+ * This is not what sends by default and should not become it. The deterministic
+ * request copies every figure straight off the enquiry row and cannot get one
+ * wrong; this one is reached only when an operator presses a button and says in
+ * their own words what the mail should do — a chaser, a specific question, a
+ * tone for a partner they know.
+ *
+ * SO THE RULE ABOUT FIGURES IS THE SAME RULE
+ *
+ * Every number in the output must come from the shipment details supplied. A
+ * rate request that invents a volume gets quoted against cargo that does not
+ * exist, and the quote comes back looking perfectly reasonable.
+ */
+const RFQ_SYSTEM = [
+  "You write rate requests for a freight forwarder in Chennai - Aashish Logistics Global -",
+  "to its overseas agents, consolidators and carriers.",
+  "",
+  "You are given the shipment details this desk holds, and an instruction from the employee",
+  "about what this particular request should say. Write the email.",
+  "",
+  "Rules, in order of importance:",
+  "- Use ONLY the shipment details supplied. Never invent or estimate a weight, volume,",
+  "  piece count, date, rate or route. If the employee asks you to mention something the",
+  "  details do not contain, ask the partner for it rather than stating it.",
+  "- NEVER write a fill-in placeholder - no [vessel name], no [insert date], no XXXX, no",
+  "  blanks to complete. This text is sent as written and a bracket in it goes to the",
+  "  partner. Turn the gap into a question instead: 'please confirm the vessel and voyage'.",
+  "- A figure the EMPLOYEE states in their instruction is theirs to state, and you may use",
+  "  it. The rule above is about figures nobody supplied.",
+  "- Follow the employee's instruction. It is the reason this is being written rather than",
+  "  the standard template.",
+  "- Always ask for what a rate request exists to get, unless the instruction says otherwise:",
+  "  the all-in rate and its basis, space and the next sailing, transit time, and validity.",
+  "- State the shipment details clearly. A partner should not have to reply asking what the",
+  "  cargo is.",
+  "- British business English, courteous and direct - the register of a shipping desk.",
+  "- Keep it short. A partner reads twenty of these a day.",
+  "",
+  "Output HTML for the body only: <p>, <ul>, <li>, <strong>, <br>. No <html>, no <head>, no",
+  "subject line, no markdown, no code fences. End with a sign-off naming the sender given.",
+].join("\n");
+
+const SYSTEM = [
+  "You read email for a freight forwarder in Chennai that handles LCL and FCL ocean freight,",
+  "air freight and customs clearance. Lanes are mostly India to and from Colombo, Jebel Ali,",
+  "Singapore and Jeddah.",
+  "",
+  "Decide whether the message is a NEW enquiry the desk should quote, and pull out the details.",
+  "",
+  "Rules:",
+  "- Take details from what the sender wrote, never from the mail headers. A website contact form",
+  "  arrives from the form mailer, not from the customer; the customer's own address is in the body.",
+  "- NEVER return one of our own people as the contact. Anything at aashishlogistics.com or",
+  "  aashishlogisticsglobal.com is a colleague, not a customer — that includes the signature at the",
+  "  bottom of a message somebody here forwarded. On a forwarded or replied message the contact is",
+  "  the ORIGINAL sender further down the thread. If the only name and address in the message are",
+  "  ours, return null for contact_name, company, email and phone rather than naming a colleague.",
+  "- Leave a field null when the message does not say. Do not infer a port from a country, do not",
+  "  expand an abbreviation you are not sure of, and never invent a figure.",
+  "- A subject carrying an enquiry reference — ENQ NO, ENQUIRY NO, ENQ#, ENQ, or the same idea",
+  "  written another way — means this desk has already numbered this as an enquiry. Set",
+  "  is_enquiry true, and put the reference itself in `reference` exactly as written. This rule",
+  "  wins over the two below it: a numbered enquiry stays an enquiry even when the body reads as",
+  "  a forward, a booking instruction, or a reply.",
+  "- Otherwise, a reply in an existing thread about an existing quotation is NOT a new enquiry.",
+  "- Otherwise, an invoice, statement, circular, newsletter or delivery notification is NOT an",
+  "  enquiry.",
+  "- If it is ambiguous, say so in the reason and give a confidence below 0.5. A person reads this",
+  "  before anything is filed, so an honest maybe is more useful than a confident guess.",
+].join("\n");
+
+Deno.serve(async (req) => {
+  // Set per request so every response below carries the right headers, including
+  // the error paths — a 500 without CORS is an error the browser cannot read.
+  CORS = cors(req);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+
+  if (!GEMINI_KEY) {
+    return json({ error: "GEMINI_API_KEY is not set on this function." }, 500);
+  }
+
+  /**
+   * GET lists the models this key can actually reach.
+   *
+   * Google's model names move, and a wrong one fails as a 404 that reads like
+   * the function is broken. One request settles which id to pin.
+   */
+  if (req.method === "GET") {
+    const r = await fetch(`${BASE}/models?key=${GEMINI_KEY}`);
+    const body = await r.text();
+    if (!r.ok) return json({ error: "Could not list models.", status: r.status, body }, 502);
+    const names = (JSON.parse(body).models ?? [])
+      .map((m: { name?: string }) => m.name?.replace(/^models\//, ""))
+      .filter(Boolean);
+    return json({ configured: MODEL, available: names });
+  }
+
+  if (req.method !== "POST") return json({ error: "POST a message." }, 405);
+
+  let input: {
+    subject?: string;
+    from?: string;
+    body?: string;
+    /**
+     * "classify" reads a message, "draft" answers one, "quote" reads a rate out
+     * of a reply, "rfq" writes a rate request from shipment details.
+     */
+    mode?: "classify" | "draft" | "quote" | "rfq";
+    /** Draft only: what the operator wants said, in their own words. */
+    instruction?: string;
+  };
+  try {
+    input = await req.json();
+  } catch {
+    return json({ error: "Body must be JSON." }, 400);
+  }
+
+  const drafting = input.mode === "draft";
+  const quoting = input.mode === "quote";
+  const writingRfq = input.mode === "rfq";
+  const text = (input.body ?? "").trim();
+  if (!text && !input.subject) return json({ error: "Nothing to read." }, 400);
+
+  /**
+   * Trimmed before it is sent.
+   *
+   * A long reply chain is mostly quoted history the model does not need to
+   * decide anything, and input is what this costs. 12k characters is a
+   * generous single message and a short thread.
+   */
+  const excerpt = text.slice(0, 12000);
+
+  const prompt = [
+    drafting
+      ? "Reply to this message."
+      : quoting
+        ? "Read the rate out of this reply."
+        : writingRfq
+          ? "Write a rate request from these shipment details."
+          : "",
+    `Subject: ${input.subject ?? "(none)"}`,
+    `From: ${input.from ?? "(unknown)"}`,
+    "",
+    excerpt,
+    // The operator's steer goes last, where it reads as the most recent
+    // instruction rather than as part of the customer's message.
+    drafting && input.instruction?.trim()
+      ? `\n---\nThe employee sending this reply wants it to say: ${input.instruction.trim()}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const body = JSON.stringify({
+    systemInstruction: {
+      parts: [
+        {
+          text: drafting
+            ? DRAFT_SYSTEM
+            : quoting
+              ? QUOTE_SYSTEM
+              : writingRfq
+                ? RFQ_SYSTEM
+                : SYSTEM,
+        },
+      ],
+    },
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    // Prose gets a little room to vary; a classification does not. Zero on a
+    // reply produces the same four stiff sentences for every message.
+    generationConfig: drafting || writingRfq
+      ? { temperature: 0.4 }
+      : {
+          responseMimeType: "application/json",
+          responseSchema: quoting ? QUOTE_SCHEMA : SCHEMA,
+          temperature: 0,
+        },
+  });
+
+  /**
+   * Retried, because the free tier says no at random.
+   *
+   * Measured, not assumed: four identical requests during testing produced one
+   * 503 "this model is currently experiencing high demand" and three clean
+   * answers. Without a retry that is an operator pressing a button and getting
+   * an error for no reason they can see or fix, on a message that would have
+   * classified perfectly a second later.
+   *
+   * Only 429 and 5xx are retried. A 400 is a request this code got wrong and a
+   * 403 is a key problem; sending either again just spends the quota twice.
+   */
+  let r: Response | null = null;
+  let raw = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((ok) => setTimeout(ok, 400 * 2 ** (attempt - 1)));
+    try {
+      r = await fetch(`${BASE}/models/${MODEL}:generateContent?key=${GEMINI_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+    } catch (e) {
+      // A dropped connection is worth another go for the same reason a 503 is.
+      if (attempt === 2) return json({ error: "Could not reach Gemini.", detail: String(e) }, 502);
+      continue;
+    }
+    raw = await r.text();
+    if (r.ok || (r.status !== 429 && r.status < 500)) break;
+  }
+  if (!r) return json({ error: "Could not reach Gemini." }, 502);
+  if (!r.ok) {
+    // Google's message is kept: it distinguishes a bad key from a retired model
+    // from a quota refusal, and those need three different fixes.
+    return json({ error: "Gemini refused the request.", status: r.status, detail: raw.slice(0, 800) }, 502);
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const part = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!part) {
+      // A blocked or empty candidate is not a crash. Say what came back.
+      return json(
+        { error: "Gemini returned no content.", detail: JSON.stringify(parsed).slice(0, 800) },
+        502
+      );
+    }
+    // What it cost, so the bill is never a surprise nobody can explain.
+    const usage = parsed.usageMetadata ?? null;
+
+    // A draft is prose. Parsing it as JSON would throw on the first apostrophe.
+    // Both prose modes come back as text rather than JSON. A fenced block is
+    // stripped: the prompt forbids markdown and the model mostly complies, and
+    // "mostly" would put ```html into somebody's outgoing mail.
+    if (drafting || writingRfq) {
+      const text = part.trim().replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/, "").trim();
+      return json({ draft: text, model: MODEL, usage });
+    }
+
+    return json({ ...JSON.parse(part), model: MODEL, usage });
+  } catch (e) {
+    return json({ error: "Could not read Gemini's answer.", detail: String(e) }, 502);
+  }
+});

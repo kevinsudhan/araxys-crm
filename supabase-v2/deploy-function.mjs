@@ -7,9 +7,16 @@
  * Management API takes the same multipart upload the CLI sends, so the result
  * is identical.
  *
- * verify_jwt is left OFF for kb-sync: it is called by pg_cron and by a button
- * in the admin console, and turning it on would make both fail with a 401 that
- * the deploy itself would report as success.
+ * verify_jwt is OFF by default, which is what kb-sync and ingest-calls need:
+ * they are called by pg_cron and by a button in the admin console, and turning
+ * it on would make both fail with a 401 that the deploy itself would report as
+ * success.
+ *
+ * Pass --verify-jwt for a function the BROWSER calls. Without it the URL is
+ * open to anyone who finds it, and for a function that spends money per request
+ * that is somebody else's bill running on your key.
+ *
+ *   node supabase-v2/deploy-function.mjs classify-enquiry --verify-jwt
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
@@ -29,6 +36,7 @@ const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 const PROJECT = "izgbrdeybhbepftloxgk";
 
 const slug = process.argv[2];
+const verifyJwt = process.argv.includes("--verify-jwt");
 if (!slug) {
   console.error("usage: node supabase-v2/deploy-function.mjs <slug>");
   process.exit(1);
@@ -53,7 +61,7 @@ form.append(
       JSON.stringify({
         name: slug,
         entrypoint_path: "index.ts",
-        verify_jwt: false,
+        verify_jwt: verifyJwt,
       }),
     ],
     { type: "application/json" }
@@ -71,7 +79,7 @@ const r = await fetch(
 );
 
 const body = await r.text();
-console.log(`deploy ${slug} -> ${r.status}`);
+console.log(`deploy ${slug} -> ${r.status} (verify_jwt: ${verifyJwt})`);
 if (!r.ok) {
   console.error(body.slice(0, 500));
   process.exit(1);

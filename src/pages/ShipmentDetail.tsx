@@ -1,305 +1,294 @@
-import { useParams, Link } from "react-router-dom";
-import { ChevronLeft, Check, X, Clock, RefreshCw, PhoneIncoming, FileDown } from "lucide-react";
-import StatusPill, { toneForShipmentStatus } from "../components/StatusPill";
-import { shipments } from "../data/mockData";
+import { useCallback, useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useOutletContext, useParams } from "react-router-dom";
+import { AlertCircle, ChevronLeft, FileText, PackageSearch } from "lucide-react";
+import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
-import StowPanel from "../components/StowPanel";
-import DocumentsPanel from "../components/DocumentsPanel";
-import { documentDataFromShipment } from "../lib/documents";
+import StatusPill from "../components/StatusPill";
+import { supabase } from "../lib/supabase";
+import { money } from "../services/billing";
+import { marginPct, shipmentMargin, type Margin } from "../services/bills";
+import {
+  getShipment,
+  SHIPMENT_STAGE_LABEL,
+  type Customer,
+  type Shipment,
+} from "../services/enquiries";
 
-const docStatusTone = { complete: "success", partial_callback_needed: "warning", escalated: "danger" } as const;
+/**
+ * One booked shipment, and everything the desk does to it.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS A SHELL WITH SECTIONS RATHER THAN ONE PAGE
+ *
+ * Because the alternatives are both worse. One page means progress, booking,
+ * cargo, charges, invoices, costs and payments stacked into a scroll nobody
+ * reaches the bottom of. Separate pages means what the reference system does:
+ * an Invoice screen whose first required field is the B/L number, so you retype
+ * the identifier of the job you were looking at ten seconds ago. The job stays
+ * the container; the sections change what part of it you are working on.
+ *
+ * THE SECTION IS IN THE URL
+ *
+ * `/shipments/ARX-SHP-0001/invoices`, not a piece of component state. Refreshing
+ * keeps you where you were, a colleague can be sent straight to the invoices of
+ * one job, and Back goes back a section rather than out of the shipment
+ * entirely. That is the whole reason this is a nested route.
+ *
+ * THE MONEY DOES NOT MOVE
+ *
+ * Billed, cost and the margin between them sit in the header on every section.
+ * The screen this was modelled on has eighteen fields above the fold and its
+ * total below it, which means the one number everybody opens an invoice to
+ * read is the one number you have to go looking for.
+ * ---------------------------------------------------------------------------
+ */
 
-function fmtInr(n: number) {
-  return `₹${n.toLocaleString("en-IN")}`;
+export interface ShipmentContext {
+  shipment: Shipment & { customer: Customer | null };
+  /** Re-reads the shipment and the billing summary. */
+  reload: () => Promise<void>;
 }
 
-const cargoTypeLabels: Record<string, string> = {
-  general_dry: "General dry cargo",
-  textiles_garments: "Textiles & garments",
-  perishable_food: "Perishable & food",
-  hazardous_dg: "Hazardous / DG",
-  electronics: "Electronics",
-  agri_grain: "Agricultural bulk & grain",
-};
+/** Typed access to what the shell loaded, for the section components. */
+export const useShipment = () => useOutletContext<ShipmentContext>();
 
-const outcomeLabels: Record<string, string> = {
-  quote_provided: "Quote provided",
-  negotiating: "Negotiating",
-  booked: "Booked",
-  status_check: "Status check",
-  docs_missing: "Docs missing",
-  escalated: "Escalated",
-  complaint: "Complaint",
-};
+interface BillingSummary {
+  invoice_count: number;
+  draft_count: number;
+  billed_inr: number;
+}
+
+function Money({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: "muted" | "warning";
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <p className="text-[11px] text-text-secondary">{label}</p>
+      <p
+        className={`text-[15px] font-medium tabular-nums ${
+          tone === "muted"
+            ? "text-text-muted"
+            : tone === "warning"
+              ? "text-text-warning"
+              : "text-text-primary"
+        }`}
+      >
+        {value}
+      </p>
+      {hint && <p className="text-[11px] text-text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+const TABS = [
+  { to: ".", label: "Overview", end: true },
+  { to: "parties", label: "Parties & B/L", end: false },
+  { to: "containers", label: "Containers", end: false },
+  { to: "invoices", label: "Invoices", end: false },
+  { to: "costs", label: "Costs", end: false },
+];
 
 export default function ShipmentDetail() {
   const { id } = useParams();
-  const shipment = shipments.find((s) => s.id === id);
+  const [shipment, setShipment] = useState<(Shipment & { customer: Customer | null }) | null>(null);
+  const [billing, setBilling] = useState<BillingSummary | null>(null);
+  const [margin, setMargin] = useState<Margin | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!shipment) return <EmptyState label="Shipment not found." />;
+  const load = useCallback(async () => {
+    if (!id) return;
+    setError(null);
+    try {
+      const [s, { data }, m] = await Promise.all([
+        getShipment(id),
+        supabase
+          .from("shipment_billing")
+          .select("invoice_count, draft_count, billed_inr")
+          .eq("shipment_id", id)
+          .maybeSingle(),
+        shipmentMargin(id).catch(() => null),
+      ]);
+      setShipment(s);
+      setBilling((data as BillingSummary) ?? null);
+      setMargin(m);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load the shipment.");
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
-  const ce = shipment.callExtraction;
-  const dg = shipment.docGenDetails;
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (loading) return <p className="py-10 text-[13px] text-text-muted">Loading…</p>;
+
+  if (!shipment) {
+    return (
+      <EmptyState
+        icon={PackageSearch}
+        title="No shipment with that reference"
+        hint={`Nothing in the shipments table is filed under ${id ?? "that id"}. It may have been removed, or the link may be from an older record.`}
+        action={
+          <Link
+            to="/shipments/in-process"
+            className="inline-flex h-8 items-center rounded-lg border border-border-strong bg-surface-1 px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-surface-2"
+          >
+            Back to shipments
+          </Link>
+        }
+      />
+    );
+  }
+
+  const s = shipment;
+  const delivered = s.stage === "delivered";
+  const billed = billing?.billed_inr ?? 0;
+  const agreed = s.agreed_inr;
+
+  // Revenue counts issued invoices net of credit notes, which the view already
+  // does; `billed` from the billing summary counts tax invoices only and is
+  // kept for the draft badge.
+  const revenue = Number(margin?.revenue_inr ?? billed);
+  const cost = Number(margin?.cost_inr ?? 0);
+  const pct = marginPct(revenue, cost);
 
   return (
     <div>
-      <Link to={shipment.stage === "completed" ? "/shipments/completed" : "/shipments/in-process"} className="inline-flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary mb-4">
-        <ChevronLeft size={14} /> Back
+      <Link
+        to={delivered ? "/shipments/completed" : "/shipments/in-process"}
+        className="mb-4 inline-flex items-center gap-1 text-[12px] text-text-secondary hover:text-text-primary"
+      >
+        <ChevronLeft size={14} /> Back to shipments
       </Link>
 
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <h1 className="text-lg font-medium text-text-primary font-mono">{shipment.blNumber}</h1>
-          <p className="text-sm text-text-secondary mt-0.5">
-            {shipment.company} · {shipment.origin} → {shipment.destination} · {shipment.carrier}
-          </p>
+      <PageHeader
+        title={s.customer?.company || s.customer?.name || s.id}
+        subtitle={
+          [s.origin, s.destination].filter(Boolean).join(" → ") ||
+          "Route not recorded on the booking"
+        }
+        action={
+          <Link
+            to={`/enquiries/${s.enquiry_ref}`}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-3 text-[12px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
+          >
+            <FileText size={13} />
+            Open case file
+          </Link>
+        }
+      />
+
+      {error && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg bg-bg-danger px-3 py-2.5 text-[12px] text-text-danger">
+          <AlertCircle size={13} className="mt-px shrink-0" />
+          {error}
         </div>
-        <div className="flex items-center gap-2">
-          <StatusPill tone={toneForShipmentStatus(shipment.status)}>{shipment.status.replace(/_/g, " ")}</StatusPill>
-        </div>
+      )}
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[12px] text-text-accent">{s.id}</span>
+        <span className="font-mono text-[11px] text-text-muted">{s.enquiry_ref}</span>
+        <StatusPill tone={delivered ? "success" : "accent"}>
+          {SHIPMENT_STAGE_LABEL[s.stage]}
+        </StatusPill>
+        {(billing?.draft_count ?? 0) > 0 && (
+          <StatusPill tone="warning">
+            {billing?.draft_count} draft{billing?.draft_count === 1 ? "" : "s"}
+          </StatusPill>
+        )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 mb-6">
-        <StowPanel
-          query={{
-            blNumber: shipment.blNumber,
-            company: shipment.company,
-            origin: shipment.origin,
-            destination: shipment.destination,
-          }}
+      {/* ---- the money, on every section ---- */}
+      {/*
+        Revenue, cost, margin — not agreed-versus-billed any more. Once the buy
+        side exists, "did we make anything on this" is the question, and the
+        quote is just where the revenue came from.
+      */}
+      <section className="card mb-4 flex flex-wrap gap-x-6 gap-y-3 p-4">
+        <Money
+          label="Billed"
+          value={money(revenue)}
+          hint={(() => {
+            // `invoice_count` includes drafts, so using it here reads as
+            // "₹0 — 1 invoice", which is the one thing it is not.
+            const issued = (billing?.invoice_count ?? 0) - (billing?.draft_count ?? 0);
+            if (issued > 0) return `${issued} invoice${issued === 1 ? "" : "s"} issued`;
+            if ((billing?.draft_count ?? 0) > 0) return "Only a draft so far";
+            return "Nothing issued yet";
+          })()}
+          tone={revenue === 0 ? "muted" : undefined}
         />
-        <div className="rounded-card bg-surface-1 border border-border p-4">
-          <p className="text-sm font-medium text-text-primary mb-3">Timeline</p>
-          <div className="flex flex-col gap-2.5">
-            {shipment.timeline.map((t, i) => (
-              <div key={i} className="flex items-center gap-2 text-[13px]">
-                {t.state === "done" && <Check size={15} className="text-text-success shrink-0" />}
-                {t.state === "current" && <Clock size={15} className="text-text-warning shrink-0" />}
-                {t.state === "pending" && <X size={15} className="text-text-muted shrink-0" />}
-                <span className={t.state === "pending" ? "text-text-muted" : "text-text-primary"}>{t.label}</span>
-                <span className="text-xs text-text-muted ml-auto">{t.date}</span>
-              </div>
-            ))}
-          </div>
-
-          {(shipment.pickup || shipment.delivery) && (
-            <div className="mt-4 pt-3 border-t border-border grid grid-cols-2 gap-3">
-              {shipment.pickup && (
-                <div>
-                  <p className="text-xs text-text-secondary">Pickup</p>
-                  <p className="text-[13px] text-text-primary">{shipment.pickup.date} · {shipment.pickup.window}</p>
-                  <StatusPill tone={shipment.pickup.confirmed ? "success" : "warning"}>
-                    {shipment.pickup.confirmed ? "Confirmed" : "Pending"}
-                  </StatusPill>
-                </div>
-              )}
-              {shipment.delivery && (
-                <div>
-                  <p className="text-xs text-text-secondary">Delivery</p>
-                  <p className="text-[13px] text-text-primary">{shipment.delivery.date} · {shipment.delivery.window}</p>
-                  <StatusPill tone={shipment.delivery.confirmed ? "success" : "warning"}>
-                    {shipment.delivery.confirmed ? "Confirmed" : "Pending"}
-                  </StatusPill>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-      </div>
-
-      <div className="grid gap-4 mb-5 lg:grid-cols-2">
-          <div className="rounded-card bg-surface-1 border border-border p-4">
-            <p className="text-sm font-medium text-text-primary mb-3 flex items-center gap-1.5">
-              Synced to SnapServe <RefreshCw size={13} className="text-text-success" />
-            </p>
-            <div className="text-xs font-mono text-text-secondary flex flex-col gap-1.5">
-              <span>order_status: {shipment.status}</span>
-              {shipment.demurrageStartDate && <span>demurrage_start: {shipment.demurrageStartDate}</span>}
-              {shipment.freeDaysRemaining !== undefined && <span>free_days_left: {shipment.freeDaysRemaining}</span>}
-            </div>
-            <p className="text-[11px] text-text-muted mt-2.5">
-              Last synced {shipment.lastSyncedToSnapserve} · caller memory + campaign lead fields
-            </p>
-          </div>
-
-          <div className="rounded-card bg-surface-1 border border-border p-4">
-            <p className="text-sm font-medium text-text-primary mb-3">Documents</p>
-            <div className="flex flex-col gap-2">
-              {shipment.documents.map((d, i) => (
-                <div key={i} className="flex items-center justify-between text-[13px]">
-                  <span className="text-text-primary">{d.name}</span>
-                  <StatusPill tone={d.status === "received" ? "success" : d.status === "missing" ? "danger" : "accent"}>
-                    {d.status}
-                  </StatusPill>
-                </div>
-              ))}
-            </div>
-          </div>
-      </div>
-
-      {ce && (
-        <div className="rounded-card bg-surface-1 border border-border p-4 mb-5">
-          <p className="text-sm font-medium text-text-primary mb-3 flex items-center gap-1.5">
-            <PhoneIncoming size={14} className="text-text-accent" /> Extracted from call
-          </p>
-          <div className="grid grid-cols-4 gap-x-4 gap-y-3">
-            {ce.cargoType && (
-              <div>
-                <p className="text-xs text-text-secondary">Cargo type</p>
-                <p className="text-[13px] text-text-primary">{cargoTypeLabels[ce.cargoType] ?? ce.cargoType}</p>
-              </div>
-            )}
-            {ce.cargoDescription && (
-              <div>
-                <p className="text-xs text-text-secondary">Cargo description</p>
-                <p className="text-[13px] text-text-primary">{ce.cargoDescription}</p>
-              </div>
-            )}
-            {ce.volumeCbm !== undefined && (
-              <div>
-                <p className="text-xs text-text-secondary">Volume</p>
-                <p className="text-[13px] text-text-primary">{ce.volumeCbm} CBM</p>
-              </div>
-            )}
-            {ce.containerTypeRequested && (
-              <div>
-                <p className="text-xs text-text-secondary">Container requested</p>
-                <p className="text-[13px] text-text-primary font-mono">{ce.containerTypeRequested}</p>
-              </div>
-            )}
-            {ce.priceAskedInr !== undefined && (
-              <div>
-                <p className="text-xs text-text-secondary">Price asked</p>
-                <p className="text-[13px] text-text-primary">{fmtInr(ce.priceAskedInr)}</p>
-              </div>
-            )}
-            {ce.priceNegotiatedInr !== undefined && (
-              <div>
-                <p className="text-xs text-text-secondary">Price negotiated</p>
-                <p className="text-[13px] text-text-success">{fmtInr(ce.priceNegotiatedInr)}</p>
-              </div>
-            )}
-            {ce.callOutcome && (
-              <div>
-                <p className="text-xs text-text-secondary">Call outcome</p>
-                <StatusPill tone="accent">{outcomeLabels[ce.callOutcome] ?? ce.callOutcome}</StatusPill>
-              </div>
-            )}
-            {ce.nextStep && (
-              <div className="col-span-2">
-                <p className="text-xs text-text-secondary">Next step</p>
-                <p className="text-[13px] text-text-primary">{ce.nextStep}</p>
-              </div>
-            )}
-          </div>
-          <p className="text-[11px] text-text-muted mt-3">
-            SnapServe call {ce.snapserveCallId} · {ce.callDate} · via disposition schema
-          </p>
-        </div>
-      )}
-
-      {dg && (
-        <div className="rounded-card bg-surface-1 border border-border p-4 mb-5">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-medium text-text-primary flex items-center gap-1.5">
-              <FileDown size={14} className="text-text-accent" /> Documentation (from Arun)
-            </p>
-            <StatusPill tone={docStatusTone[dg.documentationStatus]}>{dg.documentationStatus.replace(/_/g, " ")}</StatusPill>
-          </div>
-          <div className="grid grid-cols-4 gap-x-4 gap-y-3">
-            {dg.shipperName && (
-              <div>
-                <p className="text-xs text-text-secondary">Shipper</p>
-                <p className="text-[13px] text-text-primary">{dg.shipperName}</p>
-              </div>
-            )}
-            {dg.shipperGstinIec && (
-              <div>
-                <p className="text-xs text-text-secondary">GSTIN / IEC</p>
-                <p className="text-[13px] text-text-primary font-mono">{dg.shipperGstinIec}</p>
-              </div>
-            )}
-            {dg.consigneeName && (
-              <div>
-                <p className="text-xs text-text-secondary">Consignee</p>
-                <p className="text-[13px] text-text-primary">{dg.consigneeName}</p>
-              </div>
-            )}
-            {dg.consigneeCountry && (
-              <div>
-                <p className="text-xs text-text-secondary">Consignee country</p>
-                <p className="text-[13px] text-text-primary">{dg.consigneeCountry}</p>
-              </div>
-            )}
-            {dg.hsCode && (
-              <div>
-                <p className="text-xs text-text-secondary">HS code</p>
-                <p className="text-[13px] text-text-primary font-mono">{dg.hsCode}</p>
-              </div>
-            )}
-            {dg.invoiceValueInr !== undefined && (
-              <div>
-                <p className="text-xs text-text-secondary">Invoice value</p>
-                <p className="text-[13px] text-text-primary">{fmtInr(dg.invoiceValueInr)}</p>
-              </div>
-            )}
-            {dg.packageCount !== undefined && (
-              <div>
-                <p className="text-xs text-text-secondary">Packages</p>
-                <p className="text-[13px] text-text-primary">{dg.packageCount} x {dg.packageType ?? "units"}</p>
-              </div>
-            )}
-            {dg.grossWeightKg !== undefined && (
-              <div>
-                <p className="text-xs text-text-secondary">Gross weight</p>
-                <p className="text-[13px] text-text-primary">{dg.grossWeightKg.toLocaleString("en-IN")} kg</p>
-              </div>
-            )}
-          </div>
-          {dg.missingFields && <p className="text-xs text-text-danger mt-3">Still pending from customer: {dg.missingFields}</p>}
-          <p className="text-[11px] text-text-muted mt-3">SnapServe call {dg.snapserveCallId} · {dg.callDate}</p>
-        </div>
-      )}
-
-      {ce && ce.transcript.length > 0 && (
-        <div className="rounded-card bg-surface-1 border border-border p-4 mb-5">
-          <p className="text-sm font-medium text-text-primary mb-3">Conversation</p>
-          <div className="flex flex-col gap-2.5">
-            {ce.transcript.map((t, i) => (
-              <div key={i} className={`flex ${t.speaker === "agent" ? "justify-start" : "justify-end"}`}>
-                <div
-                  className={`max-w-[75%] rounded-card px-3 py-2 text-[13px] ${
-                    t.speaker === "agent" ? "bg-surface-2 text-text-primary" : "bg-bg-accent text-text-accent"
-                  }`}
-                >
-                  <p className="text-[11px] text-text-muted mb-0.5">{t.speaker === "agent" ? "Priya" : shipment.customerName}</p>
-                  {t.text}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <section className="mt-6">
-        <h2 className="text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-2">
-          Documents
-        </h2>
-        <DocumentsPanel data={documentDataFromShipment(shipment)} defaultOpen />
+        <Money
+          label="Cost"
+          value={money(cost)}
+          hint={cost === 0 ? "No bills recorded" : "carrier, agent and vendors"}
+          tone={cost === 0 ? "muted" : undefined}
+        />
+        <Money
+          label="Margin"
+          value={revenue === 0 && cost === 0 ? "—" : money(revenue - cost)}
+          hint={
+            pct === null
+              ? "Nothing billed yet"
+              : `${pct}% of what was billed`
+          }
+          tone={
+            revenue === 0 && cost === 0
+              ? "muted"
+              : revenue - cost < 0
+                ? "warning"
+                : undefined
+          }
+        />
+        <Money
+          label="Agreed on the quote"
+          value={money(agreed)}
+          hint={
+            agreed === null || revenue === 0
+              ? "What the customer accepted"
+              : revenue === agreed
+                ? "Billed exactly that"
+                : `Billed ${revenue > agreed ? "above" : "below"} it`
+          }
+          tone={agreed === null ? "muted" : undefined}
+        />
       </section>
 
-      <div className="rounded-card bg-surface-1 border border-border p-4 mt-6">
-        <p className="text-sm font-medium text-text-primary mb-3">Call history</p>
-        <div className="flex flex-col gap-2">
-          {shipment.callHistory.map((c, i) => (
-            <div key={i} className="flex items-center justify-between text-[13px]">
-              <span className="text-text-primary">{c.date} · {c.agent}</span>
-              <span className="text-text-secondary">{c.disposition}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* ---- sections ---- */}
+      <nav className="mb-4 flex gap-1 border-b border-border" aria-label="Shipment sections">
+        {TABS.map((t) => (
+          <NavLink
+            key={t.label}
+            to={t.to}
+            end={t.end}
+            className={({ isActive }) =>
+              `-mb-px border-b-2 px-3 py-2 text-[13px] transition-colors ${
+                isActive
+                  ? "border-brand font-medium text-text-primary"
+                  : "border-transparent text-text-secondary hover:text-text-primary"
+              }`
+            }
+          >
+            {t.label}
+            {t.label === "Invoices" && (billing?.invoice_count ?? 0) > 0 && (
+              <span className="ml-1.5 tabular-nums text-text-muted">{billing?.invoice_count}</span>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+
+      <Outlet context={{ shipment: s, reload: load } satisfies ShipmentContext} />
     </div>
   );
 }

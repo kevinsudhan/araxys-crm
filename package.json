@@ -13,13 +13,21 @@
     "test:space": "tsx server/spaceEngine.test.ts",
     "start": "tsx server/index.ts",
     "test:scene": "tsx src/lib/scene3d.test.ts",
-    "test": "npm run test:space && npm run test:scene && npm run test:fields",
+    "test": "npm run test:space && npm run test:scene && npm run test:fields && npm run test:web && npm run test:fwd && npm run test:apply && npm run test:greet && npm run test:container && npm run test:allocate && npm run test:xlsx",
     "check:secrets": "node scripts/check-bundle-secrets.mjs",
-    "test:fields": "tsx supabase/functions/_shared/requestFields.test.ts"
+    "test:fields": "tsx supabase/functions/_shared/requestFields.test.ts",
+    "test:web": "tsx scripts/tests/webEnquiry.test.ts",
+    "test:fwd": "tsx scripts/tests/forwardChain.test.ts",
+    "test:apply": "tsx scripts/tests/planApply.test.ts",
+    "test:greet": "tsx scripts/tests/greeting.test.ts",
+    "test:container": "tsx scripts/tests/containerNo.test.ts",
+    "test:allocate": "tsx scripts/tests/allocate.test.ts",
+    "test:xlsx": "tsx scripts/tests/xlsx.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
     "cors": "^2.8.6",
+    "dompurify": "^3.4.15",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jspdf": "^4.2.1",
