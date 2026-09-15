@@ -2,9 +2,7 @@ import { Link } from "react-router-dom";
 import {
   Activity,
   ArrowUpRight,
-  BookOpen,
   LogOut,
-  PhoneCall,
   Settings2,
   ShieldCheck,
   Users,
@@ -13,11 +11,12 @@ import { useAuth } from "../lib/auth";
 import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
 
 /**
- * Admin control — placeholder.
+ * The administrator's landing page.
  *
- * Deliberately a shell: the panels below describe what belongs here and are
- * wired to nothing. Everything showing a number is marked as such, so nobody
- * demonstrates this page believing the figures are live.
+ * Mostly still a shell, and it says so. The one live thing on it is the link to
+ * team oversight, which is built entirely on real rows. The remaining panels
+ * describe what belongs here and are wired to nothing, so the warning above
+ * them stays until each is replaced by something that reads a table.
  */
 export default function AdminControl() {
   const { session, signOut } = useAuth();
@@ -71,24 +70,31 @@ export default function AdminControl() {
           shown is illustrative.
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Voice agents" value="2" note="Priya · Arun" icon={PhoneCall} />
-          <Stat label="Active users" value="—" note="not wired" icon={Users} />
-          <Stat label="Knowledge sources" value="7" note="5 static · 2 live" icon={BookOpen} />
-          <Stat label="System status" value="Healthy" note="illustrative" icon={Activity} />
-        </div>
+        {/*
+          The one thing on this page that is real. Everything below it is still
+          a placeholder and says so; this goes to a page built on live rows.
+        */}
+        <Link
+          to="/oversight"
+          className="mt-6 flex flex-wrap items-center justify-between gap-3 card p-5 hover:border-border-strong transition-colors"
+        >
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-[15px] font-medium text-text-primary">
+              <Activity size={15} className="text-brand" />
+              Team oversight
+            </p>
+            <p className="mt-1 text-[13px] text-text-secondary max-w-prose">
+              Every enquiry, when it came in, who took it on and how long that took. Open one to
+              read everything that has been done to it and by whom.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand text-white text-[12px] font-medium shrink-0">
+            Open
+            <ArrowUpRight size={13} />
+          </span>
+        </Link>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <Panel
-            title="Voice agents"
-            icon={PhoneCall}
-            description="Prompts, greetings, language rules and squad handoff."
-            items={[
-              "Priya — forwarder desk (agent 717)",
-              "Arun — documentation desk (agent 758)",
-              "Chennai desk squad — handoff configuration",
-            ]}
-          />
           <Panel
             title="Users & access"
             icon={Users}
@@ -96,21 +102,10 @@ export default function AdminControl() {
             items={["Employee accounts", "Administrator accounts", "Role permissions"]}
           />
           <Panel
-            title="Knowledge base"
-            icon={BookOpen}
-            description="Reference packs the agents read, and the live packs republished after every call."
-            items={[
-              "Route pricing & negotiation bands",
-              "Container specifications",
-              "Customer records — republished automatically",
-              "Container space — republished automatically",
-            ]}
-          />
-          <Panel
             title="System configuration"
             icon={Settings2}
             description="Integrations, scheduled jobs and data retention."
-            items={["SnapServe connection", "Extraction schedule", "Caller data retention"]}
+            items={["Mailbox connection", "Document templates", "Data retention"]}
           />
         </div>
       </main>
@@ -122,28 +117,6 @@ export default function AdminControl() {
   );
 }
 
-function Stat({
-  label,
-  value,
-  note,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  icon: React.ElementType;
-}) {
-  return (
-    <div className="rounded-card border border-border bg-surface-1 p-4">
-      <div className="flex items-center gap-1.5 text-text-muted">
-        <Icon size={13} />
-        <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
-      </div>
-      <p className="mt-2 text-[22px] font-semibold tracking-tight text-text-primary">{value}</p>
-      <p className="mt-0.5 text-[11px] text-text-muted">{note}</p>
-    </div>
-  );
-}
 
 function Panel({
   title,
@@ -157,7 +130,7 @@ function Panel({
   items: string[];
 }) {
   return (
-    <section className="rounded-card border border-border bg-surface-1 p-5">
+    <section className="card p-5">
       <div className="flex items-center gap-2">
         <Icon size={15} className="text-text-accent" />
         <h2 className="text-[14px] font-medium text-text-primary">{title}</h2>
