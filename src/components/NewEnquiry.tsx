@@ -1,63 +1,56 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Loader2, X } from "lucide-react";
+import Select from "./Select";
 import {
   createEnquiry,
   findOrCreateCustomer,
-  addParty,
-  bindThread,
   listCustomers,
   type Customer,
   type EnquirySource,
 } from "../services/enquiries";
-import type { MailMessage } from "../services/backend";
 
 /**
- * Opens an enquiry, either from an email or from a phone call.
+ * Opens an enquiry by hand.
  *
- * When it starts from a message, three things happen together: the customer is
- * found or created from the sender's address, the sender is recorded as a
- * client-side party, and the mail thread is bound to the new reference. That
- * last step is what makes the rest of the conversation file itself without
- * anyone touching it again.
+ * ---------------------------------------------------------------------------
+ * IT NO LONGER STARTS FROM A MESSAGE
+ *
+ * This used to take a `fromMessage` and do three things at once: create the
+ * customer from the sender, record them as a party, and bind the mail thread so
+ * later replies filed themselves. All of that now happens when an intake row is
+ * pushed through, which means mail has one route into the pipeline instead of
+ * two that behaved differently.
+ *
+ * What is left is the case the queue does not cover: somebody at the desk who
+ * already knows this is a real enquiry and wants to open it directly. There is
+ * no message to bind, so there is nothing to carry.
+ * ---------------------------------------------------------------------------
  */
 export default function NewEnquiry({
-  fromMessage,
   onClose,
   onCreated,
 }: {
-  fromMessage?: MailMessage;
   onClose: () => void;
   onCreated: (ref: string) => void;
 }) {
-  const sender = fromMessage?.from.emailAddress;
-
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState<string>("");
-  const [name, setName] = useState(sender?.name ?? "");
+  const [name, setName] = useState("");
   const [company, setCompany] = useState("");
-  const [email, setEmail] = useState(sender?.address ?? "");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
 
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
   const [cargo, setCargo] = useState("");
-  const [source, setSource] = useState<EnquirySource>(fromMessage ? "email" : "call");
+  const [source, setSource] = useState<EnquirySource>("call");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void listCustomers().then((list) => {
-      setCustomers(list);
-      // An address we already know belongs to a customer we already have.
-      if (sender?.address) {
-        const known = list.find((c) =>
-          c.emails.some((e) => e.toLowerCase() === sender.address.toLowerCase())
-        );
-        if (known) setCustomerId(known.id);
-      }
-    });
-  }, [sender?.address]);
+    void listCustomers().then(setCustomers);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -92,18 +85,6 @@ export default function NewEnquiry({
         cargo: cargo.trim() || undefined,
       });
 
-      if (fromMessage && sender?.address) {
-        await addParty({
-          enquiryRef: enquiry.ref,
-          role: "client",
-          name: sender.name || sender.address,
-          organisation: company.trim() || customer.company,
-          emails: [sender.address],
-        });
-        // Bind the thread so every reply files itself from here on.
-        await bindThread(enquiry.ref, fromMessage.conversationId, fromMessage.id);
-      }
-
       onCreated(enquiry.ref);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not open the enquiry.");
@@ -114,7 +95,7 @@ export default function NewEnquiry({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6" onClick={onClose}>
       <div
-        className="w-full max-w-lg rounded-card border border-border bg-surface-1 shadow-xl max-h-[92vh] flex flex-col"
+        className="w-full max-w-lg card shadow-xl max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="New enquiry"
@@ -127,33 +108,23 @@ export default function NewEnquiry({
         </header>
 
         <form onSubmit={submit} className="flex-1 overflow-y-auto px-5 py-4 space-y-4" noValidate>
-          {fromMessage && (
-            <div className="rounded-lg bg-surface-2 px-3 py-2.5 text-[12px]">
-              <p className="text-text-muted">Opening from</p>
-              <p className="mt-0.5 text-text-primary">{fromMessage.subject}</p>
-              <p className="text-text-secondary">{sender?.address}</p>
-              <p className="mt-1 text-[11px] text-text-muted">
-                This thread will be linked, so replies file themselves.
-              </p>
-            </div>
-          )}
-
           <div>
             <label className="block text-[12px] font-medium text-text-secondary mb-1.5">
               Customer
             </label>
-            <select
+            <Select
+              label="Customer"
               value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              className="w-full"
-            >
-              <option value="">— New customer —</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.company || c.name} ({c.id})
-                </option>
-              ))}
-            </select>
+              onChange={setCustomerId}
+              options={[
+                { value: "", label: "New customer", hint: "Creates a record with its own id" },
+                ...customers.map((c) => ({
+                  value: c.id,
+                  label: c.company || c.name,
+                  hint: c.id,
+                })),
+              ]}
+            />
           </div>
 
           {newCustomer && (
@@ -176,17 +147,18 @@ export default function NewEnquiry({
             <label className="block text-[12px] font-medium text-text-secondary mb-1.5">
               Came in by
             </label>
-            <select
+            <Select
+              label="Came in by"
               value={source}
-              onChange={(e) => setSource(e.target.value as EnquirySource)}
-              className="w-full"
-            >
-              <option value="email">Email</option>
-              <option value="call">Phone call</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="web">Web form</option>
-              <option value="manual">Entered by hand</option>
-            </select>
+              onChange={(v) => setSource(v as EnquirySource)}
+              options={[
+                { value: "email", label: "Email" },
+                { value: "call", label: "Phone call" },
+                { value: "whatsapp", label: "WhatsApp" },
+                { value: "web", label: "Website form" },
+                { value: "manual", label: "Entered by hand" },
+              ]}
+            />
           </div>
 
           <p className="text-[11px] text-text-muted">
