@@ -1,119 +1,181 @@
-# Araxys — freight-forwarding ops CRM + voice agents
+<div align="center">
 
-An operations CRM for a freight forwarder, wired to a two-agent voice desk built on
-[SnapServe](https://app.snapserve.ai). Customers phone in and speak to an agent that
-quotes real rates, checks real container space in three dimensions, and hands off to a
-documentation desk — while the CRM stays the system of record for everything said.
+<img src="public/aashish-mark.png" alt="" width="72" height="72">
 
-## What's here
+# Aashish Logistics Global — freight desk
 
-**CRM (React + TypeScript + Vite + Tailwind).** Inbound requests, in-process and completed
-shipments, container space, documentation, live calls, complaints, billing, agents,
-knowledge base, analytics, compliance. Light theme, route-based code splitting.
+**An operations CRM for a freight forwarder, built around the mailbox.**
 
-**Backend (`supabase/functions/`, Deno on Supabase Edge Functions).** Hosted, so nothing
-depends on a laptop being awake. Exists because the SnapServe API key must never reach a
-browser, and because the voice agent needs a URL it can call mid-conversation that is
-still there tomorrow. Data lives in Postgres; `pg_cron` drives transcript ingestion.
+Enquiries arrive as email, get read, filed against a reference, put on a container,
+sent to partners for a rate, and come out the other end as shipping documents.
 
-`server/` still holds the original Express implementation. It is the same logic and works
-locally, but the hosted functions are what production uses.
+<sub>React 18 · TypeScript · Vite · Tailwind · Supabase (Postgres + RLS + Edge Functions) ·
+Microsoft Graph · Gemini</sub>
 
-**Voice agents (`snapserve-setup/`).** Two agents configured against the live SnapServe
-account — Priya (customer-facing forwarder rep) and Arun (documentation desk) — with their
-system prompts, knowledge-base sources, and the scripts that applied them.
+</div>
 
-## The container space engine
+---
 
-`server/spaceEngine.ts` decides whether cargo fits. It deliberately does **not** compare
-volumes: 30 CBM of cargo "fits" a 33 CBM container by volume, but a single 2.6m-tall crate
-does not fit a 2.39m-high 20GP in any arrangement. So it works in three dimensions —
-trying every axis-aligned orientation, respecting stackability and "this way up" cargo,
-checking payload, and reasoning about how much container *floor length* a consignment
-actually consumes, which is how groupage space is really sold.
+## The desk runs on mail
 
-Covered by `server/spaceEngine.test.ts` (`npm run test:space`), including the tall-crate
-case volume math gets wrong.
+Everything starts in the inbox, so the inbox is in the CRM — real Outlook through
+Microsoft Graph, with a delegated token that can only ever reach the signed-in person's
+own mailbox.
 
-Occupancy is **derived** from the individual consignments loaded in each container
-(`server/placements.ts`), never stored as a separate total — so the load plan drawn on
-screen and the remaining-space figure quoted on a call are computed from one source and
-cannot drift apart.
+![The mail screen](docs/images/mail.png)
 
-## Load plan visualisation
+Folders run across the top rather than down the side: as a column they cost 168px of width
+permanently to show four items that never change. Horizontally they give that width back
+to the two panes that actually hold something.
 
-Clicking a sailing opens a hybrid 2D/3D view: an isometric projection of the container
-with every consignment drawn where it sits, colour-coded and labelled per client, beside a
-top-down floor plan and a side elevation — those two flat views answer "how much floor is
-left" and "how high is it stacked" better than the 3D view does.
+## Reading a message
+
+**Read this** asks a model what a message is and what is in it. It answers one question —
+is this an enquiry — and pulls out the fields the intake queue already has slots for.
+
+![What the model made of a message](docs/images/reading-panel.png)
+
+It proposes; a person confirms. Nothing is filed until somebody presses a button, because
+a reference is permanent and the correspondence attached to it is the record of what a
+customer was told.
+
+The layout follows the question rather than the schema. On a freight desk the question is
+*where is it going, what is it, who is asking* — so the route reads as a route, the cargo
+sits with it, and the contact details group as a person. A field the model did not find is
+absent, not blank: an empty row invites reading it as "no origin" when it means "the
+message did not say".
+
+## The board
+
+Every enquiry the desk has been asked to quote, who is handling it, what it is travelling
+on, and how the partner rate requests are going.
+
+![The inbound board](docs/images/inbound-board.png)
+
+A rate request goes to each partner **separately**, never as one mail with six recipients —
+six recipients is one conversation, so every reply would thread together and no rate could
+be attributed to the agent who sent it. It also means none of them sees who else was asked.
+
+Replies are matched on the conversation id, the only identifier that survives the round
+trip: subjects get rewritten, and agents reply from shared mailboxes rather than the
+address you wrote to.
+
+## Documents
+
+Twelve documents, from the quotation through to proof of delivery, generated as PDFs from
+whatever the record actually holds.
+
+![Documents on a booking](docs/images/documents.png)
+
+The rules that matter are about honesty, and they are enforced in one place:
+
+- A field nobody established prints **TBD**, in grey, and is never inferred.
+- A document missing anything it requires is stamped **DRAFT** and lists what is
+  outstanding, by name, on the document itself.
+- Nothing is presented as signed or issued by an authority that has not signed it.
+
+That draft is not a failure state — it is what the desk sends to chase the missing detail.
+
+---
+
+## Where the intelligence is, and where it deliberately is not
+
+Three things call a model, all through one Edge Function so the API key never reaches a
+browser:
+
+| | What it does |
+|---|---|
+| **Read this** | Classifies a message and extracts the enquiry fields |
+| **Draft a reply** | Writes a reply in the compose box, to an optional brief |
+| **Reading a rate** | Pulls the amount, transit and validity out of a partner's reply |
+
+**The partner rate request is not one of them.** It is a deterministic template built from
+the enquiry's own fields, because a request that guessed at a volume would have agents
+quoting against cargo that does not exist. *Write it with AI* is there as an opt-in that
+asks for a brief, and one press puts the standard request back.
+
+Every prompt carries the same rule in the strongest terms available: **never state a figure
+that is not in the source**. A wrong classification costs ten seconds; an invented rate
+goes to a customer in writing over an employee's name.
+
+## What is deterministic on purpose
+
+Some things look like a job for a model and are not:
+
+- **The forward chain** — who forwarded a mail and who originally sent it. Written into the
+  message by Exchange in fields with fixed names; a fact to be read, not a judgement to be
+  made.
+- **Website form submissions** — a known layout, read with regular expressions. Faster,
+  free, and it cannot hallucinate.
+- **The reply greeting** — and it never writes *Mr.* or *Ms.*, because that means guessing
+  someone's gender from their name and the desk writes to agents across a dozen countries.
+
+---
 
 ## Running it
 
-The frontend talks to the hosted Supabase functions by default, so it runs on its own:
-
 ```bash
 npm install
-npm run dev                             # CRM on :5173, against hosted Supabase
+npm run dev            # http://localhost:5174
+npm run build          # tsc -b, vite build, then a bundle secret scan
+npm test               # every suite
 ```
 
-To point it at a local backend instead, set `VITE_API_BASE=http://localhost:8787` and run
-`npm run server`. The CRM degrades gracefully when the API is unreachable — space data
-falls back to static values and the live-call indicator goes quiet, rather than erroring.
+The build fails if a credential reaches the bundle — `scripts/check-bundle-secrets.mjs`
+scans the output, and it runs as part of `build` rather than as a step somebody can skip.
 
-| Script | What it does |
-| --- | --- |
-| `npm run dev` | CRM dev server |
-| `npm run build` | Production build (reads `VITE_API_BASE`) |
-| `npm run server` | Local Express backend, if you want one |
-| `npm run test:space` | Space engine test suite |
-| `npm run sync:kb` | Regenerates the agent knowledge-base docs from CRM data |
-| `node scripts/verify-hosted.mjs` | End-to-end check of the hosted stack (33 assertions) |
+### Database
 
-### Deploying
-
-Frontend goes to Netlify — `netlify.toml` sets the build, the SPA redirect (without it
-every deep link 404s on refresh) and `VITE_API_BASE`. Set the base directory to
-`araxys-crm`.
-
-Backend functions deploy with the Supabase CLI:
+Migrations are plain SQL in `supabase-v2/`, applied through the Management API because the
+Supabase CLI is not installed on the desk machines:
 
 ```bash
-npx supabase functions deploy api --project-ref <ref> --no-verify-jwt
-npx supabase functions deploy ingest --project-ref <ref> --no-verify-jwt
-npx supabase secrets set SNAPSERVE_API_KEY=sk_live_... --project-ref <ref>
+node supabase-v2/run-sql.mjs 028-booking-documents.sql
+node supabase-v2/deploy-function.mjs classify-enquiry --verify-jwt
 ```
 
-Schema lives in `supabase/schema.sql` and `supabase/schema-space.sql`.
+`--verify-jwt` matters for any function the browser calls: without it the URL is open to
+anyone who finds it, and this one spends money per request.
 
-## Knowledge base stays in sync
+### A case to look at
 
-`npm run sync:kb` regenerates every `snapserve-setup/kb-*.md` from `src/data/knowledgeBase.ts`,
-so container specs, pricing, cargo document rules and port regulations live in exactly one
-place. SnapServe's public API has no endpoint to create or update a knowledge source's
-content (only list, attach and search), so pasting the regenerated text into the dashboard
-is the one manual step — everything upstream of it is automated.
+```bash
+node supabase-v2/seed-showcase.mjs you@example.com
+```
 
-## Known gaps
+Creates one complete case — customer, enquiry, container, booking, and a partner at the
+address you give — so the rate request can actually be answered and watched coming back.
+Every row is an upsert on a `DEMO-` id, so it is safe to run twice.
 
-These are real and deliberately not papered over:
+## Tests
 
-- **Tool results do not reach the model on the Gemini Live voice stack.** Verified over
-  many calls: the webhook fires with the right arguments, returns correct data, and the
-  agent still answers from something else. `lookup_shipment` was removed for this reason —
-  shipment recognition goes through the knowledge base instead, which does work. The
-  space-check tool is still registered, but treat its in-call reliability as unproven.
-- **Whether the agent grounds itself in the knowledge base is untested.** Every step up to
-  it is verified; nobody has yet called and confirmed the agent reads a customer back
-  correctly. Until that happens, the end-to-end claim is unproven.
-- **SnapServe's own extraction never fires.** `dispositionResult` and `callSummary` are
-  null on every call, so transcripts are parsed and summarised here instead
-  (`extractCustomer.ts`, `summarise.ts`). That parsing is regex-based and conservative:
-  fields it cannot read stay blank rather than being guessed.
-- **Squads and WhatsApp have no public API.** Agent-to-agent handoff and the WhatsApp
-  channel are dashboard-only, and the handoff is not wired — the agent will say it is
-  transferring with nothing behind it.
-- **Most CRM modules are still mock data** — documentation, complaints, billing, analytics.
-  Customers, calls and container space are real.
-- **Transcripts contain run-together words** (`thisis Priyafromthe`) from the ASR. Spacing
-  is repaired only where unambiguous; splitting the rest needs dictionary segmentation, and
-  guessing wrong would corrupt what a customer actually said.
+Pure logic is tested; the UI is not. Each suite covers something whose failure would be
+invisible on screen:
+
+| Suite | What it pins down |
+|---|---|
+| `test:space` | Cargo fitting in three dimensions, including the tall crate volume maths gets wrong |
+| `test:web` | Reading a website form submission without inventing a field |
+| `test:fwd` | The forward chain, and refusing to call an ordinary reply a forward |
+| `test:apply` | Applying a reading to a queued row fills blanks and never overwrites |
+| `test:greet` | Addressing somebody correctly — titles, initials, particles, surname-first |
+| `test:scene`, `test:fields` | 3D projection, and the field catalogue |
+
+## Layout
+
+```
+src/
+  pages/          one per route
+  components/     panels and dialogs
+  services/       Supabase and Graph; every network call lives here
+  lib/            pure logic — documents, greeting, initials
+supabase-v2/      numbered SQL migrations, Edge Functions, seed scripts
+scripts/tests/    the suites above
+docs/images/      the screenshots in this file
+```
+
+---
+
+<div align="center">
+<sub>Built by <b>Araxys</b> for Aashish Logistics Global.</sub>
+</div>
