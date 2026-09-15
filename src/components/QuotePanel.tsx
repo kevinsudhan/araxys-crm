@@ -9,6 +9,8 @@ import {
   type Enquiry,
   type Quote,
 } from "../services/enquiries";
+import QuoteCharges from "./QuoteCharges";
+import type { PartnerQuote } from "../services/rfq";
 
 /**
  * Quoting, and the customer's answer.
@@ -26,12 +28,14 @@ export default function QuotePanel({
   enquiry,
   quotes,
   onChanged,
+  partnerQuotes,
 }: {
   enquiry: Enquiry;
   quotes: Quote[];
   onChanged: () => void;
+  /** Replies from partners, offered as the cost against a charge line. */
+  partnerQuotes?: PartnerQuote[];
 }) {
-  const [amount, setAmount] = useState("");
   const [basis, setBasis] = useState("");
   const [sailing, setSailing] = useState("");
   const [validUntil, setValidUntil] = useState("");
@@ -57,7 +61,7 @@ export default function QuotePanel({
   };
 
   return (
-    <section className="mt-4 rounded-card border border-border bg-surface-1 p-5">
+    <section className="mt-4 card p-5">
       <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-3">
         <IndianRupee size={12} /> Quotation
       </h2>
@@ -145,6 +149,21 @@ export default function QuotePanel({
               )}
             </div>
           </div>
+
+          {/*
+            The charges the figure above is the sum of. A draft is still being
+            built so they are editable; once it is sent the arithmetic is what
+            the customer was shown, and once accepted the database refuses to
+            change it at all.
+          */}
+          <div className="mt-3 border-t border-border pt-3">
+            <QuoteCharges
+              quoteId={live.id}
+              locked={live.status !== "draft"}
+              partnerQuotes={partnerQuotes}
+              onChanged={onChanged}
+            />
+          </div>
         </div>
       )}
 
@@ -162,7 +181,6 @@ export default function QuotePanel({
           ) : (
             <div className="rounded-lg border border-border p-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Amount (₹)" value={amount} onChange={setAmount} type="number" />
                 <Field
                   label="Basis"
                   value={basis}
@@ -177,16 +195,16 @@ export default function QuotePanel({
                 <button
                   onClick={() =>
                     run("add", async () => {
-                      const n = Number(amount);
-                      if (!n || n <= 0) throw new Error("Enter the amount being quoted.");
+                      // Opened at zero: the amount is the sum of the charges,
+                      // which are added next. A quotation that is one typed
+                      // figure is the thing this replaced.
                       await addQuote({
                         ref: enquiry.ref,
-                        amountInr: n,
+                        amountInr: 0,
                         basis: basis.trim(),
                         sailingDate: sailing || undefined,
                         validUntil: validUntil || undefined,
                       });
-                      setAmount("");
                       setBasis("");
                       setSailing("");
                       setValidUntil("");
@@ -197,7 +215,7 @@ export default function QuotePanel({
                   className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-[12px] font-medium"
                 >
                   {busy === "add" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                  Save quote
+                  Start the quotation
                 </button>
                 <button
                   onClick={() => setDrafting(false)}

@@ -3,32 +3,17 @@ import { refFromSubject, type PartyRole } from "./caseFile";
 import { getMailMessages, mailIsLive, type MailMessage } from "./backend";
 
 /**
- * Republishes the agents' knowledge packs.
+ * Formerly: republished the voice agents' knowledge packs.
  *
- * Fired after anything that changes what the desk should know about a caller.
- * A cron runs the same function every five minutes, so this is not the only
- * path -- it is what makes the common case immediate rather than eventual. A
- * customer who accepts at 14:02 and rings back at 14:06 should find the agent
- * already knows.
- *
- * Failure is swallowed on purpose. The CRM write has already succeeded and is
- * the record; a knowledge-base hiccup should not surface as though saving the
- * quote had failed. The cron picks it up.
+ * The desk is worked through mail now, and the voice agents are gone with it.
+ * The function stays as a no-op rather than being deleted from six call sites,
+ * because those call sites mark exactly the moments the desk's knowledge of a
+ * customer changes — which is where a republish would have to go back if the
+ * agents ever return. Removing them would lose that information and leave
+ * nothing to say where it used to be.
  */
 export async function refreshAgentKnowledge(): Promise<void> {
-  try {
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kb-sync`;
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ trigger: "crm" }),
-    });
-  } catch {
-    // Deliberately quiet — see above.
-  }
+  /* nothing to publish to */
 }
 
 /**
@@ -92,6 +77,9 @@ export interface Enquiry {
   ready_date: string | null;
   pickup_location: string | null;
 
+  /** The container this is travelling on, once one has been chosen. */
+  sailing_id: string | null;
+
   piece_count: number | null;
   piece_length_cm: number | null;
   piece_width_cm: number | null;
@@ -103,12 +91,25 @@ export interface Enquiry {
   upright_only: boolean | null;
   special_handling: string | null;
 
+  container_type: string | null;
   consignee_name: string | null;
   consignee_country: string | null;
 
   notes: string | null;
+  /**
+   * When this reached the desk, which is not when the row was made.
+   *
+   * For anything that came through the queue it is the message or call
+   * timestamp. Null for an enquiry opened by hand, where there is nothing
+   * earlier than somebody typing it in and `opened_at` is the arrival.
+   */
+  received_at: string | null;
   opened_at: string;
   updated_at: string;
+
+  /** Who took this one on, and when. Null means it is still on the shared board. */
+  assigned_to: string | null;
+  assigned_at: string | null;
 }
 
 export interface Party {
@@ -131,6 +132,18 @@ export interface Quote {
   status: "draft" | "sent" | "accepted" | "declined" | "expired" | "superseded";
   sent_at: string | null;
   responded_at: string | null;
+  /**
+   * The caller said yes on the phone.
+   *
+   * Not an acceptance. It is the reason to chase one -- a transcript the ASR
+   * guessed at is not something to commit a container on.
+   */
+  verbal_accept_at: string | null;
+  /** How the written confirmation arrived. Null means it has not. */
+  accepted_via: "email" | "manual" | null;
+  /** The message the acceptance came from, so it points at evidence. */
+  accepted_message_id: string | null;
+  acceptance_note: string;
   created_at: string;
 }
 
@@ -186,8 +199,109 @@ export interface Shipment {
   vessel: string | null;
   etd: string | null;
   eta: string | null;
+
+  /** The booked space this shipment is on. The column has existed since 010. */
+  sailing_id: string | null;
+
+  /**
+   * The particulars a shipping document is made of.
+   *
+   * Added because the registry could issue twelve documents and only three came
+   * out as finals against a real booking — not for want of typing, but because
+   * there was nowhere to type them. All nullable: the draft a document prints
+   * while one is missing is what the desk sends to chase it.
+   */
+  container_type: string | null;
+  consignee_name: string | null;
+  consignee_address: string | null;
+  consignee_country: string | null;
+  shipper_name: string | null;
+  shipper_gstin_iec: string | null;
+  package_count: number | null;
+  package_type: string | null;
+  hs_code: string | null;
+  net_weight_kg: number | null;
+  invoice_value_inr: number | null;
+  incoterm: string | null;
+  payment_terms: string | null;
+  letter_of_credit: boolean | null;
+
+  /**
+   * The party boxes as a bill of lading prints them (033).
+   *
+   * Prefixed by role rather than held in a table, because the document pipeline
+   * reads five of these columns directly and `BookingDocumentDetails` writes
+   * them — a table would need a mirror with two writers racing on it.
+   */
+  shipper_address: string | null;
+  shipper_city: string | null;
+  shipper_state: string | null;
+  shipper_state_code: string | null;
+  shipper_country: string | null;
+  shipper_country_code: string | null;
+  shipper_pincode: string | null;
+  shipper_gstin: string | null;
+  shipper_pan: string | null;
+  shipper_iec: string | null;
+
+  consignee_city: string | null;
+  consignee_state: string | null;
+  consignee_state_code: string | null;
+  consignee_country_code: string | null;
+  consignee_pincode: string | null;
+  consignee_gstin: string | null;
+  consignee_pan: string | null;
+  consignee_iec: string | null;
+  consignee_dpd_code: string | null;
+
+  notify_name: string | null;
+  notify_address: string | null;
+  notify_city: string | null;
+  notify_state: string | null;
+  notify_state_code: string | null;
+  notify_country: string | null;
+  notify_country_code: string | null;
+  notify_pincode: string | null;
+  notify_gstin: string | null;
+  notify_pan: string | null;
+  notify_iec: string | null;
+
+  /** Whose bill the cargo travels under when it is co-loaded. */
+  bl_type: "house" | "forwarder" | null;
+  forwarders_bl_no: string | null;
+
+  /**
+   * The console this shipment's house bill sits under (035).
+   *
+   * Null on a direct FCL job moving under the carrier's own bill — a console of
+   * one would put a master bill number on a shipment that does not have one.
+   */
+  console_id: string | null;
+
+  /** Job-level particulars that sit under the container grid (032). */
+  agent_code: string | null;
+  mainline_no: string | null;
+  cfs_clearance_date: string | null;
+  tsa_no: string | null;
+  tsa_date: string | null;
+
   created_at: string;
   updated_at: string;
+}
+
+/** Any column on a shipment row may be patched through `updateShipment`. */
+export async function updateShipment(
+  id: string,
+  patch: Record<string, unknown>
+): Promise<Shipment> {
+  const { data, error } = await supabase
+    .from("shipments")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Shipment;
 }
 
 export interface Call {
@@ -211,12 +325,153 @@ export interface EnquiryEvent {
   kind: string;
   summary: string;
   detail: Record<string, unknown>;
+  /** Who did it. Null when the change came from the server rather than a person. */
+  actor: string | null;
   at: string;
 }
 
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
+
+/**
+ * Everyone on the desk, so a user id can be shown as a name.
+ *
+ * Fetched once and joined in the browser rather than embedded in every query.
+ * There are four people here and there will be a handful more; a lookup table
+ * of that size is cheaper to carry than a join repeated on every row of every
+ * board, and it keeps the enquiry queries readable.
+ */
+export interface Person {
+  id: string;
+  email: string;
+  full_name: string;
+  role: "admin" | "employee";
+  /** May hand an enquiry to somebody else. Administrators may regardless. */
+  can_assign: boolean;
+}
+
+/**
+ * The second lock on team oversight.
+ *
+ * ---------------------------------------------------------------------------
+ * THE PASSWORD IS CHECKED IN THE DATABASE, NOT HERE
+ *
+ * `verifyOversightPassword` sends the attempt and gets back a boolean. The hash
+ * never leaves Postgres, so there is nothing in the bundle to read and nothing
+ * on the wire to capture and grind against offline. The table it lives in has
+ * row-level security enabled and no policies at all, which means no client can
+ * read it under any key the browser holds.
+ *
+ * The comparison is bcrypt at cost 12, so each attempt costs the server a few
+ * hundred milliseconds. That is what makes guessing impractical, and it is also
+ * why the button needs a spinner.
+ * ---------------------------------------------------------------------------
+ */
+export async function verifyOversightPassword(password: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc("verify_oversight_password", {
+    p_password: password,
+  });
+  if (error) throw error;
+  return data === true;
+}
+
+/** Whether anybody has set one yet, so the prompt can say if nobody has. */
+export async function oversightLockIsSet(): Promise<boolean> {
+  const { data, error } = await supabase.rpc("oversight_lock_is_set");
+  if (error) throw error;
+  return data === true;
+}
+
+/** Changes it. Administrators only; the database enforces that, not this. */
+export async function setOversightPassword(password: string): Promise<void> {
+  const { error } = await supabase.rpc("set_oversight_password", { p_password: password });
+  if (error) throw error;
+}
+
+export async function listPeople(): Promise<Person[]> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, email, full_name, role, can_assign")
+    .order("full_name");
+  if (error) throw error;
+  return (data ?? []) as Person[];
+}
+
+/** A name to show for a user id, falling back to the address, then to nothing. */
+export function nameOf(people: Person[] | Map<string, Person>, id: string | null): string | null {
+  if (!id) return null;
+  const p = people instanceof Map ? people.get(id) : people.find((x) => x.id === id);
+  if (!p) return null;
+  return p.full_name?.trim() || p.email;
+}
+
+/**
+ * When an enquiry arrived, for anything measuring how long it waited.
+ *
+ * The fallback is the point. `opened_at` is when the row was created, which for
+ * a queued enquiry is when somebody finally dealt with it — using that as the
+ * arrival made every wait read as nothing at all, because it was being
+ * subtracted from itself.
+ */
+export function arrivedAt(e: Pick<Enquiry, "received_at" | "opened_at">): string {
+  return e.received_at ?? e.opened_at;
+}
+
+/**
+ * Takes an enquiry on.
+ *
+ * The database refuses one somebody else already holds, so two people pressing
+ * a second apart cannot both end up believing it is theirs. Pressing it on your
+ * own is not an error and changes nothing.
+ */
+export async function claimEnquiry(ref: string): Promise<Enquiry> {
+  const { data, error } = await supabase.rpc("claim_enquiry", { p_ref: ref.toUpperCase() });
+  if (error) throw error;
+  return data as Enquiry;
+}
+
+/**
+ * Hands an enquiry to somebody else, or back to the board with `null`.
+ *
+ * Restricted to people the desk has given the permission to, which the database
+ * checks — this is not a matter of hiding a button. One call rather than a
+ * release followed by a claim, because a hand-off is one decision and half of
+ * it landing would leave the work belonging to nobody.
+ */
+export async function assignEnquiry(ref: string, toUserId: string | null): Promise<Enquiry> {
+  const { data, error } = await supabase.rpc("assign_enquiry", {
+    p_ref: ref.toUpperCase(),
+    p_to: toUserId,
+  });
+  if (error) throw error;
+  return data as Enquiry;
+}
+
+/** Whether this person may put work on somebody else's list. */
+export function mayAssignOthers(people: Person[], id: string | undefined): boolean {
+  if (!id) return false;
+  const me = people.find((p) => p.id === id);
+  return !!me && (me.role === "admin" || me.can_assign);
+}
+
+/** Puts it back on the shared board. Admins may release anybody's. */
+export async function releaseEnquiry(ref: string): Promise<Enquiry> {
+  const { data, error } = await supabase.rpc("release_enquiry", { p_ref: ref.toUpperCase() });
+  if (error) throw error;
+  return data as Enquiry;
+}
+
+/** Every event across every enquiry, newest first — the admin's activity feed. */
+export async function allEvents(limit = 200): Promise<EnquiryEvent[]> {
+  const { data, error } = await supabase
+    .from("enquiry_events")
+    .select("*")
+    .order("at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as EnquiryEvent[];
+}
 
 export async function listEnquiries(): Promise<Array<Enquiry & { customer: Customer | null }>> {
   const { data, error } = await supabase
@@ -275,6 +530,45 @@ export async function eventsFor(ref: string): Promise<EnquiryEvent[]> {
 }
 
 /**
+ * The most recent events across every enquiry, for the overview.
+ *
+ * The overview used to render a hand-written list of things that had supposedly
+ * happened — flagged documents, a booking locked, a vessel delayed — none of
+ * which referred to a record that existed. This returns what the timeline
+ * actually recorded, so an empty desk shows an empty feed rather than a busy
+ * one that means nothing.
+ */
+export async function recentEvents(limit = 8): Promise<EnquiryEvent[]> {
+  const { data, error } = await supabase
+    .from("enquiry_events")
+    .select("*")
+    .order("at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as EnquiryEvent[];
+}
+
+/** How many calls are on record, counted by the database rather than by us. */
+export async function countCalls(): Promise<number> {
+  const { count, error } = await supabase
+    .from("calls")
+    .select("call_id", { count: "exact", head: true });
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/** The last calls the desk took, newest first. */
+export async function recentCalls(limit = 5): Promise<Call[]> {
+  const { data, error } = await supabase
+    .from("calls")
+    .select("*")
+    .order("started_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as Call[];
+}
+
+/**
  * Turns an accepted enquiry into a shipment.
  *
  * The database refuses unless a quote has actually been accepted, so the guard
@@ -299,14 +593,118 @@ export async function shipmentFor(ref: string): Promise<Shipment | null> {
   return (data as Shipment | null) ?? null;
 }
 
+/**
+ * Shipments, with whoever is handling them.
+ *
+ * ---------------------------------------------------------------------------
+ * A SHIPMENT'S OWNER IS ITS ENQUIRY'S OWNER
+ *
+ * Derived through the join rather than copied into a column on `shipments`.
+ * They are one job: the person who took the enquiry on is the person who sees
+ * it through to delivery, and a second `assigned_to` would let the board and
+ * the case file disagree about who that is.
+ *
+ * Handing a job over therefore happens in one place — on the enquiry — and both
+ * views follow it.
+ * ---------------------------------------------------------------------------
+ */
 export async function listShipments(
   stages?: ShipmentStage[]
-): Promise<Array<Shipment & { customer: Customer | null }>> {
-  let q = supabase.from("shipments").select("*, customer:customers(*)");
+): Promise<Array<ShipmentRow>> {
+  let q = supabase
+    .from("shipments")
+    .select("*, customer:customers(*), enquiry:enquiries(assigned_to, assigned_at)");
   if (stages?.length) q = q.in("stage", stages);
   const { data, error } = await q.order("created_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []) as Array<Shipment & { customer: Customer | null }>;
+
+  return (data ?? []).map((row) => {
+    const { enquiry, ...rest } = row as Record<string, unknown> & {
+      enquiry?: { assigned_to?: string | null; assigned_at?: string | null } | null;
+    };
+    return {
+      ...(rest as unknown as Shipment & { customer: Customer | null }),
+      assigned_to: enquiry?.assigned_to ?? null,
+      assigned_at: enquiry?.assigned_at ?? null,
+    };
+  });
+}
+
+/**
+ * A shipment as the boards show it: the row, its customer, and who has it.
+ *
+ * `assigned_to` is not a column — it is the enquiry's, joined in. See
+ * `listShipments`.
+ */
+export interface ShipmentRow extends Shipment {
+  customer: Customer | null;
+  assigned_to: string | null;
+  assigned_at: string | null;
+}
+
+/** One shipment by its id, with the customer attached. */
+export async function getShipment(
+  id: string
+): Promise<(Shipment & { customer: Customer | null }) | null> {
+  const { data, error } = await supabase
+    .from("shipments")
+    .select("*, customer:customers(*)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as (Shipment & { customer: Customer | null }) | null) ?? null;
+}
+
+/** The fields a shipping document needs that a booking does not collect itself. */
+export interface BookingDocumentDetails {
+  consignee_name: string | null;
+  consignee_address: string | null;
+  consignee_country: string | null;
+  shipper_name: string | null;
+  shipper_gstin_iec: string | null;
+  container_type: string | null;
+  package_count: number | null;
+  package_type: string | null;
+  hs_code: string | null;
+  net_weight_kg: number | null;
+  invoice_value_inr: number | null;
+  incoterm: string | null;
+  payment_terms: string | null;
+  letter_of_credit: boolean | null;
+}
+
+/**
+ * Fills in the particulars the documents are waiting on.
+ *
+ * ---------------------------------------------------------------------------
+ * A PLAIN UPDATE, NOT AN RPC
+ *
+ * Nothing here is derived, nothing cascades, and no other row changes. The
+ * database functions in this file exist because promoting an enquiry or setting
+ * a stage has consequences that must happen together; typing a consignee has
+ * none. An RPC would be ceremony around one UPDATE the RLS policy already
+ * guards.
+ *
+ * BLANK MEANS BLANK
+ *
+ * An empty field is written as null rather than skipped, because clearing a
+ * consignee somebody entered wrongly has to be possible. The document then goes
+ * back to printing as a draft naming what it needs, which is the correct and
+ * visible consequence of removing it.
+ * ---------------------------------------------------------------------------
+ */
+export async function setBookingDocumentDetails(
+  id: string,
+  patch: Partial<BookingDocumentDetails>
+): Promise<Shipment> {
+  const { data, error } = await supabase
+    .from("shipments")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Shipment;
 }
 
 export async function setShipmentStage(id: string, stage: ShipmentStage): Promise<Shipment> {
@@ -578,11 +976,24 @@ export async function correspondenceFor(
 ): Promise<FiledMessage[]> {
   if (!mailIsLive() || !mailbox) return [];
 
-  const [threads, parties, pinned] = await Promise.all([
+  const [threads, parties, pinned, owner] = await Promise.all([
     threadsFor(ref),
     partiesFor(ref),
     supabase.from("enquiry_messages").select("message_id, via").eq("enquiry_ref", ref.toUpperCase()),
+    getEnquiry(ref),
   ]);
+
+  /**
+   * The customer's own addresses.
+   *
+   * Nothing ever writes the customer into enquiry_parties -- that table fills up
+   * with the agents and brokers discovered from mail -- so without this the
+   * person the enquiry belongs to was the one correspondent the case file could
+   * not recognise, and their replies filed under "Other".
+   */
+  const clientAddresses = new Set(
+    (owner?.customer?.emails ?? []).map((e) => e.toLowerCase())
+  );
 
   const pinnedIds = new Map(
     (pinned.data ?? []).map((r) => [r.message_id as string, r.via as FiledMessage["via"]])
@@ -613,10 +1024,14 @@ export async function correspondenceFor(
       m.folder === "sent"
         ? m.toRecipients[0]?.emailAddress.address ?? ""
         : m.from.emailAddress.address;
-    const role =
-      parties.find((p) =>
-        p.emails.some((e) => e.toLowerCase() === counterparty.toLowerCase())
-      )?.role ?? "other";
+    // A named party wins over the customer list, so somebody who is both the
+    // customer's contact and, say, the consol partner keeps the role the desk
+    // gave them deliberately.
+    const known = parties.find((p) =>
+      p.emails.some((e) => e.toLowerCase() === counterparty.toLowerCase())
+    )?.role;
+    const role: PartyRole =
+      known ?? (clientAddresses.has(counterparty.toLowerCase()) ? "client" : "other");
 
     out.push({ message: m, role, via, confidence: via === "reference-in-body" ? "likely" : "certain" });
   }
@@ -677,4 +1092,59 @@ export function missingForQuote(e: Enquiry): string[] {
     ["weight_per_piece_kg", "Weight per piece"],
   ];
   return need.filter(([k]) => e[k] === null || e[k] === undefined || e[k] === "").map(([, l]) => l);
+}
+
+/**
+ * Puts an address heard on a call onto the customer record.
+ *
+ * The newest one goes FIRST. Nothing is thrown away -- a company has more than
+ * one person, and a second address is another way to reach them rather than
+ * proof the first was wrong -- but when somebody gives a different address on a
+ * later call, that is the one they want used, so everything that reads "their
+ * email" now reads the latest. Giving the same address twice just moves it back
+ * to the front.
+ *
+ * This is the half of the calls-to-mail bridge that phone matching cannot do:
+ * once the address is here, anything they write from it files itself against
+ * this customer instead of arriving as a stranger.
+ */
+export async function linkCustomerEmail(customerId: string, email: string): Promise<Customer> {
+  const { data, error } = await supabase.rpc("link_email_to_customer", {
+    p_customer_id: customerId,
+    p_email: email.trim().toLowerCase(),
+  });
+  if (error) throw new Error(error.message);
+  return data as Customer;
+}
+
+/**
+ * Record that the customer confirmed, and how.
+ *
+ * This is what "accepted" means now. A yes on a call sets verbal_accept_at and
+ * nothing else; only this unlocks a booking, because only this leaves something
+ * to show a customer who later says they never agreed.
+ *
+ * @param via         "email" when confirming from their reply, "manual" when
+ *                    the confirmation reached us some other way.
+ * @param messageId   The reply it came from. Required in spirit for "email".
+ * @param note        Where the yes came from. The database refuses a manual
+ *                    confirmation without one.
+ */
+export async function confirmAcceptance(
+  ref: string,
+  quoteId: string,
+  via: "email" | "manual",
+  messageId: string | null,
+  note = ""
+): Promise<Quote> {
+  const { data, error } = await supabase.rpc("confirm_acceptance", {
+    p_ref: ref.toUpperCase(),
+    p_quote_id: quoteId,
+    p_via: via,
+    p_message_id: messageId,
+    p_note: note,
+  });
+  if (error) throw new Error(error.message);
+  void refreshAgentKnowledge();
+  return data as Quote;
 }

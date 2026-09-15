@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   Check,
   ChevronLeft,
   Clock,
+  FileText,
   IndianRupee,
   Loader2,
   Mail as MailIcon,
@@ -13,11 +14,19 @@ import {
   Users,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
+import JobBilling from "../components/JobBilling";
+import { listQuotes, type PartnerQuote } from "../services/rfq";
 import QuotePanel from "../components/QuotePanel";
 import CargoPanel from "../components/CargoPanel";
 import PromotePanel from "../components/PromotePanel";
+import ConfirmPanel from "../components/ConfirmPanel";
+import PartnersPanel from "../components/PartnersPanel";
+import PartnerQuotes from "../components/PartnerQuotes";
+import DocumentsPanel from "../components/DocumentsPanel";
+import { documentDataFromEnquiry } from "../lib/documents";
+import AcceptancePanel from "../components/AcceptancePanel";
+import CargoStowPanel from "../components/CargoStowPanel";
 import {
-  callsFor,
   correspondenceFor,
   shipmentFor,
   eventsFor,
@@ -31,11 +40,46 @@ import {
   type FiledMessage,
   type Party,
   type Quote,
-  type Call,
   type Shipment,
 } from "../services/enquiries";
 import { mailIsLive } from "../services/backend";
 import { ROLE_LABEL, ROLE_ORDER, type PartyRole } from "../services/caseFile";
+
+/**
+ * The sections this file is read in.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT IS NOT ONE PAGE ANY MORE
+ *
+ * It was nine panels stacked vertically, and it grew that way honestly — each
+ * one was the right thing to add at the time. But the result is a page where
+ * the documents are four screens below the cargo, and where somebody who opened
+ * it to check a partner's rate scrolls past the quote, the acceptance and the
+ * confirmation to get there.
+ *
+ * WHY A SEARCH PARAMETER AND NOT A NESTED ROUTE
+ *
+ * The shipment page uses nested routes, because its sections need almost
+ * nothing from each other. These nine panels all read the same enquiry, quotes,
+ * mail, events and parties, loaded once at the top of this component. Splitting
+ * them into routed children would mean threading all of that through an outlet
+ * context for no gain — the URL is what matters, and `?section=` puts it in the
+ * URL just as well.
+ * ---------------------------------------------------------------------------
+ */
+const SECTIONS = [
+  { key: "details", label: "Details" },
+  // Partners and the quotation are one section, in that order. You ask the
+  // agents for a rate, their replies come back, and the quotation is built from
+  // them — putting those on two tabs made the operator hold a figure in their
+  // head while they navigated.
+  { key: "quote", label: "Partners & quote" },
+  { key: "documents", label: "Documents" },
+  { key: "billing", label: "Billing" },
+  { key: "mail", label: "Correspondence" },
+] as const;
+
+type Section = (typeof SECTIONS)[number]["key"];
 
 /**
  * One enquiry, everything about it.
@@ -46,6 +90,17 @@ import { ROLE_LABEL, ROLE_ORDER, type PartyRole } from "../services/caseFile";
  */
 export default function CaseFile() {
   const { ref = "" } = useParams();
+  const [params, setParams] = useSearchParams();
+  const section = (SECTIONS.find((s) => s.key === params.get("section"))?.key ??
+    "details") as Section;
+  const goTo = (s: Section) =>
+    setParams(
+      (p) => {
+        p.set("section", s);
+        return p;
+      },
+      { replace: true }
+    );
   const { session } = useAuth();
   const mailbox = session?.email ?? "";
 
@@ -53,8 +108,8 @@ export default function CaseFile() {
   const [parties, setParties] = useState<Party[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [events, setEvents] = useState<EnquiryEvent[]>([]);
-  const [calls, setCalls] = useState<Call[]>([]);
   const [shipment, setShipment] = useState<Shipment | null>(null);
+  const [partnerQuotes, setPartnerQuotes] = useState<PartnerQuote[]>([]);
   const [mail, setMail] = useState<FiledMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,18 +124,20 @@ export default function CaseFile() {
       const e = await getEnquiry(ref);
       setEnquiry(e);
       if (!e) return;
-      const [p, q, ev, cl, sh] = await Promise.all([
+      const [p, q, ev, sh, pq] = await Promise.all([
         partiesFor(ref),
         quotesFor(ref),
         eventsFor(ref),
-        callsFor(ref),
         shipmentFor(ref),
+        // Best-effort: a quotation can still be built if the replies will not
+        // load, it just cannot show what each charge costs us.
+        listQuotes(ref).catch(() => [] as PartnerQuote[]),
       ]);
       setParties(p);
       setQuotes(q);
       setEvents(ev);
-      setCalls(cl);
       setShipment(sh);
+      setPartnerQuotes(pq);
       // Mail is best-effort: a mailbox that will not load must not blank the file.
       setMail(await correspondenceFor(ref, mailbox).catch(() => []));
     } catch (err) {
@@ -108,15 +165,10 @@ export default function CaseFile() {
   const timeline = useMemo(() => {
     const entries = [
       ...mail.map((m) => ({ kind: "mail" as const, at: m.message.receivedDateTime, mail: m })),
-      // Calls carry their own row; the matching event exists for the audit trail
-      // and would otherwise say the same thing twice on screen.
-      ...events
-        .filter((e) => e.kind !== "call")
-        .map((e) => ({ kind: "event" as const, at: e.at, event: e })),
-      ...calls.map((c) => ({ kind: "call" as const, at: c.started_at ?? "", call: c })),
+      ...events.map((e) => ({ kind: "event" as const, at: e.at, event: e })),
     ];
     return entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-  }, [mail, events, calls]);
+  }, [mail, events]);
 
   if (loading && !enquiry) {
     return <p className="text-[13px] text-text-muted py-8">Loading…</p>;
@@ -135,12 +187,25 @@ export default function CaseFile() {
 
   const customer = enquiry.customer;
 
+  /**
+   * The rate this desk has put to the customer.
+   *
+   * An accepted quote wins over a sent one — that is the figure the customer
+   * agreed to, and a quotation reprinted afterwards must show what was agreed
+   * rather than whatever was offered last. Drafts do not count: a rate nobody
+   * has been told cannot appear on a document addressed to them.
+   */
+  const liveQuote =
+    quotes.find((q) => q.status === "accepted") ??
+    quotes.filter((q) => q.status === "sent").sort((a, b) => b.version - a.version)[0] ??
+    null;
+
   return (
     <div>
       <Back />
 
       {/* ---- header ---- */}
-      <div className="rounded-card border border-border bg-surface-1 p-5">
+      <div className="card p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <p className="font-mono text-[13px] text-text-accent">{enquiry.ref}</p>
@@ -171,43 +236,178 @@ export default function CaseFile() {
         </div>
       )}
 
-      {/* ---- what we know, and what is still missing ---- */}
-      <CargoPanel enquiry={enquiry} onSaved={load} />
+      {/* ---- sections ---- */}
+      <nav className="mt-4 mb-4 flex flex-wrap gap-1 border-b border-border" aria-label="Case file sections">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => goTo(s.key)}
+            aria-current={section === s.key ? "page" : undefined}
+            className={`-mb-px border-b-2 px-3 py-2 text-[13px] transition-colors ${
+              section === s.key
+                ? "border-brand font-medium text-text-primary"
+                : "border-transparent text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </nav>
+
+      {section === "details" && (
+        <>
+          {/* ---- what we know, and what is still missing ---- */}
+          <CargoPanel enquiry={enquiry} onSaved={load} />
+
+          {/*
+            Straight after the measurements, because that is what it is made of.
+            It draws nothing until the cargo has dimensions and a piece count, so an
+            enquiry that has not been measured simply does not show it.
+          */}
+          <CargoStowPanel enquiry={enquiry} />
+
+          {/* ---- parties ---- */}
+          <section className="mt-4 card p-5">
+            <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-3">
+              <Users size={12} /> Parties
+            </h2>
+            {!parties.length ? (
+              <p className="text-[12px] text-text-muted">
+                Nobody recorded yet. Correspondents are added as they appear, and the role is what
+                groups their mail below.
+              </p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {parties.map((p) => (
+                  <div key={p.id} className="rounded-lg bg-surface-2 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-text-muted">
+                      {ROLE_LABEL[p.role]}
+                    </p>
+                    <p className="mt-0.5 text-[13px] text-text-primary">{p.name}</p>
+                    {p.organisation && (
+                      <p className="text-[11px] text-text-secondary">{p.organisation}</p>
+                    )}
+                    <p className="mt-0.5 text-[11px] text-text-muted truncate">
+                      {p.emails.join(", ")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {section === "quote" && (
+        <>
+      {/*
+        Who is carrying it, and what they came back with — above the quotation,
+        because the quotation is built out of their answers.
+      */}
+      <PartnersPanel enquiry={enquiry} onChanged={load} />
+      <PartnerQuotes enquiry={enquiry} />
 
       {/* ---- quoting and acceptance ---- */}
-      <QuotePanel enquiry={enquiry} quotes={quotes} onChanged={load} />
+      <QuotePanel
+        enquiry={enquiry}
+        quotes={quotes}
+        onChanged={load}
+        partnerQuotes={partnerQuotes}
+      />
+
+      {/*
+        Directly under the quote, because it is the answer to it. A verbal yes
+        shows here as unfinished business rather than as an acceptance.
+      */}
+      <AcceptancePanel enquiry={enquiry} quotes={quotes} mail={mail} onChanged={load} />
 
       {/* ---- the handover to operations ---- */}
+      {/*
+        Between quoting and booking, because that is the order it happens in:
+        a price is agreed, it is put in writing, and then the shipment starts.
+
+        Shown whether or not a mailbox is connected. Hiding it when Outlook is
+        disconnected makes the button look missing rather than unavailable, and
+        somebody looking for it has no way to tell which.
+      */}
+      <ConfirmPanel
+        enquiry={enquiry}
+        customer={enquiry.customer}
+        quotes={quotes}
+        mailbox={mailbox}
+        fromName={session?.name ?? mailbox}
+        signature={session?.signature ?? ""}
+        onChanged={load}
+      />
+
+      {/*
+        The handover to operations, at the end of the section that produces it:
+        a price is agreed, it is put in writing, and then the shipment starts.
+      */}
       <PromotePanel enquiry={enquiry} shipment={shipment} onChanged={load} />
+        </>
+      )}
 
-      {/* ---- parties ---- */}
-      <section className="mt-4 rounded-card border border-border bg-surface-1 p-5">
-        <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary mb-3">
-          <Users size={12} /> Parties
-        </h2>
-        {!parties.length ? (
-          <p className="text-[12px] text-text-muted">
-            Nobody recorded yet. Correspondents are added as they appear, and the role is what
-            groups their mail below.
+
+      {/*
+        The papers, on the enquiry that produces them.
+        ------------------------------------------------------------------
+        Only the quotation can be issued at this stage, and only once a rate
+        has been quoted — everything after it needs particulars that arrive
+        with the booking. The rest sit as drafts naming what they wait for,
+        which is the desk's checklist of what still has to be agreed.
+
+        The rate is the one this desk has QUOTED, never a partner's. Those are
+        buying prices, and putting one on a customer's quotation sends the
+        agent's cost to the shipper.
+      */}
+      {section === "documents" && (
+        <section className="card mt-4 p-5">
+          <h2 className="flex items-center gap-2 text-[13px] font-medium text-text-primary">
+            <FileText size={13} /> Documents
+          </h2>
+          <p className="mt-0.5 text-[11.5px] text-text-muted">
+            {liveQuote
+              ? "The quotation can be issued from the rate on this enquiry. The rest follow the booking."
+              : "Quote the customer first — the quotation is issued from that rate."}
           </p>
-        ) : (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {parties.map((p) => (
-              <div key={p.id} className="rounded-lg bg-surface-2 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wide text-text-muted">
-                  {ROLE_LABEL[p.role]}
-                </p>
-                <p className="mt-0.5 text-[13px] text-text-primary">{p.name}</p>
-                {p.organisation && (
-                  <p className="text-[11px] text-text-secondary">{p.organisation}</p>
-                )}
-                <p className="mt-0.5 text-[11px] text-text-muted truncate">{p.emails.join(", ")}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+          <DocumentsPanel
+            data={documentDataFromEnquiry(enquiry, customer, liveQuote?.amount_inr ?? null)}
+            defaultOpen
+          />
+        </section>
+      )}
 
+      {/*
+        Billing, on the enquiry as well as on the shipment.
+        ------------------------------------------------------------------
+        The same component both places, because it is the same job seen from
+        two sides. It needs a shipment to bill against — there is nothing to
+        invoice until the customer has accepted and the booking exists — so
+        before that it says so rather than showing an empty list.
+      */}
+      {section === "billing" &&
+        (shipment ? (
+          <JobBilling shipmentId={shipment.id} onChanged={load} />
+        ) : (
+          <div className="card p-5">
+            <h2 className="text-[13px] font-medium text-text-primary">Nothing to bill yet</h2>
+            <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-text-secondary">
+              An invoice is raised against a booking, and this enquiry has not become one. Record
+              the customer's acceptance on the Quote section and promote it to a shipment; the
+              invoice then fills itself in from what was agreed.
+            </p>
+            <button
+              onClick={() => goTo("quote")}
+              className="mt-3 inline-flex h-8 items-center rounded-lg border border-border bg-surface-1 px-3 text-[12px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
+            >
+              Go to the quote
+            </button>
+          </div>
+        ))}
+
+      {section === "mail" && (
+        <>
       {/* ---- correspondence and history ---- */}
       <div className="mt-5 flex items-center gap-2">
         <Toggle active={view === "timeline"} onClick={() => setView("timeline")}>
@@ -217,7 +417,7 @@ export default function CaseFile() {
           <MailIcon size={13} /> By party
         </Toggle>
         <span className="ml-auto text-[11px] text-text-muted">
-          {mail.length} messages · {calls.length} calls · {events.length} events
+          {mail.length} messages · {events.length} events
         </span>
       </div>
 
@@ -252,43 +452,9 @@ export default function CaseFile() {
       {view === "timeline" ? (
         <ol className="mt-3 space-y-2">
           {timeline.map((entry) =>
-            entry.kind === "call" ? (
-              <li key={entry.call.call_id}>
-                <div className="rounded-card border border-border bg-surface-1 p-4">
-                  <div className="flex items-center gap-2 text-[11px] text-text-muted flex-wrap">
-                    <PhoneCall size={12} className="text-text-success" />
-                    <span className="font-medium text-text-success uppercase tracking-wide">
-                      Call
-                    </span>
-                    <span>{entry.call.agent_name}</span>
-                    <span>{entry.call.from_number}</span>
-                    {entry.call.language && <span>{entry.call.language}</span>}
-                    <span>{Math.round(entry.call.duration_secs / 60)} min</span>
-                    {/*
-                      A caller identified by reading out a reference is a
-                      different kind of certainty from one matched on their
-                      number, and an unmatched one is a guess. Say which.
-                    */}
-                    {entry.call.matched_by === "reference" && (
-                      <span className="rounded bg-bg-accent px-1.5 py-0.5 text-[10px] text-text-accent">
-                        matched by reference
-                      </span>
-                    )}
-                    {entry.call.matched_by === "unmatched" && (
-                      <span className="rounded bg-bg-warning px-1.5 py-0.5 text-[10px] text-text-warning">
-                        caller not identified
-                      </span>
-                    )}
-                    <span className="ml-auto">{when(entry.at)}</span>
-                  </div>
-                  <p className="mt-1.5 text-[13px] text-text-primary">
-                    {entry.call.summary || "No summary available for this call."}
-                  </p>
-                </div>
-              </li>
-            ) : entry.kind === "event" ? (
+            entry.kind === "event" ? (
               <li key={entry.event.id}>
-                <div className="rounded-card border border-border bg-surface-1 px-4 py-2.5">
+                <div className="card px-4 py-2.5">
                   <div className="flex items-center gap-2 text-[11px] text-text-muted">
                     <EventIcon kind={entry.event.kind} />
                     <span className="uppercase tracking-wide">
@@ -328,6 +494,8 @@ export default function CaseFile() {
           )}
         </div>
       )}
+        </>
+      )}
     </div>
   );
 }
@@ -359,7 +527,7 @@ function MailRow({ filed, showRole = false }: { filed: FiledMessage; showRole?: 
     : m.from.emailAddress.name || m.from.emailAddress.address;
 
   return (
-    <div className="rounded-card border border-border bg-surface-1 p-4">
+    <div className="card p-4">
       <div className="flex items-center gap-2 text-[11px] text-text-muted flex-wrap">
         <MailIcon size={12} className="text-text-accent" />
         <span className={outbound ? "text-text-secondary" : "text-text-primary font-medium"}>
