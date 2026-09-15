@@ -144,6 +144,207 @@ export function documentDataFromRecord(record: RealRecord): DocumentData {
   };
 }
 
+/**
+ * An enquiry, before anything is booked.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY AN ENQUIRY CAN ISSUE A DOCUMENT AT ALL
+ *
+ * One of them: the quotation. It is the rate offered to the customer, and it is
+ * produced before a booking exists by definition — a customer accepts a
+ * quotation and that acceptance is what creates the booking.
+ *
+ * Everything after it needs particulars an enquiry does not have, so the rest
+ * of the list sits there as drafts naming what they are waiting for. That is
+ * useful rather than noise: it is the desk's checklist of what still has to be
+ * agreed before this shipment can move.
+ *
+ * WHERE THE RATE COMES FROM
+ *
+ * The quote the desk has issued, passed in — not a partner's rate. Those are
+ * buying prices and putting one on a customer's quotation would send the agent's
+ * cost to the shipper. The two are deliberately not interchangeable and this
+ * function takes only the selling figure.
+ * ---------------------------------------------------------------------------
+ */
+export function documentDataFromEnquiry(
+  e: {
+    ref: string;
+    origin: string | null;
+    destination: string | null;
+    cargo: string | null;
+    cargo_type: string | null;
+    incoterm: string | null;
+    ready_date: string | null;
+    piece_count: number | null;
+    piece_length_cm: number | null;
+    piece_width_cm: number | null;
+    piece_height_cm: number | null;
+    gross_weight_kg: number | null;
+    volume_cbm: number | null;
+    stackable: boolean | null;
+    upright_only: boolean | null;
+    consignee_name: string | null;
+    consignee_country: string | null;
+  },
+  customer?: { name?: string | null; company?: string | null; phone?: string | null } | null,
+  /** The rate this desk has quoted the customer, if one has been issued. */
+  quotedInr?: number | null
+): DocumentData {
+  const un = <T,>(v: T | null | undefined): T | undefined => (v == null ? undefined : v);
+
+  const l = un(e.piece_length_cm);
+  const w = un(e.piece_width_cm);
+  const h = un(e.piece_height_cm);
+
+  return {
+    // The enquiry ref already starts with ARX-, and the renderer prefixes its
+    // own — leaving it in produces ARX-QUO-ARX-C0001-E02.
+    reference: e.ref,
+    documentNumber: e.ref.replace(/^ARX-/, ""),
+
+    shipperName: un(customer?.company) || un(customer?.name),
+    customerName: un(customer?.name),
+    company: un(customer?.company),
+    phone: un(customer?.phone),
+    consigneeName: un(e.consignee_name),
+    consigneeCountry: un(e.consignee_country) || un(e.destination),
+
+    origin: un(e.origin),
+    destination: un(e.destination),
+    sailingDate: un(e.ready_date),
+
+    cargoDescription: un(e.cargo),
+    cargoType: un(e.cargo_type),
+    pieceCount: un(e.piece_count),
+    pieceDimensions: l && w && h ? `${l} x ${w} x ${h} cm` : undefined,
+    grossWeightKg: un(e.gross_weight_kg),
+    volumeCbm: un(e.volume_cbm),
+    stackable: un(e.stackable),
+    uprightOnly: un(e.upright_only),
+
+    freightAmountInr: un(quotedInr),
+    incoterm: un(e.incoterm),
+
+    sourceNote: `From enquiry ${e.ref}.`,
+    raw: {} as RequestDetails,
+  };
+}
+
+/**
+ * A real booking, from the shipments table.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS EXISTS ALONGSIDE documentDataFromShipment
+ *
+ * That one maps the LEGACY mock shipment — the shape with blNumber, company and
+ * callExtraction on it, which came from the demo data that has since been
+ * deleted. Nothing produces that shape any more.
+ *
+ * This maps the row the database actually holds. The two are kept apart rather
+ * than merged because their field names differ almost everywhere and a single
+ * function taking a union would be a pile of `in` checks pretending to be one
+ * mapping.
+ *
+ * WHAT HAPPENS WHEN A FIELD IS STILL EMPTY
+ *
+ * It comes through undefined and the readiness check reports that document as a
+ * draft naming exactly what it needs. That is the correct answer rather than a
+ * shortcoming: a bill of lading cannot be issued final off a booking that has
+ * never been told who the consignee is, and filling the field with a blank
+ * would produce a document that looks complete and is not.
+ *
+ * Until 028 that state was permanent — the shipments table had no consignee,
+ * packing or invoice columns at all, so nine of the twelve documents could
+ * never be issued however complete the booking was. The columns exist now; an
+ * empty one means nobody has filled it in yet.
+ * ---------------------------------------------------------------------------
+ */
+export function documentDataFromBooking(
+  s: {
+    id: string;
+    enquiry_ref: string;
+    origin: string | null;
+    destination: string | null;
+    cargo: string | null;
+    piece_count: number | null;
+    volume_cbm: number | null;
+    gross_weight_kg: number | null;
+    agreed_inr: number | null;
+    sailing_date: string | null;
+    carrier: string | null;
+    booking_number: string | null;
+    container_number: string | null;
+    bl_number: string | null;
+    vessel: string | null;
+    etd: string | null;
+    eta: string | null;
+    container_type?: string | null;
+    consignee_name?: string | null;
+    consignee_address?: string | null;
+    consignee_country?: string | null;
+    shipper_name?: string | null;
+    shipper_gstin_iec?: string | null;
+    package_count?: number | null;
+    package_type?: string | null;
+    hs_code?: string | null;
+    net_weight_kg?: number | null;
+    invoice_value_inr?: number | null;
+    incoterm?: string | null;
+    payment_terms?: string | null;
+    letter_of_credit?: boolean | null;
+  },
+  customer?: { name?: string | null; company?: string | null; phone?: string | null } | null
+): DocumentData {
+  const un = <T,>(v: T | null | undefined): T | undefined => (v == null ? undefined : v);
+
+  return {
+    // The B/L number once there is one, and the booking's own id until then —
+    // a document has to be numbered even while it is a draft.
+    reference: s.bl_number || s.id,
+    documentNumber: s.bl_number || s.id,
+    blNumber: un(s.bl_number),
+
+    // The booking's own shipper wins over the customer record: they are usually
+    // the same and occasionally not, and the booking is the later statement.
+    shipperName: un(s.shipper_name) || un(customer?.company) || un(customer?.name),
+    shipperGstinIec: un(s.shipper_gstin_iec),
+    customerName: un(customer?.name),
+    company: un(customer?.company),
+    phone: un(customer?.phone),
+
+    consigneeName: un(s.consignee_name),
+    consigneeAddress: un(s.consignee_address),
+    consigneeCountry: un(s.consignee_country) || un(s.destination),
+
+    origin: un(s.origin),
+    destination: un(s.destination),
+    carrier: un(s.carrier),
+    containerId: un(s.container_number),
+    containerType: un(s.container_type),
+    sailingDate: un(s.sailing_date) || un(s.etd),
+    etaDate: un(s.eta),
+
+    cargoDescription: un(s.cargo),
+    hsCode: un(s.hs_code),
+    pieceCount: un(s.piece_count),
+    packageCount: un(s.package_count),
+    packageType: un(s.package_type),
+    netWeightKg: un(s.net_weight_kg),
+    grossWeightKg: un(s.gross_weight_kg),
+    volumeCbm: un(s.volume_cbm),
+
+    invoiceValueInr: un(s.invoice_value_inr) ?? un(s.agreed_inr),
+    freightAmountInr: un(s.agreed_inr),
+    incoterm: un(s.incoterm),
+    paymentTerms: un(s.payment_terms),
+    letterOfCredit: un(s.letter_of_credit),
+
+    sourceNote: `From booking ${s.id} against enquiry ${s.enquiry_ref}.`,
+    raw: {} as RequestDetails,
+  };
+}
+
 /** The seeded-shipment path, so the existing shipment pages keep working unchanged. */
 export function documentDataFromShipment(shipment: Shipment): DocumentData {
   const dg = shipment.docGenDetails;

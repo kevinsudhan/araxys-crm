@@ -1,198 +1,423 @@
 import { jsPDF } from "jspdf";
 import type { DocSpec, DocumentData } from "./types";
 import { readiness } from "./data";
+import { AASHISH_MARK_PNG } from "./mark";
 
 /**
  * Draws any document in the registry.
  *
- * Written once, deliberately. The rules that matter are the ones about honesty, and they
- * only hold if there is a single place enforcing them:
+ * ---------------------------------------------------------------------------
+ * WHAT THIS FILE IS RESPONSIBLE FOR
+ *
+ * Written once, deliberately. The rules that matter are the ones about honesty,
+ * and they only hold if there is a single place enforcing them:
  *
  *   - A field nobody established prints TBD, in grey, and is never inferred.
- *   - A document missing anything it requires is stamped DRAFT and lists what is
- *     outstanding, by name, on the document itself.
- *   - Nothing is presented as signed or issued by an authority that has not signed it.
+ *   - A document missing anything it requires is stamped DRAFT and lists what
+ *     is outstanding, by name, on the document itself.
+ *   - Nothing is presented as signed or issued by an authority that has not
+ *     signed it.
+ *
+ * WHY THE LAYOUT IS BUILT FROM BANDS AND BOXES
+ *
+ * A bill of lading is read by people looking for one field. A customs officer
+ * wants the HS code, a warehouse wants the package count, an accounts clerk
+ * wants the invoice value — and none of them read the document top to bottom.
+ *
+ * The previous version was flat: bold label, thin rule, rows of text at one
+ * weight. It printed the right information and gave the eye nothing to aim at,
+ * so finding the consignee meant reading everything above it.
+ *
+ * So: a filled title band, the parties in bordered boxes the way they sit on a
+ * real B/L, and each section under a tinted header bar. The structure is doing
+ * the same job the printed forms these replace have always done.
+ * ---------------------------------------------------------------------------
  */
 
 const PAGE_W = 210;
 const PAGE_H = 297;
-const MARGIN = 18;
+const MARGIN = 16;
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const FOOTER_Y = PAGE_H - 22;
+const FOOTER_Y = PAGE_H - 20;
 const TBD = "TBD";
 
-const today = () => new Date().toISOString().slice(0, 10);
+/** The house palette, matched to the CRM so the two look like one system. */
+const BRAND: [number, number, number] = [15, 110, 86];
+const INK: [number, number, number] = [20, 21, 15];
+const MUTED: [number, number, number] = [110, 112, 100];
+const FAINT: [number, number, number] = [155, 157, 146];
+const RULE: [number, number, number] = [214, 216, 206];
+const TINT: [number, number, number] = [241, 242, 237];
+const WARN: [number, number, number] = [150, 70, 20];
+
+/** The issuer, as it appears on the letterhead. */
+const COMPANY = {
+  name: "AASHISH LOGISTICS GLOBAL",
+  tagline: "Freight forwarding, consolidation & customs documentation",
+  address: [
+    "The Calamine Canary Building, No.55, 3B, 3rd Floor",
+    "W-Block, 3rd Main Road, Anna Nagar, Chennai 600040",
+  ],
+  contact: ["Tel: 044-4811 6348", "www.aashishlogisticsglobal.com"],
+  gst: "GSTIN: 33ABDCA2229C1ZD",
+};
+
+const today = () =>
+  new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
 export function renderDocument(spec: DocSpec, data: DocumentData): jsPDF {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const { ready, missingLabels } = readiness(data, spec.requires);
+
+  const set = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
+  const fill = (c: [number, number, number]) => doc.setFillColor(c[0], c[1], c[2]);
+  const stroke = (c: [number, number, number]) => doc.setDrawColor(c[0], c[1], c[2]);
+
   let y = MARGIN;
 
   /** Starts a new page when the next block would run into the footer. */
   const ensure = (needed: number) => {
     if (y + needed < FOOTER_Y - 6) return;
-    drawFooter(doc, data, spec);
     doc.addPage();
     y = MARGIN;
   };
 
-  // ---------------------------------------------------------------- letterhead
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.setTextColor(15, 110, 86);
-  doc.text("ARAXYS LOGISTICS", MARGIN, y);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(90, 90, 90);
-  doc.text("Freight forwarding & customs documentation", MARGIN, y + 5);
-  doc.setTextColor(0, 0, 0);
-  y += 14;
-  doc.setDrawColor(200, 200, 200);
-  doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 8;
-
-  // -------------------------------------------------------------------- title
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text(spec.title, MARGIN, y, { maxWidth: CONTENT_W - 40 });
-  if (!ready) {
-    doc.setFontSize(10);
-    doc.setTextColor(180, 80, 40);
-    doc.text("DRAFT - INCOMPLETE", PAGE_W - MARGIN, y, { align: "right" });
-    doc.setTextColor(0, 0, 0);
+  // ------------------------------------------------------------- letterhead
+  /*
+    The mark, the name, and the address block on the right.
+    ------------------------------------------------------------------------
+    A letterhead without an address is a header. These documents are presented
+    to carriers, banks and customs, all of whom expect to see who issued it and
+    where they are — so the registered address and the GSTIN are part of the
+    document, not decoration.
+  */
+  const LOGO = 14;
+  try {
+    doc.addImage(AASHISH_MARK_PNG, "PNG", MARGIN, y, LOGO, LOGO);
+  } catch {
+    // A letterhead without its mark is still a valid document. Failing the
+    // whole render because an image would not decode is not.
   }
+
+  const nameX = MARGIN + LOGO + 4;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14.5);
+  set(BRAND);
+  doc.text(COMPANY.name, nameX, y + 5.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.6);
+  set(MUTED);
+  doc.text(COMPANY.tagline, nameX, y + 10);
+  doc.text(COMPANY.gst, nameX, y + 13.6);
+
+  // Address right-aligned, so the two blocks frame the head of the page.
+  doc.setFontSize(7.4);
+  let ay = y + 3;
+  for (const line of [...COMPANY.address, ...COMPANY.contact]) {
+    doc.text(line, PAGE_W - MARGIN, ay, { align: "right" });
+    ay += 3.4;
+  }
+
+  y += 18;
+  // A brand rule under the letterhead, weighted so it reads as a division
+  // rather than another hairline in a page that has several.
+  fill(BRAND);
+  doc.rect(MARGIN, y, CONTENT_W, 0.8, "F");
   y += 7;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9.5);
-  doc.text(`Document no: ARX-${spec.numberPrefix}-${data.documentNumber}`, MARGIN, y);
-  doc.text(`Date issued: ${today()}`, PAGE_W - MARGIN, y, { align: "right" });
-  y += 5;
-  doc.text(`Reference: ${data.reference}`, MARGIN, y);
-  doc.text(ready ? "Status: complete" : "Status: awaiting details", PAGE_W - MARGIN, y, {
-    align: "right",
+  // ------------------------------------------------------------------ title
+  /*
+    The title in a filled band.
+    ------------------------------------------------------------------------
+    It is the one thing a reader needs before anything else — whether this is a
+    quotation or a bill of lading changes what every field below it means — and
+    at 13pt bold on white it carried no more weight than a section heading.
+  */
+  const TITLE_H = 11;
+  fill(TINT);
+  doc.rect(MARGIN, y, CONTENT_W, TITLE_H, "F");
+  fill(BRAND);
+  doc.rect(MARGIN, y, 1.6, TITLE_H, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  set(INK);
+  doc.text(spec.title, MARGIN + 5, y + TITLE_H / 2 + 1.4, {
+    maxWidth: CONTENT_W - 44,
+    baseline: "alphabetic",
   });
-  y += 10;
 
-  // ------------------------------------------------------------------ parties
-  if (spec.parties) {
-    const colW = CONTENT_W / 2 - 4;
-
+  if (!ready) {
+    // A pill rather than loose red text, so it reads as a stamp on the
+    // document rather than a sentence somebody added to it.
+    const label = "DRAFT";
+    doc.setFontSize(8.5);
+    const w = doc.getTextWidth(label) + 7;
+    fill([250, 235, 215]);
+    stroke(WARN);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(PAGE_W - MARGIN - w, y + 2.6, w, 5.8, 1.2, 1.2, "FD");
+    set(WARN);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text("Shipper / Exporter", MARGIN, y);
-    doc.text("Consignee / Importer", MARGIN + colW + 8, y);
+    doc.text(label, PAGE_W - MARGIN - w / 2, y + 6.6, { align: "center" });
+    doc.setLineWidth(0.2);
+  }
+  y += TITLE_H + 5;
+
+  // ------------------------------------------------------------- meta strip
+  /*
+    Four facts in two columns, keyed and valued.
+    ------------------------------------------------------------------------
+    They were four sentences ("Document no: X") which is how a label looks when
+    nobody decided where the value goes. Split, they line up and can be scanned.
+  */
+  const metaRows: Array<[string, string, string, string]> = [
+    ["Document no", `ARX-${spec.numberPrefix}-${data.documentNumber}`, "Date issued", today()],
+    [
+      "Reference",
+      data.reference,
+      "Status",
+      ready ? "Complete" : `Awaiting ${missingLabels.length} detail${missingLabels.length === 1 ? "" : "s"}`,
+    ],
+  ];
+
+  doc.setFontSize(8.2);
+  const midX = MARGIN + CONTENT_W / 2;
+  for (const [k1, v1, k2, v2] of metaRows) {
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
+    set(FAINT);
+    doc.text(k1, MARGIN, y);
+    doc.text(k2, midX, y);
+    doc.setFont("helvetica", "bold");
+    set(INK);
+    doc.text(v1, MARGIN + 24, y, { maxWidth: CONTENT_W / 2 - 26 });
+    doc.text(v2, midX + 24, y, { maxWidth: CONTENT_W / 2 - 26 });
+    y += 4.6;
+  }
+  y += 4;
 
-    let yl = y + 5;
-    for (const line of [data.shipperName ?? TBD, `GSTIN/IEC: ${data.shipperGstinIec ?? TBD}`]) {
-      doc.text(line, MARGIN, yl, { maxWidth: colW });
-      yl += 5;
-    }
+  // ---------------------------------------------------------------- parties
+  /*
+    Shipper and consignee in bordered boxes.
+    ------------------------------------------------------------------------
+    This is how every B/L, every shipping instruction and every delivery order
+    in the trade is laid out, and a reader who handles these all day finds the
+    consignee by looking at the top-right box before reading a word.
+  */
+  if (spec.parties) {
+    const gap = 5;
+    const colW = (CONTENT_W - gap) / 2;
 
-    let yr = y + 5;
-    for (const line of [
+    const shipper = [data.shipperName ?? TBD, `GSTIN / IEC: ${data.shipperGstinIec ?? TBD}`];
+    const consignee = [
       data.consigneeName ?? TBD,
       data.consigneeAddress ?? TBD,
       data.consigneeCountry ?? TBD,
-    ]) {
-      doc.text(line, MARGIN + colW + 8, yr, { maxWidth: colW });
-      yr += 5;
-    }
+    ];
 
-    y = Math.max(yl, yr) + 6;
-    doc.setDrawColor(230, 230, 230);
-    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-    y += 8;
+    // Both boxes take the height of the taller, so the pair reads as one band.
+    const lines = (rows: string[]) =>
+      rows.flatMap((r) => doc.splitTextToSize(r, colW - 7) as string[]);
+    const boxH = Math.max(lines(shipper).length, lines(consignee).length) * 4.2 + 11;
+
+    ensure(boxH + 8);
+
+    const drawParty = (x: number, heading: string, rows: string[]) => {
+      stroke(RULE);
+      fill([255, 255, 255]);
+      doc.roundedRect(x, y, colW, boxH, 1.5, 1.5, "FD");
+
+      fill(TINT);
+      doc.rect(x + 0.4, y + 0.4, colW - 0.8, 6, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.8);
+      set(MUTED);
+      doc.text(heading.toUpperCase(), x + 3.5, y + 4.4);
+
+      let ly = y + 10.4;
+      doc.setFontSize(8.6);
+      for (const row of rows) {
+        const known = !row.includes(TBD);
+        doc.setFont("helvetica", known && row === rows[0] ? "bold" : "normal");
+        set(known ? INK : FAINT);
+        for (const line of doc.splitTextToSize(row, colW - 7) as string[]) {
+          doc.text(line, x + 3.5, ly);
+          ly += 4.2;
+        }
+      }
+    };
+
+    drawParty(MARGIN, "Shipper / Exporter", shipper);
+    drawParty(MARGIN + colW + gap, "Consignee / Importer", consignee);
+    y += boxH + 7;
   }
 
-  // ----------------------------------------------------------------- sections
-  const labelW = 48;
+  // --------------------------------------------------------------- sections
+  const LABEL_W = 46;
   for (const section of spec.sections) {
-    // A section whose every row is empty is dropped rather than printed as a wall of
-    // TBD — the outstanding list below already says what is missing, and repeating it
-    // as ten blank rows buries the rows that do carry information.
+    // A section whose every row is empty is dropped rather than printed as a
+    // wall of TBD — the outstanding list below already says what is missing,
+    // and repeating it as ten blank rows buries the rows that do carry
+    // information.
     const rendered = section.rows.map((r) => [r.label, r.value(data)] as const);
     if (rendered.every(([, v]) => v === undefined)) continue;
 
-    ensure(12 + rendered.length * 6);
+    ensure(14 + rendered.length * 5.4);
 
+    // Section header as a tinted bar with a brand tick, so the eye can find
+    // "Cargo" without reading the rows above it.
+    fill(TINT);
+    doc.rect(MARGIN, y, CONTENT_W, 6.4, "F");
+    fill(BRAND);
+    doc.rect(MARGIN, y, 1.2, 6.4, "F");
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text(section.title, MARGIN, y);
-    y += 6;
+    doc.setFontSize(7.4);
+    set(MUTED);
+    doc.text(section.title.toUpperCase(), MARGIN + 4, y + 4.3);
+    y += 9.4;
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
+    doc.setFontSize(8.6);
     for (const [label, value] of rendered) {
-      doc.setTextColor(100, 100, 100);
-      doc.text(label, MARGIN, y);
-      if (value === undefined) doc.setTextColor(150, 150, 150);
-      else doc.setTextColor(0, 0, 0);
-      doc.text(value ?? TBD, MARGIN + labelW, y, { maxWidth: CONTENT_W - labelW });
-      doc.setTextColor(0, 0, 0);
-      y += 6;
+      const text = value ?? TBD;
+      const wrapped = doc.splitTextToSize(text, CONTENT_W - LABEL_W - 2) as string[];
+
+      ensure(wrapped.length * 4.4 + 2);
+
+      doc.setFont("helvetica", "normal");
+      set(MUTED);
+      doc.text(label, MARGIN + 1, y);
+
+      doc.setFont("helvetica", value === undefined ? "italic" : "bold");
+      set(value === undefined ? FAINT : INK);
+      let ly = y;
+      for (const line of wrapped) {
+        doc.text(line, MARGIN + LABEL_W, ly);
+        ly += 4.4;
+      }
+
+      y += Math.max(5.2, wrapped.length * 4.4 + 0.8);
+
+      // A hairline between rows. Light enough to separate without ruling the
+      // page into a table, which these are not.
+      stroke([238, 239, 233]);
+      doc.setLineWidth(0.15);
+      doc.line(MARGIN + 1, y - 2.6, PAGE_W - MARGIN - 1, y - 2.6);
+      doc.setLineWidth(0.2);
     }
-
     y += 4;
-    doc.setDrawColor(230, 230, 230);
-    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-    y += 8;
   }
 
-  // ------------------------------------------------------------- outstanding
+  // ------------------------------------------------------------ outstanding
   if (missingLabels.length) {
-    ensure(18);
-    doc.setTextColor(160, 60, 40);
+    const body = missingLabels.join(" · ");
+    const wrapped = doc.splitTextToSize(body, CONTENT_W - 10) as string[];
+    const h = wrapped.length * 4 + 12;
+
+    ensure(h + 4);
+
+    fill([252, 244, 232]);
+    stroke([232, 206, 170]);
+    doc.roundedRect(MARGIN, y, CONTENT_W, h, 1.5, 1.5, "FD");
+
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
+    doc.setFontSize(8);
+    set(WARN);
     doc.text(
-      `Still required before this document can be issued (${missingLabels.length}):`,
-      MARGIN,
-      y,
+      `STILL REQUIRED BEFORE THIS CAN BE ISSUED — ${missingLabels.length}`,
+      MARGIN + 5,
+      y + 5.6
     );
-    y += 5;
-    doc.setFont("helvetica", "italic");
-    doc.text(missingLabels.join(", "), MARGIN, y, { maxWidth: CONTENT_W });
-    y += 5 + Math.ceil(missingLabels.join(", ").length / 110) * 4;
-    doc.setTextColor(0, 0, 0);
+
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.2);
+    let ly = y + 10.4;
+    for (const line of wrapped) {
+      doc.text(line, MARGIN + 5, ly);
+      ly += 4;
+    }
+    y += h + 6;
   }
 
-  // ------------------------------------------------------------- declaration
+  // ------------------------------------------------------------ declaration
   if (spec.declaration) {
-    ensure(20);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(80, 80, 80);
-    doc.text(spec.declaration, MARGIN, y, { maxWidth: CONTENT_W });
-    doc.setTextColor(0, 0, 0);
-    y += 6 + Math.ceil(spec.declaration.length / 105) * 4;
+    const wrapped = doc.splitTextToSize(spec.declaration, CONTENT_W - 4) as string[];
+    ensure(wrapped.length * 3.6 + 8);
+
+    stroke(RULE);
+    doc.setLineWidth(0.15);
+    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+    doc.setLineWidth(0.2);
+    y += 4.5;
+
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(7.6);
+    set(MUTED);
+    for (const line of wrapped) {
+      doc.text(line, MARGIN + 2, y);
+      y += 3.6;
+    }
+    y += 4;
   }
 
-  drawFooter(doc, data, spec);
+  // -------------------------------------------------------- signature block
+  /*
+    A real signature line, where this desk is the one signing.
+    ------------------------------------------------------------------------
+    It was one line of small print in the footer, which is where a disclaimer
+    goes and not where anybody signs. A document that has to be signed should
+    show the space for it.
+  */
+  if (spec.issuer === "desk") {
+    ensure(24);
+    y += 4;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.6);
+    set(MUTED);
+    doc.text("For AASHISH LOGISTICS GLOBAL", PAGE_W - MARGIN, y, { align: "right" });
+    y += 13;
+    stroke(RULE);
+    doc.line(PAGE_W - MARGIN - 58, y, PAGE_W - MARGIN, y);
+    y += 3.6;
+    doc.setFontSize(7);
+    set(FAINT);
+    doc.text("Authorised signatory", PAGE_W - MARGIN, y, { align: "right" });
+    y += 6;
+  }
+
+  drawFooters(doc, data);
   return doc;
 }
 
-function drawFooter(doc: jsPDF, data: DocumentData, spec: DocSpec) {
-  doc.setDrawColor(200, 200, 200);
-  doc.line(MARGIN, FOOTER_Y, PAGE_W - MARGIN, FOOTER_Y);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(120, 120, 120);
-  doc.text(`System-generated by Araxys Logistics. ${data.sourceNote}`, MARGIN, FOOTER_Y + 5, {
-    maxWidth: CONTENT_W,
-  });
-  doc.text(
-    `Generated ${new Date().toISOString().replace("T", " ").slice(0, 19)} UTC`,
-    MARGIN,
-    FOOTER_Y + 9,
-  );
-  if (spec.issuer === "araxys") {
-    doc.text("Authorized signatory: ____________________", PAGE_W - MARGIN, FOOTER_Y + 9, {
-      align: "right",
-    });
+/**
+ * The footer, on every page, once every page exists.
+ *
+ * Drawn at the end rather than as each page fills, because "Page 1 of 3" is not
+ * knowable until the third page has been added — and a document whose pages do
+ * not say how many there are is one a recipient cannot tell is complete.
+ */
+function drawFooters(doc: jsPDF, data: DocumentData) {
+  const pages = doc.getNumberOfPages();
+  const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);
+
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    doc.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    doc.setLineWidth(0.2);
+    doc.line(MARGIN, FOOTER_Y, PAGE_W - MARGIN, FOOTER_Y);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.8);
+    doc.setTextColor(FAINT[0], FAINT[1], FAINT[2]);
+
+    doc.text(
+      `System-generated by Aashish Logistics Global · ${data.sourceNote}`,
+      MARGIN,
+      FOOTER_Y + 4.5,
+      { maxWidth: CONTENT_W - 34 }
+    );
+    doc.text(`Generated ${stamp} UTC`, MARGIN, FOOTER_Y + 8);
+    doc.text(`Page ${p} of ${pages}`, PAGE_W - MARGIN, FOOTER_Y + 8, { align: "right" });
+
+    doc.setTextColor(0, 0, 0);
   }
-  doc.setTextColor(0, 0, 0);
 }

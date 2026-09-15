@@ -99,7 +99,15 @@ export interface DocSection {
  * the second kind as though it were the first would be a forgery, so the renderer labels
  * them differently and refuses to imply the authority has signed anything.
  */
-export type Issuer = "araxys" | "authority";
+/**
+ * Who puts their name to the document.
+ *
+ * "desk" is this forwarder — the value used to read "araxys", which is the
+ * vendor that built the CRM and never issues anybody's bill of lading.
+ * "authority" is a carrier, a customs office or a weighbridge, whose documents
+ * this system reproduces but does not sign.
+ */
+export type Issuer = "desk" | "authority";
 
 export interface DocSpec {
   id: string;
