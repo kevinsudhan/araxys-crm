@@ -25,6 +25,7 @@
  */
 
 import { extractFromTranscript, fillBlanks, lastExtractionError } from "./extract.ts";
+import { syncCallerMemory } from "./callerMemory.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -32,7 +33,7 @@ const SNAP_KEY = Deno.env.get("SNAPSERVE_API_KEY")!;
 const SNAP_BASE = Deno.env.get("SNAPSERVE_BASE_URL") ?? "https://app.snapserve.ai/api";
 
 /** v2's agents. Calls to anything else belong to the live desk and are left alone. */
-const V2_AGENTS = new Set([1071, 1072]);
+const V2_AGENTS = new Set([717, 758]); // Priya, Arun
 
 /** Below this a call did not establish anything worth opening a file for. */
 const MIN_SECONDS = 20;
@@ -111,8 +112,16 @@ Deno.serve(async (req) => {
     fieldsFilled: 0,
     quotesRecorded: 0,
     matched: { phone: 0, reference: 0, unmatched: 0 },
+    callerMemory: 0,
     errors: [] as string[],
   };
+
+  /** Numbers this run touched, so caller memory is refreshed only for them. */
+  const touched = new Set<string>();
+
+  const body = await req
+    .json()
+    .catch(() => ({}) as Record<string, unknown>);
 
   try {
     const listed = await snap("/calls?limit=50");
@@ -334,14 +343,14 @@ Deno.serve(async (req) => {
          * A price the agent named on the call becomes a quote.
          *
          * She said it to a customer, so it exists whether or not anybody at the
-         * desk types it in later. Recorded as 'sent' because that is what
-         * happened -- it was communicated -- and marked accepted only when the
-         * caller said yes to that specific figure.
+         * desk types it in later. Always recorded as 'sent', because that is
+         * what happened -- it was communicated.
          *
-         * This does not book anything. Turning an accepted quote into a
-         * shipment is still a button somebody presses, which is the right place
-         * for the human gate: a transcript can be misread, and a booking should
-         * not appear because a model heard "okay".
+         * A yes on the call does NOT accept it. It sets verbal_accept_at, which
+         * says exactly what is true: the caller indicated agreement on the
+         * phone. Acceptance is a written confirmation, recorded separately, and
+         * only that unlocks a booking. A container should not be committed
+         * because a model read "okay" out of a transcript the ASR guessed at.
          */
         if (found.quoted_amount_inr) {
           const priced: Array<{ id: string; version: number; amount_inr: string }> = await db(
@@ -351,6 +360,16 @@ Deno.serve(async (req) => {
 
           const same =
             priced.length && Number(priced[0].amount_inr) === Number(found.quoted_amount_inr);
+
+          if (same && found.quote_accepted && priced[0]) {
+            // They rang back and agreed to the figure already on file. No new
+            // quote, but the verbal yes is new and has to be recorded.
+            await db(`quotes?id=eq.${priced[0].id}&verbal_accept_at=is.null`, {
+              method: "PATCH",
+              headers: { Prefer: "return=minimal" },
+              body: JSON.stringify({ verbal_accept_at: new Date().toISOString() }),
+            });
+          }
 
           if (!same) {
             const [created] = await db("quotes", {
@@ -362,9 +381,9 @@ Deno.serve(async (req) => {
                 amount_inr: found.quoted_amount_inr,
                 basis: [found.quoted_basis, "quoted on call"].filter(Boolean).join(" — "),
                 sailing_date: found.agreed_sailing_date,
-                status: found.quote_accepted ? "accepted" : "sent",
+                status: "sent",
                 sent_at: new Date().toISOString(),
-                responded_at: found.quote_accepted ? new Date().toISOString() : null,
+                verbal_accept_at: found.quote_accepted ? new Date().toISOString() : null,
               }),
             });
 
@@ -372,7 +391,9 @@ Deno.serve(async (req) => {
               method: "PATCH",
               headers: { Prefer: "return=minimal" },
               body: JSON.stringify({
-                status: found.quote_accepted ? "accepted" : "quoted",
+                // 'quoted' either way. The enquiry becomes 'accepted' only when
+                // somebody confirms the written yes.
+                status: "quoted",
                 updated_at: new Date().toISOString(),
               }),
             });
@@ -381,10 +402,11 @@ Deno.serve(async (req) => {
               method: "POST",
               body: JSON.stringify({
                 enquiry_ref: enquiryRef,
-                kind: found.quote_accepted ? "accepted" : "quote_sent",
+                kind: found.quote_accepted ? "verbal_accept" : "quote_sent",
                 summary: found.quote_accepted
-                  ? `Caller accepted ₹${found.quoted_amount_inr.toLocaleString("en-IN")}` +
-                    `${found.quoted_basis ? ` ${found.quoted_basis}` : ""} on the call`
+                  ? `Caller agreed to ₹${found.quoted_amount_inr.toLocaleString("en-IN")}` +
+                    `${found.quoted_basis ? ` ${found.quoted_basis}` : ""} on the call ` +
+                    `— still to be confirmed in writing`
                   : `Quoted ₹${found.quoted_amount_inr.toLocaleString("en-IN")}` +
                     `${found.quoted_basis ? ` ${found.quoted_basis}` : ""} on the call`,
                 detail: { call_id: callId, from: "call transcript", quote_id: created?.id },
@@ -458,7 +480,38 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (from) touched.add(from);
       report.ingested++;
+    }
+
+    /**
+     * The caller's own facts, including which language they spoke.
+     *
+     * Separate from the knowledge base below: that is what the agents know
+     * about the business, this is what they know about the number that is
+     * ringing. A failure here must not fail the ingest -- the call is already
+     * recorded, and the worst case is the next call opens in English.
+     */
+    /**
+     * Normally only the numbers this run heard from -- a caller's language and
+     * status change because they rang, so that is when their memory is stale.
+     *
+     * {"syncMemory":"all"} in the body rebuilds it for every number we have.
+     * That is for bootstrapping (nothing is written until somebody calls, so a
+     * freshly deployed desk starts with no memory at all) and for after a bulk
+     * change to enquiries, which no call would otherwise pick up.
+     */
+    const wantAll = String(body?.syncMemory ?? "") === "all";
+    const phones: string[] = wantAll
+      ? ((await db("calls?select=phone_key")) as Array<{ phone_key: string }>).map(
+          (c) => c.phone_key
+        )
+      : [...touched];
+
+    if (phones.length > 0) {
+      const mem = await syncCallerMemory(phones, db);
+      report.callerMemory = mem.synced;
+      for (const f of mem.failed) report.errors.push(`caller-memory ${f}`);
     }
 
     // What was just learned should reach the agents before the next call.

@@ -26,6 +26,18 @@
 
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 
+/**
+ * A switch for working on the call itself.
+ *
+ * While the voice prompts are being iterated, every test call otherwise lands
+ * in the CRM as a half-filled enquiry that has to be wiped again before the
+ * next one. Set EXTRACTION_DISABLED=true and no transcript is sent to the
+ * model: nothing is read, so nothing is written. Unset it and the next ingest
+ * fills in the calls it skipped, because a call with no extracted fields is
+ * reprocessed rather than considered done.
+ */
+const DISABLED = (Deno.env.get("EXTRACTION_DISABLED") ?? "").toLowerCase() === "true";
+
 export interface Extracted {
   customer_name: string | null;
   company: string | null;
@@ -102,21 +114,36 @@ const EMPTY: Extracted = {
 
 const SYSTEM = `You read freight enquiry phone calls and record what was established. You are not a participant and you do not help — you report.
 
-THE ONE RULE THAT MATTERS: if the caller did not say it, it is null.
+THE ONE RULE THAT MATTERS: if it was not ESTABLISHED IN THE CONVERSATION, it is null.
 Not a sensible default, not an inference from context, not a figure implied by something else. A null costs one follow-up question. A guess reaches a quotation, then a container booking, and by the time it is caught the cargo is at the port.
 
+WHAT COUNTS AS ESTABLISHED. A value is established if EITHER of these happened:
+- the caller said it, or
+- the AGENT said it back as a fact and the caller did not correct them.
+The second matters as much as the first. Agents read values back constantly — "ten pieces, okay", "paththu kilo", "one feet into two feet into two feet" — and a caller who lets that stand has agreed to it. That is how a number gets settled on a phone call. Record it.
+Where the two conflict, the CALLER wins. If they say one kilo and the agent says thirty, it is one.
+What stays forbidden is a figure NOBODY said. Do not invent one, do not infer a count from a weight, do not derive a volume from dimensions, and do not fill a slot because it looks empty.
+
 Specifically:
-- Never derive a piece count from a weight, a volume from dimensions, or a total from a rate. If they gave dimensions but no count, the count is null.
-- Never fill an origin because the desk is in Chennai. Only if it was said.
+- Never derive a piece count from a weight, a volume from dimensions, or a total from a rate. If nobody stated a count, the count is null.
+- Numbers are often spoken as words, and in Tamil: "oru"/"ore" is one, "rendu" two, "moonu" three, "naalu" four, "anju" five, "paththu" ten. Read those as the numbers they are, whoever said them.
+- Never fill an origin because the desk is in Chennai. Only if it was said or read back.
 - A sailing date the AGENT offered is not agreed. Only a date the CALLER settled on goes in agreed_sailing_date.
 - quoted_basis records HOW the price was expressed, in the agent's own terms: "per CBM", "all-in", "per CBM plus THC and documentation". A rate and a total are different offers and must not be confused.
 - quote_accepted is true only for an unambiguous yes to a specific figure. "Okay" straight after a named price is a yes. "Okay" after "let me check and call you back" is not. Hesitation, "I'll think about it", or silence is not.
+
+WHO IS WHO. Three different people get named on these calls and they must not be mixed up:
+- customer_name is THE PERSON ON THE PHONE, the one who rang us. The agent asks for it early, usually as something like "can I take your name for the documentation" — in Tamil, "unga perai therinjukkalama". The next thing the caller says is the answer, and it is usually a single word. Take it.
+- company is the business THEY are shipping on behalf of, asked right after the name.
+- consignee_name is a different person entirely: whoever receives the cargo at the far end. Never put the caller's name here, and never put the receiver's name in customer_name.
+- The AGENT's own name is never any of these. Priya and Arun work here.
 
 MEASUREMENTS. Callers speak in mixed units and Indian idiom:
 - "anju adi" / "five feet" = 152 cm. "oru meter" = 100 cm. Convert everything to CENTIMETRES.
 - Weight is per piece unless they clearly say it is the total. If it is a total and you know the count, still record the per-piece figure only when the division is exact and they said the count.
 - If a dimension is given as ONE number ("five feet boxes", "one metre cartons") you do not know length, width and height. Set dimensions_stated_separately to false. Never assume a cube — a box described by a single figure is almost never one.
-- Set dimensions_stated_separately to true ONLY when the caller gave three distinct measurements, or explicitly said the piece is a cube.
+- Set dimensions_stated_separately to true when THREE measurements were stated, by either party. They need not differ: "1 foot by 2 foot by 2 foot" is three, and "five by five by five" is three and genuinely a cube because they said so. Feet are fine — convert them.
+- Three values spoken in a row are three values. Never null them because the piece count is missing; the two are independent of each other.
 
 LANGUAGE. The transcript may be Tamil, Hindi, English or a mixture, and the ASR mangles it. Return every value in English. Set "language" to what the CALLER mostly used: "English", "Tamil", "Hindi", or "Tamil / English" for genuine code-switching.
 
@@ -150,6 +177,10 @@ export async function extractFromTranscript(
   callDate?: string
 ): Promise<Extracted> {
   lastError = null;
+  if (DISABLED) {
+    lastError = "extraction disabled (EXTRACTION_DISABLED=true)";
+    return EMPTY;
+  }
   if (!ANTHROPIC_KEY || transcript.trim().length < 40) return EMPTY;
 
   const today = (callDate ?? new Date().toISOString()).slice(0, 10);
