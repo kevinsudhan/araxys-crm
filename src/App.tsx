@@ -26,9 +26,21 @@ const MyEnquiries = lazy(() => import("./pages/MyEnquiries"));
 const Oversight = lazy(() => import("./pages/Oversight"));
 const CaseFile = lazy(() => import("./pages/CaseFile"));
 const Complaints = lazy(() => import("./pages/Complaints"));
-const Billing = lazy(() => import("./pages/Billing"));
-const Receipts = lazy(() => import("./pages/Receipts"));
-const Payables = lazy(() => import("./pages/Payables"));
+// Accounts — one page per document, the way the desk's own menu reads.
+const AcInvoices   = lazy(() => import("./pages/accounts/Invoices"));
+const AcProformas  = lazy(() => import("./pages/accounts/Proformas"));
+const AcDebit      = lazy(() => import("./pages/accounts/DebitNotes"));
+const AcCredit     = lazy(() => import("./pages/accounts/CreditNotes"));
+const AcOvDebit    = lazy(() => import("./pages/accounts/OverseasDebitNotes"));
+const AcOvCredit   = lazy(() => import("./pages/accounts/OverseasCreditNotes"));
+const AcFinalBill  = lazy(() => import("./pages/accounts/FinalBill"));
+const AcReceipts   = lazy(() => import("./pages/accounts/Receipts"));
+const AcPayments   = lazy(() => import("./pages/accounts/Payments"));
+const AcOutstanding= lazy(() => import("./pages/accounts/Outstanding"));
+const AcPayables   = lazy(() => import("./pages/accounts/PayablesReport"));
+const AcRcptDetail = lazy(() => import("./pages/accounts/ReceiptDetails"));
+const AcPayDetail  = lazy(() => import("./pages/accounts/PaymentDetails"));
+const AcAgentSOA   = lazy(() => import("./pages/accounts/AgentSOA"));
 const Partners = lazy(() => import("./pages/Partners"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 
@@ -78,9 +90,26 @@ export default function App() {
             <Route path="/oversight" element={<Oversight />} />
             <Route path="/enquiries/:ref" element={<CaseFile />} />
             <Route path="/complaints" element={<Complaints />} />
-            <Route path="/billing" element={<Billing />} />
-            <Route path="/receipts" element={<Receipts />} />
-            <Route path="/payables" element={<Payables />} />
+            {/* Accounts. Each document its own page; raising one still happens
+                on the job, because a document is about a job. */}
+            <Route path="/accounts/invoices" element={<AcInvoices />} />
+            <Route path="/accounts/proformas" element={<AcProformas />} />
+            <Route path="/accounts/debit-notes" element={<AcDebit />} />
+            <Route path="/accounts/credit-notes" element={<AcCredit />} />
+            <Route path="/accounts/overseas-debit-notes" element={<AcOvDebit />} />
+            <Route path="/accounts/overseas-credit-notes" element={<AcOvCredit />} />
+            <Route path="/accounts/final-bill" element={<AcFinalBill />} />
+            <Route path="/accounts/receipts" element={<AcReceipts />} />
+            <Route path="/accounts/payments" element={<AcPayments />} />
+            <Route path="/accounts/outstanding" element={<AcOutstanding />} />
+            <Route path="/accounts/payables" element={<AcPayables />} />
+            <Route path="/accounts/receipt-details" element={<AcRcptDetail />} />
+            <Route path="/accounts/payment-details" element={<AcPayDetail />} />
+            <Route path="/accounts/agent-soa" element={<AcAgentSOA />} />
+            {/* The old paths, so links already sent still land. */}
+            <Route path="/billing" element={<Navigate to="/accounts/invoices" replace />} />
+            <Route path="/receipts" element={<Navigate to="/accounts/receipts" replace />} />
+            <Route path="/payables" element={<Navigate to="/accounts/payables" replace />} />
             <Route path="/partners" element={<Partners />} />
             <Route path="/analytics" element={<Analytics />} />
           </Route>

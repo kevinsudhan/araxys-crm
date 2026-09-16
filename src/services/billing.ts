@@ -211,6 +211,14 @@ export interface Invoice {
   place_of_supply: string | null;
   place_of_supply_code: string | null;
   tax_treatment: TaxTreatment;
+
+  /** Set on a credit or debit note: the invoice it corrects (042). */
+  original_invoice_id: string | null;
+  original_number: string | null;
+  original_date: string | null;
+  note_reason: string | null;
+  partner_id: string | null;
+  console_id: string | null;
   /** Snapshotted off the shipment, so the charge list is the one that applied. */
   trade_direction: TradeDirection | null;
 
@@ -351,6 +359,42 @@ export async function unbilledShipments(): Promise<
         customer: row.customers?.company || row.customers?.name || null,
       };
     });
+}
+
+/**
+ * Raise a credit or debit note against an issued invoice.
+ *
+ * Everything comes from the document being corrected — the same party, job and
+ * tax treatment — because a credit note addressed to somebody other than the
+ * person who got the invoice is not a credit note. Rule 53(1A) also wants the
+ * original's number and date printed on it, so they are snapshotted across.
+ */
+export async function startNote(
+  invoiceId: string,
+  kind: "credit_note" | "debit_note",
+  reason = ""
+): Promise<Invoice> {
+  const { data, error } = await supabase.rpc("start_note", {
+    p_invoice: invoiceId,
+    p_kind: kind,
+    p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+  return data as Invoice;
+}
+
+/**
+ * The last date a note against this supply can still adjust tax.
+ *
+ * Section 34(2): the 30th of November following the end of the financial year
+ * the original supply fell in — or the date the annual return for that year was
+ * filed, if earlier. This system does not know the filing date, so this is the
+ * outer limit and the screen says as much.
+ */
+export function noteAdjustmentDeadline(supplyDate: string): Date {
+  const d = new Date(supplyDate + "T00:00:00");
+  const year = d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+  return new Date(year, 10, 30);
 }
 
 export async function getInvoice(id: string): Promise<Invoice | null> {

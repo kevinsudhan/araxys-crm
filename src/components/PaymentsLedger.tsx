@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { AlertCircle, ChevronDown, Download, HandCoins, Loader2, Plus } from "lucide-react";
-import PageHeader from "../components/PageHeader";
-import EmptyState from "../components/EmptyState";
-import StatusPill from "../components/StatusPill";
-import Select from "../components/Select";
-import ReceiptEditor from "../components/ReceiptEditor";
+import PageHeader from "./PageHeader";
+import EmptyState from "./EmptyState";
+import StatusPill from "./StatusPill";
+import Select from "./Select";
+import ReceiptEditor from "./ReceiptEditor";
 import { receiptSheets } from "../lib/exports";
 import { downloadWorkbook, stamped } from "../lib/xlsx";
 import { money } from "../services/billing";
@@ -26,22 +26,19 @@ import {
 } from "../services/receipts";
 
 /**
- * Receipts and payments, and where each customer stands.
+ * The ledger for one direction of money.
  *
  * ---------------------------------------------------------------------------
- * ONE PAGE, NOT SIX
+ * ONE COMPONENT, TWO PAGES
  *
- * The system this is modelled on has Receipts, Payments, Outstanding Report,
- * Payables Report, Receipt Details Report and Payment Details Report as six
- * entries in a menu of thirteen. They are one table read six ways. A report is
- * a question, not a place, so the direction is a toggle and the balances sit
- * underneath rather than behind another menu item.
+ * Receipts and Payments are the same act pointed opposite ways: an amount, a
+ * date, a party, an instrument, and a list of what it settles. We even deduct
+ * TDS paying a transporter exactly as customers deduct it paying us. Two
+ * implementations would drift, and the one that drifted would be whichever
+ * nobody was looking at.
  *
- * WHY THE BALANCES ARE ON THIS PAGE
- *
- * Because "who owes us" is the question somebody opens this page holding, and
- * making them find a separate Outstanding Report to answer it is how a report
- * ends up printed once a month instead of read every morning.
+ * The direction is the page rather than a toggle inside it, so a link can point
+ * at money out and land there.
  * ---------------------------------------------------------------------------
  */
 
@@ -61,8 +58,7 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-export default function Receipts() {
-  const [direction, setDirection] = useState<Direction>("in");
+export default function PaymentsLedger({ direction }: { direction: Direction }) {
   const [rows, setRows] = useState<Payment[]>([]);
   const [balances, setBalances] = useState<CustomerBalance[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -189,32 +185,7 @@ export default function Receipts() {
         <Tile label="Still owed to us" value={money(totals.owed)} hint="across all customers" />
       </div>
 
-      {/* ---- direction ---- */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-1.5">
-          {(
-            [
-              { d: "in" as const, label: "Money in" },
-              { d: "out" as const, label: "Money out" },
-            ]
-          ).map((o) => (
-            <button
-              key={o.d}
-              onClick={() => {
-                setDirection(o.d);
-                setOpenId(null);
-              }}
-              className={`h-8 rounded-lg px-3 text-[12px] transition-colors ${
-                direction === o.d
-                  ? "bg-brand font-medium text-white"
-                  : "border border-border bg-surface-1 text-text-secondary hover:border-border-strong hover:text-text-primary"
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
         <div className="relative">
           <button
             onClick={() => setPicking((p) => !p)}
@@ -350,59 +321,6 @@ export default function Receipts() {
         </div>
       )}
 
-      {/* ---- who owes what ---- */}
-      {owing.length > 0 && (
-        <section className="mt-6">
-          <h2 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
-            Where each customer stands
-          </h2>
-          <div className="card overflow-x-auto">
-            <table className="w-full min-w-[36rem] text-[13px]">
-              <thead>
-                <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-text-secondary">
-                  <th className="px-4 py-2 font-medium">Customer</th>
-                  <th className="px-4 py-2 text-right font-medium">Billed</th>
-                  <th className="px-4 py-2 text-right font-medium">Received</th>
-                  <th className="px-4 py-2 text-right font-medium">TDS</th>
-                  <th className="px-4 py-2 text-right font-medium">Outstanding</th>
-                  <th className="px-4 py-2 text-right font-medium">On account</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {owing.map((b) => (
-                  <tr key={b.customer_id}>
-                    <td className="px-4 py-2 text-text-primary">{b.label}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-text-secondary">
-                      {money(Number(b.billed))}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-text-secondary">
-                      {money(Number(b.cash_received))}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-text-muted">
-                      {Number(b.tds_withheld) > 0 ? money(Number(b.tds_withheld)) : "—"}
-                    </td>
-                    <td
-                      className={`px-4 py-2 text-right font-medium tabular-nums ${
-                        Number(b.outstanding) > 0.005 ? "text-text-warning" : "text-text-muted"
-                      }`}
-                    >
-                      {money(Number(b.outstanding))}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-text-muted">
-                      {Number(b.on_account) > 0.005 ? money(Number(b.on_account)) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-2 max-w-prose text-[11px] leading-relaxed text-text-muted">
-            Outstanding counts TDS as settled, because it is — the customer remitted it to the
-            government against our PAN rather than to us. Without that, every invoice a customer
-            deducted tax on would sit here short for ever.
-          </p>
-        </section>
-      )}
     </div>
   );
 }
