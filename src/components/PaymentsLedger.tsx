@@ -140,8 +140,12 @@ export default function PaymentsLedger({ direction }: { direction: Direction }) 
   return (
     <div>
       <PageHeader
-        title="Receipts & payments"
-        subtitle="Money in and out, what it settled, and where each customer stands."
+        title={direction === "in" ? "Receipts" : "Payments"}
+        subtitle={
+          direction === "in"
+            ? "Money the desk has taken in, and which invoices each receipt settled. Where each customer stands is on Outstanding."
+            : "Money the desk has paid out to carriers, agents and vendors, and which bills each payment settled."
+        }
         action={
           <button
             onClick={() =>

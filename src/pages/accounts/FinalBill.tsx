@@ -167,7 +167,7 @@ export default function FinalBill() {
         />
       ) : (
         <div className="card overflow-x-auto">
-          <table className="w-full min-w-[56rem] text-[13px]">
+          <table className="w-full min-w-[40rem] text-[13px]">
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-text-secondary">
                 <th className="px-4 py-2 font-medium">Job</th>
@@ -176,7 +176,6 @@ export default function FinalBill() {
                 <th className="px-4 py-2 text-right font-medium">Cost</th>
                 <th className="px-4 py-2 text-right font-medium">Paid out</th>
                 <th className="px-4 py-2 text-right font-medium">Margin</th>
-                <th className="px-4 py-2 font-medium">Waiting on</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -205,6 +204,15 @@ export default function FinalBill() {
                       <StatusPill tone={STAGE_TONE(r.stage)}>
                         {r.stage.replace(/_/g, " ")}
                       </StatusPill>
+                      {/*
+                        What the job is waiting on is a sentence, not a figure,
+                        and as a seventh column it was the one pushed off the
+                        edge — which is the one thing on the row somebody can
+                        actually act on.
+                      */}
+                      <span className="mt-0.5 block text-[11px] text-text-muted">
+                        {waiting.length ? waiting.join(" · ") : "nothing outstanding — settled"}
+                      </span>
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums text-text-secondary">
                       {money(r.billed_inr)}
@@ -229,9 +237,6 @@ export default function FinalBill() {
                           {pct}%
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-2 text-[12px] text-text-muted">
-                      {waiting.length ? waiting.join(" · ") : "nothing — settled"}
                     </td>
                   </tr>
                 );
