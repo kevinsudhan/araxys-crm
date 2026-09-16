@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Check, Loader2, RotateCcw, Send, Sparkles, X } from "lucide-react";
 import RichTextEditor from "./RichTextEditor";
+import Drafting from "./Drafting";
 import { draftRequest, draftRequestWithAi, sendBurst, type BurstResult } from "../services/rfq";
 import { listPartners, type Partner } from "../services/partners";
 import { mailIsLive } from "../services/backend";
@@ -332,7 +333,15 @@ export default function AskPartners({
               </div>
             )}
 
-            <RichTextEditor value={body} onChange={setBody} minHeight={220} />
+            {/*
+              The request the model is rewriting is the one on screen, so the
+              editor steps aside rather than showing text about to be replaced.
+            */}
+            {writing ? (
+              <Drafting label="Writing the rate request" lines={5} />
+            ) : (
+              <RichTextEditor value={body} onChange={setBody} minHeight={220} />
+            )}
           </div>
 
           {error && (

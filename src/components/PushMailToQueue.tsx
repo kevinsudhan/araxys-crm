@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import Select from "./Select";
 import { readMessage, type Reading } from "../services/classify";
 import ReadingPanel from "./ReadingPanel";
+import Drafting from "./Drafting";
 import {
   assignMessageTo,
   captureMessage,
@@ -289,8 +290,16 @@ export default function PushMailToQueue({
    * The root below is `display: contents` for the same reason, so these become
    * direct children of the action row instead of a nested column.
    */
-  const readOutput = (readingError || reading) && (
+  const readOutput = (readingBusy || readingError || reading) && (
     <div className="w-full">
+      {/*
+        The reading takes as long as a draft does and had only a spinner in the
+        button to show for it, on a row where several other buttons also spin.
+        It lands here, so the wait is where the answer will be.
+      */}
+      {readingBusy && !reading && (
+        <Drafting label="Reading the message" lines={3} compact />
+      )}
       {readingError && (
         <span className="block max-w-2xl break-words text-[11px] text-text-danger">
           {readingError}

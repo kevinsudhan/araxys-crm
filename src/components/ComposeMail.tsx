@@ -3,6 +3,7 @@ import { AlertCircle, Loader2, Send, Sparkles, X } from "lucide-react";
 import { sendMail, mailIsLive, type MailMessage } from "../services/backend";
 import { draftReply } from "../services/classify";
 import RichTextEditor from "./RichTextEditor";
+import Drafting from "./Drafting";
 import { greetingHtml } from "../lib/greeting";
 
 /**
@@ -330,13 +331,23 @@ export default function ComposeMail({
             </div>
           )}
 
+          {/*
+            While the model writes, the editor gives way to the waiting state
+            rather than sitting there inviting typing that is about to be
+            replaced — a re-draft overwrites everything above the quoted thread,
+            so anything typed here in the meantime would be lost.
+          */}
           <div className="mt-3">
-            <RichTextEditor
-              value={content}
-              onChange={setContent}
-              minHeight={220}
-              placeholder="Write your message…"
-            />
+            {drafting ? (
+              <Drafting label="Drafting a reply" lines={5} />
+            ) : (
+              <RichTextEditor
+                value={content}
+                onChange={setContent}
+                minHeight={220}
+                placeholder="Write your message…"
+              />
+            )}
           </div>
 
           {error && (

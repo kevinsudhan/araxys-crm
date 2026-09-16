@@ -363,6 +363,65 @@ pre {
 }
 
 /* ---------------------------------------------------------------------------
+ * While the model is writing
+ *
+ * A spinner in a button says something is happening. It does not say WHERE —
+ * and when a model is drafting a reply, the thing worth watching is the body of
+ * the message, not the button that started it. So the waiting state goes in the
+ * place the text will appear.
+ *
+ * The sweep is white over surface-2 on a warm off-white page, which is about as
+ * quiet as a moving highlight gets. Lines stagger so it reads left to right,
+ * line after line, the way prose arrives — a block that pulses in unison reads
+ * as loading, and this is writing.
+ *
+ * Nothing here animates for anybody who has asked their system not to animate.
+ * ------------------------------------------------------------------------- */
+@keyframes draft-sweep {
+  from { background-position: 180% 0; }
+  to   { background-position: -80% 0; }
+}
+
+@keyframes draft-caret {
+  0%, 45%  { opacity: 1; }
+  50%, 95% { opacity: 0.15; }
+  100%     { opacity: 1; }
+}
+
+.draft-line {
+  height: 0.625rem;
+  border-radius: 999px;
+  /* Ink at low alpha rather than surface-2. On a white card surface-2 is about
+   * three percent of separation — the same amount that made every panel edge
+   * disappear before the contrast pass — so the bars did not read as bars and
+   * a white sweep over them was invisible. Tinted ink keeps the warm palette
+   * and actually shows. */
+  background-image: linear-gradient(
+    90deg,
+    rgba(20, 21, 15, 0.075) 0%,
+    rgba(20, 21, 15, 0.075) 38%,
+    rgba(20, 21, 15, 0.022) 50%,
+    rgba(20, 21, 15, 0.075) 62%,
+    rgba(20, 21, 15, 0.075) 100%
+  );
+  background-size: 220% 100%;
+  animation: draft-sweep 1.9s var(--ease) infinite;
+}
+
+.draft-caret {
+  animation: draft-caret 1.1s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .draft-line,
+  .draft-caret {
+    animation: none;
+  }
+  /* Still legible as "not finished" without motion. */
+  .draft-line { background-image: none; background-color: rgba(20, 21, 15, 0.075); }
+}
+
+/* ---------------------------------------------------------------------------
  * Message bodies
  *
  * Tailwind's preflight resets tables, lists and headings to nothing, which is
