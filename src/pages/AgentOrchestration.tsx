@@ -93,7 +93,10 @@ export default function AgentOrchestration() {
 
   useEffect(() => {
     getRealRecords().then(({ records }) => setRecords(records)).catch(() => {});
-  }, [tick === 0]);
+    // `[tick === 0]` here fired on mount, again when tick first incremented, and never
+    // after — so an enquiry written during a demo never appeared. The tick itself is the
+    // dependency.
+  }, [tick]);
 
   /**
    * Transcripts come from the logs endpoint, not from a per-call one.
@@ -177,7 +180,11 @@ export default function AgentOrchestration() {
    * call does not take nine minutes to watch.
    */
   useEffect(() => {
-    if (turns.length === 0) return;
+    // A call with no transcript has nothing to play, so the playhead goes straight to the
+    // end. Returning early instead left it at zero forever, and because the stage gate
+    // waits on it, every later stage stayed stuck at "waiting" — the whole pipeline frozen
+    // by a silent call.
+    if (turns.length === 0) { setPlayhead(1); return; }
     const secs = Math.min(detail?.duration_secs ?? 90, 150);
     const id = setInterval(() => {
       const elapsed = (Date.now() - playFrom.current) / 1000;
@@ -216,8 +223,9 @@ export default function AgentOrchestration() {
    */
   const reached = (() => {
     if (!selected) return 0;
-    if (playhead < 1 || inProgress) return 0;     // still on the call
-    if (fieldsShown < fields.length) return 1;    // still reading it
+    if (inProgress) return 0;                     // the call is still happening
+    if (turns.length > 0 && playhead < 1) return 0;// still playing out what was said
+    if (fields.length > 0 && fieldsShown < fields.length) return 1;  // still reading it
     if (!plan) return 2;                          // checking space
     if (!record?.quotedAmountInr) return 3;       // out to partners
     if (!record?.agreedAmountInr) return 6;       // priced, waiting on a human
@@ -264,7 +272,7 @@ export default function AgentOrchestration() {
         </div>
       </header>
 
-      <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
+      <div className="grid lg:grid-cols-[340px_minmax(0,1fr)] gap-4 items-start">
         {/* ============================================================ left rail */}
         <div className="space-y-3">
           <CallCard call={activeCall ?? selected} live={Boolean(activeCall)} turnCount={turns.length} />
@@ -300,10 +308,10 @@ export default function AgentOrchestration() {
         </div>
 
         {/* ============================================================ right column */}
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           {/* the strip — what this call is, at a glance */}
           <section className="rounded-xl border border-border bg-surface-1 px-4 py-3">
-            <div className="grid sm:grid-cols-4 gap-4 items-start">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-3 items-start">
               <Meta label="Enquiry" value={record?.ref ?? "not yet matched"}
                 pill={record ? { text: record.stage, tone: "ok" } : undefined} />
               <Meta label="Customer" value={record?.company || record?.customerName || "—"} />
@@ -322,23 +330,53 @@ export default function AgentOrchestration() {
             </div>
           </section>
 
-          {/* the spine */}
-          <ol className="flex flex-wrap gap-1.5">
-            {steps.map((s) => (
-              <li key={s.key}>
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] ${
-                    s.state === "done" ? "border-brand/30 bg-brand/5 text-text-primary"
-                    : s.state === "running" ? "border-amber-300 bg-amber-50 text-amber-800"
-                    : "border-border bg-surface-1 text-text-muted"
-                  }`}
-                >
-                  <StateDot state={s.state} />
-                  {s.n}. {s.title}
-                </span>
-              </li>
-            ))}
-          </ol>
+          {/*
+            The spine.
+            A connected rail rather than seven separate pills: the stages are a sequence,
+            and pills spaced evenly apart read as seven independent switches. The line
+            between them is the thing being demonstrated.
+          */}
+          <nav className="rounded-xl border border-border bg-surface-1 px-4 py-3 min-w-0" aria-label="Pipeline">
+            <ol className="flex items-start gap-0 overflow-x-auto">
+              {steps.map((st, i) => {
+                const Icon = st.icon;
+                const last = i === steps.length - 1;
+                return (
+                  <li key={st.key} className="flex items-start shrink-0">
+                    <div className="flex flex-col items-center gap-1.5 w-[78px]">
+                      <span
+                        className={`grid place-items-center w-7 h-7 rounded-full border-2 transition-colors duration-500 ${
+                          st.state === "done" ? "border-brand bg-brand text-white"
+                          : st.state === "running" ? "border-amber-400 bg-amber-50 text-amber-700"
+                          : "border-border bg-surface-1 text-text-muted"
+                        }`}
+                        title={st.title}
+                      >
+                        {st.state === "done"
+                          ? <Check size={14} />
+                          : st.state === "running"
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <Icon size={13} />}
+                      </span>
+                      <span className={`text-[10.5px] text-center leading-tight ${
+                        st.state === "waiting" ? "text-text-muted" : "text-text-primary font-medium"
+                      }`}>
+                        {st.title}
+                      </span>
+                    </div>
+                    {!last && (
+                      <span
+                        aria-hidden
+                        className={`h-[2px] w-5 mt-[13px] rounded transition-colors duration-500 ${
+                          st.state === "done" ? "bg-brand" : "bg-border"
+                        }`}
+                      />
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
 
           {/* ---------------------------------------------------------- step 1 */}
           <Step n={1} title="Intake facts" icon={ScanText}

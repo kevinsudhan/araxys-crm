@@ -385,10 +385,24 @@ Deno.serve(async (req) => {
          */
         transcript: c.transcript ?? null,
       });
+      /**
+       * A call is live when it has not ended.
+       *
+       * This used to test the status string against a list of four spellings, which is a
+       * guess about a vocabulary we do not own — a status SnapServe adds, or spells
+       * differently, silently stops the desk seeing live calls at all, and nothing
+       * anywhere says so.
+       *
+       * `endedAt` is a fact: it is null while the call is running and set the moment it
+       * stops. The terminal statuses are still excluded, because a call that failed to
+       * connect can sit with a null endedAt and is not something to watch.
+       */
+      const TERMINAL = ["completed", "failed", "busy", "no_pickup", "no-pickup", "cancelled", "transferred"];
+      const isLive = (c: Record<string, unknown>) =>
+        !c.endedAt && !TERMINAL.includes(String(c.status ?? "").toLowerCase());
+
       return json({
-        live: (calls as Record<string, unknown>[])
-          .filter((c) => ["in_progress", "ringing", "connected", "pending"].includes(String(c.status)))
-          .map(shape),
+        live: (calls as Record<string, unknown>[]).filter(isLive).map(shape),
         recent: (calls as Record<string, unknown>[]).slice(0, 10).map(shape),
       });
     }
