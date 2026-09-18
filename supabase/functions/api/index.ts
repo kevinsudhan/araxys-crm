@@ -170,6 +170,12 @@ Deno.serve(async (req) => {
 
     if (path === "/kb/sync" && req.method === "POST") return json(await syncKb());
 
+    // Everything the agent reads, republished in one call: the two synced packs, caller
+    // memory, and the reference-pack attachment check. Until now this only ran off the
+    // back of a call or a stage move, so there was no way to put the agent's knowledge
+    // right before a demo without first faking one.
+    if (path === "/kb/refresh" && req.method === "POST") return json({ refreshed: await refreshKnowledge() });
+
     if (path === "/caller-memory/sync" && req.method === "POST") return json(await syncCallerMemory());
 
     if (path === "/space/sync-kb" && req.method === "POST") return json(await syncSpaceKb());

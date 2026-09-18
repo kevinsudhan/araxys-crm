@@ -23,6 +23,30 @@ const KB_SOURCE_NAME = "Araxys real customer records";
 const SPACE_SOURCE_NAME = "Araxys container space availability";
 
 /**
+ * The reference packs that belong to this freight desk, by name.
+ *
+ * Names rather than ids because ids churn: the two synced packs are deleted and recreated
+ * on every refresh, and a dashboard re-paste gets a new id too. Names are what survive.
+ *
+ * Adding a pack in the dashboard means adding its name here. That is the cost of failing
+ * closed, and it is worth paying on an account shared with another project.
+ */
+const FREIGHT_REFERENCE_PACKS = new Set([
+  "Container specifications",
+  "Route pricing & negotiation bands",
+  "Documents required by cargo type",
+  "Destination customs & regulations",
+  "Shipment details",
+  "Container specifications (v2)",
+  "Route pricing & negotiation bands (v2)",
+  "Documents required by cargo type (v2)",
+  "Destination customs & regulations (v2)",
+  "Araxys v2 — customer records",
+  "Araxys v2 — container space availability",
+  "Araxys v2 — partner network",
+]);
+
+/**
  * Re-attaches the reference packs to every agent that is missing them.
  *
  * Container specs, pricing bands, document rules and port regulations are static: nothing
@@ -42,11 +66,28 @@ export async function ensureReferenceSources(agentIds: number[] = AGENT_IDS) {
   const list = await snap("/knowledge-sources");
   if (!list.ok || !Array.isArray(list.body)) return { ok: false as const, error: "could not list sources" };
 
-  // Everything except the two this code rewrites on a schedule. Identified by exclusion so
-  // a reference pack added in the dashboard later is protected without a code change.
-  const reference = (list.body as Array<{ id: number; name: string }>).filter(
-    (s) => s.name !== KB_SOURCE_NAME && s.name !== SPACE_SOURCE_NAME,
+  // Identified by an allowlist, NOT by exclusion.
+  //
+  // This used to attach everything on the account that was not one of the two synced
+  // packs, on the reasoning that a pack added in the dashboard later would then be
+  // protected without a code change. The account is not ours alone: it also carries the
+  // PMFBY crop-insurance knowledge base -- scheme facts, evidence checklists, and
+  // "Farmer vocabulary, local units and crop names". All eleven sources matched "not one
+  // of our two", so every call re-attached crop insurance to both freight agents, and
+  // detaching by hand held until the next call and no longer.
+  //
+  // Failing closed is the right way round here. An unrecognised source is skipped and
+  // logged, so a genuinely new freight pack is one line away rather than silently live.
+  const reference = (list.body as Array<{ id: number; name: string }>).filter((s) =>
+    FREIGHT_REFERENCE_PACKS.has(s.name),
   );
+
+  const skipped = (list.body as Array<{ id: number; name: string }>)
+    .filter((s) => !FREIGHT_REFERENCE_PACKS.has(s.name) && s.name !== KB_SOURCE_NAME && s.name !== SPACE_SOURCE_NAME)
+    .map((s) => s.name);
+  if (skipped.length) {
+    console.log(`[araxys] not freight, left unattached: ${skipped.join(", ")}`);
+  }
 
   const repaired: string[] = [];
   for (const agentId of agentIds) {
