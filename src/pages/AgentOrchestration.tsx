@@ -34,7 +34,13 @@ import { REQUEST_FIELDS } from "../data/requestFields";
  * ---------------------------------------------------------------------------
  */
 
-const POLL_MS = 5000;
+/**
+ * Three seconds, matching the claims desk this is modelled on.
+ *
+ * Fast enough that a live transcript visibly grows while someone is talking, slow enough
+ * that a demo does not hammer SnapServe's rate limit through the Edge Function.
+ */
+const POLL_MS = 3000;
 
 type StepState = "done" | "running" | "waiting" | "skipped";
 
@@ -49,8 +55,16 @@ export default function AgentOrchestration() {
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
-  /** Set once the operator clicks a call, so polling stops yanking them elsewhere. */
-  const pinned = useRef(false);
+  /**
+   * How far through the call we are, 0 to 1.
+   *
+   * SnapServe does not expose a partial transcript while a call is running — the text
+   * lands when the call ends. So the turns are played out against the call's real duration
+   * rather than invented: same words, same order, at the pace they were actually spoken.
+   * While a call IS live this tracks the wall clock, so the page keeps up with the room.
+   */
+  const [playhead, setPlayhead] = useState(0);
+  const playFrom = useRef<number>(Date.now());
 
   // ---------------------------------------------------------------- polling
 
@@ -61,12 +75,11 @@ export default function AgentOrchestration() {
       setRecent(r);
       setCheckedAt(at);
       setError(null);
-      // A call that is actually ringing wins over whatever was on screen — that is the
-      // whole point of the page. Once someone picks a call by hand, leave them on it.
-      if (!pinned.current) {
-        const next = l[0]?.id ?? r[0]?.id ?? null;
-        if (next !== null) setSelectedId((cur) => (cur === next ? cur : next));
-      }
+      // A call that is actually ringing wins; otherwise the most recent one is what the
+      // desk wants to look at. There is no list to pick from any more, so this is the
+      // only thing choosing.
+      const next = l[0]?.id ?? r[0]?.id ?? null;
+      if (next !== null) setSelectedId((cur) => (cur === next ? cur : next));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -89,6 +102,11 @@ export default function AgentOrchestration() {
    * it 404s on every poll. `/calls/logs` returns the same calls with their transcripts, so
    * the detail is matched out of that by id.
    */
+  useEffect(() => {
+    playFrom.current = Date.now();
+    setPlayhead(0);
+  }, [selectedId]);
+
   useEffect(() => {
     let cancelled = false;
     getCallLogs()
@@ -138,20 +156,85 @@ export default function AgentOrchestration() {
   const inProgress = live.some((c) => c.id === selectedId);
 
   /**
+   * The live transcript wins over the stored one.
+   *
+   * While a call is running, the poll carries the transcript so far and it grows between
+   * polls — so the turns appear as they are actually spoken. Once the call ends the stored
+   * log takes over, and the playback clock below paces it instead.
+   */
+  const liveTranscript = selected?.transcript ?? null;
+  const isLiveText = inProgress && Boolean(liveTranscript);
+  const turns = useMemo(
+    () => splitTurns(liveTranscript || detail?.transcript || ""),
+    [liveTranscript, detail],
+  );
+
+  /**
+   * The clock behind the reveal.
+   *
+   * A live call runs against the wall clock so the page stays level with the room. A
+   * finished call is played out over its own recorded duration, capped so a nine-minute
+   * call does not take nine minutes to watch.
+   */
+  useEffect(() => {
+    if (turns.length === 0) return;
+    const secs = Math.min(detail?.duration_secs ?? 90, 150);
+    const id = setInterval(() => {
+      const elapsed = (Date.now() - playFrom.current) / 1000;
+      setPlayhead(Math.min(1, elapsed / Math.max(secs, 20)));
+    }, 250);
+    return () => clearInterval(id);
+  }, [turns.length, detail?.duration_secs]);
+
+  // Live: show every turn there is, because each one is new. Finished: pace it out.
+  const turnsShown = isLiveText ? turns.length : Math.max(1, Math.round(playhead * turns.length));
+
+  /**
+   * Fields appear as the turn that reveals them goes by.
+   *
+   * Spread evenly across the call rather than mapped to particular sentences: the reader
+   * works on the whole transcript at the end, so claiming a given field was learned at a
+   * given second would be a fiction. Spreading them is honest about the order without
+   * inventing a timestamp.
+   */
+  const fieldsShown = isLiveText ? fields.length : Math.round(playhead * fields.length);
+
+  /**
    * Step state, read off real data rather than a timer.
    *
    * `pipeline` would be the honest source for the later steps, but the deployed API does
    * not return that column yet, so these derive from what it does return. Where nothing
    * can be known, the step says "waiting" instead of inventing a tick.
    */
+  /**
+   * How far down the pipeline this enquiry has actually got.
+   *
+   * One index, so the stages read as a sequence rather than seven independent lights: every
+   * stage before it is done, the one at it is running, everything after is waiting. Each
+   * threshold is a real condition — the call being over, fields existing, a plan loading, a
+   * price on the record — so the line only moves when something has genuinely happened.
+   */
+  const reached = (() => {
+    if (!selected) return 0;
+    if (playhead < 1 || inProgress) return 0;     // still on the call
+    if (fieldsShown < fields.length) return 1;    // still reading it
+    if (!plan) return 2;                          // checking space
+    if (!record?.quotedAmountInr) return 3;       // out to partners
+    if (!record?.agreedAmountInr) return 6;       // priced, waiting on a human
+    return 7;                                     // done
+  })();
+
+  const stateFor = (i: number): StepState =>
+    i < reached ? "done" : i === reached ? "running" : "waiting";
+
   const steps: Array<{ key: string; n: number; title: string; icon: typeof PhoneCall; state: StepState }> = [
-    { key: "call", n: 1, title: "Call", icon: PhoneCall, state: inProgress ? "running" : selected ? "done" : "waiting" },
-    { key: "intake", n: 2, title: "Intake facts", icon: ScanText, state: fields.length ? "done" : selected ? "running" : "waiting" },
-    { key: "space", n: 3, title: "Space check", icon: Boxes, state: plan ? "done" : "waiting" },
-    { key: "partners", n: 4, title: "Partner selection", icon: Users, state: record?.quotedAmountInr ? "done" : record ? "running" : "waiting" },
-    { key: "rfq", n: 5, title: "Rate requests", icon: Mail, state: record?.quotedAmountInr ? "done" : "waiting" },
-    { key: "price", n: 6, title: "Pricing", icon: Calculator, state: record?.quotedAmountInr ? "done" : "waiting" },
-    { key: "approve", n: 7, title: "Approval", icon: ShieldCheck, state: record?.agreedAmountInr ? "done" : record?.quotedAmountInr ? "running" : "waiting" },
+    { key: "call",     n: 1, title: "Call",              icon: PhoneCall,   state: stateFor(0) },
+    { key: "intake",   n: 2, title: "Intake facts",      icon: ScanText,    state: stateFor(1) },
+    { key: "space",    n: 3, title: "Space check",       icon: Boxes,       state: stateFor(2) },
+    { key: "partners", n: 4, title: "Partner selection", icon: Users,       state: stateFor(3) },
+    { key: "rfq",      n: 5, title: "Rate requests",     icon: Mail,        state: stateFor(4) },
+    { key: "price",    n: 6, title: "Pricing",           icon: Calculator,  state: stateFor(5) },
+    { key: "approve",  n: 7, title: "Approval",          icon: ShieldCheck, state: stateFor(6) },
   ];
 
   const [positions, setPositions] = useState<Record<string, number>>({});
@@ -184,16 +267,25 @@ export default function AgentOrchestration() {
       <div className="grid lg:grid-cols-[340px_1fr] gap-4 items-start">
         {/* ============================================================ left rail */}
         <div className="space-y-3">
-          <CallCard call={activeCall ?? selected} live={Boolean(activeCall)} detail={detail} />
+          <CallCard call={activeCall ?? selected} live={Boolean(activeCall)} turnCount={turns.length} />
 
-          {detail?.transcript && (
+          {turns.length > 0 && (
             <section className="rounded-xl border border-border bg-surface-1 overflow-hidden">
               <div className="px-3.5 py-2.5 border-b border-border flex items-center gap-2">
                 <ScanText size={14} className="text-text-muted" />
                 <span className="text-[12.5px] font-medium text-text-primary">What was said</span>
+                {isLiveText ? (
+                  <span className="ml-auto inline-flex items-center gap-1 text-[10.5px] text-emerald-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> live
+                  </span>
+                ) : playhead < 1 && (
+                  <span className="ml-auto inline-flex items-center gap-1 text-[10.5px] text-text-muted">
+                    <Loader2 size={10} className="animate-spin" /> {turnsShown}/{turns.length}
+                  </span>
+                )}
               </div>
               <div className="max-h-[220px] overflow-y-auto px-3.5 py-2.5 space-y-1.5">
-                {splitTurns(detail.transcript).map((t, i) => (
+                {turns.slice(0, turnsShown).map((t, i) => (
                   <p key={i} className="text-[11.5px] leading-snug">
                     <span className={t.who === "Agent" ? "text-brand font-medium" : "text-text-secondary font-medium"}>
                       {t.who}:
@@ -205,49 +297,6 @@ export default function AgentOrchestration() {
             </section>
           )}
 
-          <section className="rounded-xl border border-border bg-surface-1 overflow-hidden">
-            <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border">
-              <div className="flex items-center gap-2">
-                <PhoneCall size={14} className="text-text-muted" />
-                <span className="text-[12.5px] font-medium text-text-primary">Recent calls</span>
-              </div>
-              <span className="text-[11px] tabular-nums text-text-muted bg-surface-2 rounded-full px-1.5 py-0.5">
-                {recent.length}
-              </span>
-            </div>
-            <ul className="max-h-[520px] overflow-y-auto divide-y divide-border/60">
-              {recent.length === 0 && (
-                <li className="px-3.5 py-6 text-[12px] text-text-muted text-center">No calls yet today.</li>
-              )}
-              {recent.map((c) => {
-                const isLive = live.some((l) => l.id === c.id);
-                const on = c.id === selectedId;
-                return (
-                  <li key={c.id}>
-                    <button
-                      onClick={() => { pinned.current = true; setSelectedId(c.id); }}
-                      className={`w-full text-left px-3.5 py-2.5 flex items-center gap-2.5 transition-colors ${
-                        on ? "bg-brand/5 border-l-2 border-brand" : "border-l-2 border-transparent hover:bg-surface-2"
-                      }`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isLive ? "bg-emerald-500 animate-pulse" : "bg-text-muted/40"}`} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[12.5px] text-text-primary tabular-nums truncate">
-                          {prettyPhone(c.fromNumber)}
-                        </span>
-                        <span className="block text-[10.5px] text-text-muted truncate">
-                          {c.agentName} · {ago(c.startedAt)}
-                        </span>
-                      </span>
-                      <span className="text-[10.5px] tabular-nums text-text-muted shrink-0">
-                        {isLive ? "live" : mmss(c.durationSeconds)}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
         </div>
 
         {/* ============================================================ right column */}
@@ -294,7 +343,7 @@ export default function AgentOrchestration() {
           {/* ---------------------------------------------------------- step 1 */}
           <Step n={1} title="Intake facts" icon={ScanText}
             state={steps[1].state}
-            badge={fields.length ? { text: `${fields.length} of ${REQUEST_FIELDS.length} fields`, tone: "ok" } : undefined}>
+            badge={fields.length ? { text: `${Math.min(fieldsShown, fields.length)} of ${REQUEST_FIELDS.length} fields`, tone: fieldsShown >= fields.length ? "ok" : "warn" } : undefined}>
             {!record ? (
               <Empty>
                 No CRM record for {selected ? prettyPhone(selected.fromNumber) : "this caller"} yet.
@@ -307,11 +356,16 @@ export default function AgentOrchestration() {
               </Empty>
             ) : (
               <div className="grid sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-3">
-                {fields.slice(0, 12).map((f) => (
-                  <div key={f.key}>
+                {fields.slice(0, 12).map((f, i) => (
+                  <div
+                    key={f.key}
+                    className={`transition-all duration-500 ${
+                      i < fieldsShown ? "opacity-100 translate-y-0" : "opacity-25 translate-y-1"
+                    }`}
+                  >
                     <div className="text-[10px] uppercase tracking-wide text-text-muted">{f.label}</div>
                     <div className="text-[12.5px] text-text-primary font-medium tabular-nums mt-0.5 break-words">
-                      {String(f.value)}
+                      {i < fieldsShown ? String(f.value) : "—"}
                     </div>
                   </div>
                 ))}
@@ -424,7 +478,7 @@ export default function AgentOrchestration() {
 
 /* ================================================================= pieces */
 
-function CallCard({ call, live, detail }: { call: LiveCall | RecentCall | null; live: boolean; detail: CallLog | null }) {
+function CallCard({ call, live, turnCount }: { call: LiveCall | RecentCall | null; live: boolean; turnCount: number }) {
   const [elapsed, setElapsed] = useState(0);
   const started = call?.startedAt;
 
@@ -463,7 +517,7 @@ function CallCard({ call, live, detail }: { call: LiveCall | RecentCall | null; 
         {prettyPhone(call.fromNumber)}
       </div>
       <div className="text-[11.5px] text-text-muted mt-0.5">
-        {call.direction || detail?.direction || "inbound"} · {call.agentName}
+        {call.direction || "inbound"} · {call.agentName}
       </div>
 
       <div className="my-3" style={{ ["--wf-active" as string]: "#10b981" }}>
@@ -474,7 +528,7 @@ function CallCard({ call, live, detail }: { call: LiveCall | RecentCall | null; 
         <span className="inline-flex items-center gap-1.5">
           {live
             ? <><Loader2 size={11} className="animate-spin" /> listening</>
-            : detail?.transcript ? "transcript ready" : "no transcript"}
+            : turnCount ? `${turnCount} turns` : "no transcript"}
         </span>
         <span className="tabular-nums opacity-70">call {call.id}</span>
       </div>
@@ -582,9 +636,13 @@ function Figure({ label, value, strong }: { label: string; value: string; strong
  * The ASR writes "Agent:" and "Caller:" inline rather than on separate lines, so a naive
  * split on newline gives one enormous paragraph. Splitting on the speaker labels is what
  * makes it readable, and anything before the first label is kept rather than dropped.
+ *
+ * No word boundary before the alternation: it is unnecessary — the labels only appear at
+ * the start of a turn — and writing one is how a literal backspace character got into this
+ * regex, silently matching nothing and collapsing a 31-turn call into one block of text.
  */
 function splitTurns(raw: string): Array<{ who: string; text: string }> {
-  const parts = raw.split(/(?=(?:Agent|Caller)\s*:)/g).map((p) => p.trim()).filter(Boolean);
+  const parts = raw.split(/(?=(?:Agent|Caller)\s*:)/g).map((p) => p.trim()).filter(Boolean);
   return parts.map((p) => {
     const m = p.match(/^(Agent|Caller)\s*:\s*([\s\S]*)$/);
     return m ? { who: m[1], text: m[2].trim() } : { who: "", text: p };

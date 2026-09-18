@@ -29,6 +29,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 // ---- live calls ----------------------------------------------------------
 
 export interface LiveCall {
+  /** Present while the call is still running, and it grows. See the note below. */
+  transcript?: string | null;
   id: number;
   agentName: string;
   fromNumber: string;
@@ -40,6 +42,8 @@ export interface LiveCall {
 }
 
 export interface RecentCall {
+  /** Present while the call is still running, and it grows. See the note below. */
+  transcript?: string | null;
   id: number;
   agentName: string;
   fromNumber: string;
@@ -72,6 +76,13 @@ export interface CallDetail {
   dispositionResult: unknown;
 }
 
+/**
+ * Calls, live and recent, with whatever transcript exists so far.
+ *
+ * SnapServe returns a transcript on a call that is still running and keeps adding to it as
+ * the conversation goes on, so polling this every few seconds is how the desk watches a
+ * call arrive rather than reading it afterwards.
+ */
 export const getLiveCalls = () =>
   get<{ live: LiveCall[]; recent: RecentCall[]; checkedAt: string }>("/api/calls/live");
 

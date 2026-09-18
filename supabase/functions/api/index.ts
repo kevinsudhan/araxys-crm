@@ -375,6 +375,15 @@ Deno.serve(async (req) => {
         direction: c.direction,
         startedAt: c.createdAt,
         durationSeconds: c.durationSeconds,
+        /**
+         * Carried through, and the reason this endpoint is worth polling at all.
+         *
+         * SnapServe returns a transcript on a call that is still running, and it grows as
+         * the conversation does. Dropping it here meant the desk could see that a call was
+         * open but not a word of what was being said — so the CRM only came alive once the
+         * caller had hung up, which is the moment it stops being useful.
+         */
+        transcript: c.transcript ?? null,
       });
       return json({
         live: (calls as Record<string, unknown>[])
