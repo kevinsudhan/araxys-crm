@@ -7,8 +7,9 @@ import {
 import Waveform from "../components/orchestration/Waveform";
 import ContainerScene from "../components/ContainerScene";
 import {
-  getLiveCalls, getCallLogs, getRealRecords, getSpaceSlots, getSlotPlan,
+  getLiveCalls, getCallLogs, getRealRecords, getSlotPlan, checkSpace,
   type LiveCall, type RecentCall, type CallLog, type RealRecord, type SlotPlan,
+  type CheckSpaceResponse,
 } from "../services/backend";
 import { REQUEST_FIELDS } from "../data/requestFields";
 
@@ -123,17 +124,6 @@ export default function AgentOrchestration() {
     [logs, selectedId],
   );
 
-  /** The fullest container on the book — an empty one demonstrates nothing. */
-  useEffect(() => {
-    (async () => {
-      try {
-        const { slots } = await getSpaceSlots();
-        const best = [...slots].sort((a, b) => b.consignmentCount - a.consignmentCount)[0];
-        if (best) setPlan(await getSlotPlan(best.id));
-      } catch { /* the step says so */ }
-    })();
-  }, []);
-
   // ---------------------------------------------------------------- derived
 
   const activeCall = live[0] ?? null;
@@ -142,18 +132,95 @@ export default function AgentOrchestration() {
     [live, recent, selectedId],
   );
 
-  /** The caller's record, matched the way the CRM matches — last ten digits. */
-  const record = useMemo(() => {
+  /**
+   * Which enquiry the right-hand side is about.
+   *
+   * By default the caller's own record, matched the way the CRM matches — last ten digits.
+   * The override exists because the desk often wants to watch an enquiry that is not the
+   * one currently ringing, and because a call that gave no dimensions genuinely cannot get
+   * past the space check, which makes it a poor thing to be stuck on.
+   */
+  const [refOverride, setRefOverride] = useState<string | null>(null);
+
+  const matched = useMemo(() => {
     const key = (selected?.fromNumber ?? "").replace(/\D/g, "").slice(-10);
     if (!key) return null;
     return records.find((r) => r.phone.replace(/\D/g, "").slice(-10) === key) ?? null;
   }, [records, selected]);
+
+  const record = useMemo(
+    () => (refOverride ? records.find((r) => r.ref === refOverride) ?? null : matched),
+    [records, refOverride, matched],
+  );
+
+  // A new call takes the view back to its own record — otherwise the desk keeps staring at
+  // whatever they last picked while a customer is on the line.
+  useEffect(() => { setRefOverride(null); }, [selected?.id]);
 
   const fields = useMemo(() => {
     const d = record?.requestDetails ?? {};
     return REQUEST_FIELDS
       .map((f) => ({ key: f.key, label: f.label, value: (d as Record<string, unknown>)[f.key] }))
       .filter((f) => f.value !== undefined && f.value !== null && f.value !== "");
+  }, [record]);
+
+  const [fit, setFit] = useState<CheckSpaceResponse | null>(null);
+  const [fitReason, setFitReason] = useState<string | null>(null);
+
+  /**
+   * The space check for THIS caller's cargo, on their route.
+   *
+   * It used to show the fullest container on the book, which was real geometry belonging
+   * to somebody else's shipment — accurate, and the wrong answer to the question the page
+   * is asking. A step in a pipeline about one call has to be about that call.
+   *
+   * Needs a route and the dimensions of one piece. Most calls do not produce those, and
+   * when they do not the step says which ones are missing rather than substituting a
+   * container that has nothing to do with the caller.
+   */
+  useEffect(() => {
+    setFit(null);
+    setFitReason(null);
+    setPlan(null);
+    if (!record) return;
+
+    const d = (record.requestDetails ?? {}) as Record<string, unknown>;
+    const num = (k: string) => {
+      const v = Number(d[k]);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    };
+    const missing: string[] = [];
+    if (!record.origin || !record.destination) missing.push("the route");
+    const L = num("piece_length_cm"), W = num("piece_width_cm"), H = num("piece_height_cm");
+    if (!L || !W || !H) missing.push("piece dimensions");
+    const qty = num("piece_count") || 1;
+    const each = num("weight_per_piece_kg");
+
+    if (missing.length) {
+      setFitReason(`Cannot check space without ${missing.join(" and ")}.`);
+      return;
+    }
+
+    let cancelled = false;
+    checkSpace({
+      route: `${record.origin} to ${record.destination}`,
+      sailing_date: record.sailingDate || undefined,
+      length_cm: L, width_cm: W, height_cm: H,
+      quantity: qty,
+      weight_kg_each: each || 1,
+      stackable: d.stackable === undefined ? undefined : Boolean(d.stackable),
+      upright_only: d.upright_only === undefined ? undefined : Boolean(d.upright_only),
+    })
+      .then(async (res) => {
+        if (cancelled) return;
+        setFit(res);
+        // The container it would actually go into, so the drawing matches the answer.
+        if (res.slot_id) {
+          try { const p = await getSlotPlan(res.slot_id); if (!cancelled) setPlan(p); } catch { /* the card says */ }
+        }
+      })
+      .catch((e) => { if (!cancelled) setFitReason(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
   }, [record]);
 
   const inProgress = live.some((c) => c.id === selectedId);
@@ -226,7 +293,7 @@ export default function AgentOrchestration() {
     if (inProgress) return 0;                     // the call is still happening
     if (turns.length > 0 && playhead < 1) return 0;// still playing out what was said
     if (fields.length > 0 && fieldsShown < fields.length) return 1;  // still reading it
-    if (!plan) return 2;                          // checking space
+    if (!fit && !fitReason) return 2;             // checking space
     if (!record?.quotedAmountInr) return 3;       // out to partners
     if (!record?.agreedAmountInr) return 6;       // priced, waiting on a human
     return 7;                                     // done
@@ -311,13 +378,40 @@ export default function AgentOrchestration() {
         <div className="space-y-3 min-w-0">
           {/* the strip — what this call is, at a glance */}
           <section className="rounded-xl border border-border bg-surface-1 px-4 py-3">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-3 items-start">
-              <Meta label="Enquiry" value={record?.ref ?? "not yet matched"}
-                pill={record ? { text: record.stage, tone: "ok" } : undefined} />
-              <Meta label="Customer" value={record?.company || record?.customerName || "—"} />
-              <Meta label="Agent" value={selected?.agentName ?? "—"}
-                sub={detail?.direction ? `${detail.direction} · ${record?.sourceLanguage ?? "en"}` : undefined} />
-              <div className="sm:text-right">
+            <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+              <div className="min-w-[190px]">
+                <label htmlFor="enq" className="text-[10px] uppercase tracking-wide text-text-muted">Enquiry</label>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <select
+                    id="enq"
+                    value={record?.ref ?? ""}
+                    onChange={(e) => setRefOverride(e.target.value || null)}
+                    className="text-[13px] font-medium text-text-primary bg-transparent border border-border rounded px-1.5 py-0.5 max-w-[180px]"
+                  >
+                    {!record && <option value="">not yet matched</option>}
+                    {records.map((r) => (
+                      <option key={r.ref} value={r.ref}>
+                        {r.ref}{r.company ? ` · ${r.company}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {refOverride && (
+                    <button
+                      onClick={() => setRefOverride(null)}
+                      className="text-[10.5px] text-text-muted hover:text-text-primary underline"
+                      title="Go back to the record this caller matched"
+                    >
+                      caller
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="min-w-[130px]"><Meta label="Customer" value={record?.company || record?.customerName || "—"} /></div>
+              <div className="min-w-[110px]">
+                <Meta label="Agent" value={selected?.agentName ?? "—"}
+                  sub={selected?.direction ? `${selected.direction} · ${record?.sourceLanguage ?? "en"}` : undefined} />
+              </div>
+              <div className="ml-auto self-center">
                 {record && (
                   <Link
                     to={`/records/${record.ref}`}
@@ -413,37 +507,60 @@ export default function AgentOrchestration() {
 
           {/* ---------------------------------------------------------- step 2 */}
           <Step n={2} title="Space check" icon={Boxes} state={steps[2].state}
-            badge={plan ? { text: plan.container.code, tone: "neutral" } : undefined}>
-            {!plan ? (
-              <Empty>Loading the live load plan…</Empty>
-            ) : plan.consignments.length === 0 ? (
+            badge={fit ? { text: fit.available ? "fits" : "will not fit", tone: fit.available ? "ok" : "warn" } : undefined}>
+            {fitReason ? (
               <Empty>
-                {plan.slot.route} is empty — the whole {plan.container.lengthM}m is available.
+                {fitReason} This is the ordinary outcome of a short call — the fit engine
+                works in three dimensions and will not guess at a box it has not been given.
               </Empty>
+            ) : !record ? (
+              <Empty>Waiting for a record to check against.</Empty>
+            ) : !fit ? (
+              <Empty>Checking {record.origin} to {record.destination}…</Empty>
             ) : (
               <>
-                <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11.5px] text-text-muted mb-2">
-                  <span>{plan.slot.route}</span>
-                  <span className="tabular-nums">{plan.consignments.length} consignments</span>
-                  <span className="tabular-nums">{plan.remaining.lengthM.toFixed(2)}m floor left</span>
-                  {plan.trappedM > 0 && (
-                    <span className="tabular-nums text-amber-700">{plan.trappedM.toFixed(2)}m trapped in gaps</span>
+                {/* The engine's own words, which are what the agent said on the call. */}
+                <p className={`text-[12.5px] leading-relaxed mb-3 ${fit.available ? "text-text-primary" : "text-amber-800"}`}>
+                  {fit.spoken_answer}
+                </p>
+
+                <div className="flex flex-wrap gap-x-6 gap-y-2 mb-3 text-[11.5px]">
+                  {fit.carrier && <Fact k="Carrier" v={fit.carrier} />}
+                  {fit.container && <Fact k="Container" v={fit.container} />}
+                  {fit.sailing_date && <Fact k="Sailing" v={fit.sailing_date} />}
+                  {fit.cutoff_date && <Fact k="Cut-off" v={fit.cutoff_date} />}
+                  {fit.loading_plan && (
+                    <Fact k="Stow" v={`${fit.loading_plan.across} across × ${fit.loading_plan.high} high, ${fit.loading_plan.rows} rows`} />
+                  )}
+                  {fit.loading_plan && (
+                    <Fact k="Floor needed" v={`${fit.loading_plan.floor_length_needed_m.toFixed(2)}m`} />
+                  )}
+                  {fit.space_left_after && (
+                    <Fact k="Left after" v={`${fit.space_left_after.lengthM.toFixed(2)}m · ${fit.space_left_after.payloadKg.toLocaleString("en-IN")}kg`} />
                   )}
                 </div>
-                <ContainerScene
-                  plan={plan}
-                  positions={positions}
-                  onMove={(id, xM) => setPositions((p) => ({ ...p, [id]: xM }))}
-                  onRestow={() => {}}
-                  dragMode="reorder"
-                  selectedId={null}
-                  onSelect={() => {}}
-                  explode={0}
-                />
-                <p className="text-[11.5px] text-text-muted mt-2">
-                  Checked in three dimensions, not by volume — a 2.6m crate is refused by a
-                  2.39m-high 20GP that volume maths would have accepted. Drag a block to restow.
-                </p>
+
+                {plan && plan.consignments.length > 0 && (
+                  <>
+                    <ContainerScene
+                      plan={plan}
+                      positions={positions}
+                      onMove={(id, xM) => setPositions((p) => ({ ...p, [id]: xM }))}
+                      onRestow={() => {}}
+                      dragMode="reorder"
+                      selectedId={null}
+                      onSelect={() => {}}
+                      explode={0}
+                    />
+                    <p className="text-[11.5px] text-text-muted mt-2">
+                      What is already stowed on {plan.slot.route}, the sailing this cargo would
+                      join. Drag a block to restow it.
+                    </p>
+                  </>
+                )}
+                {plan && plan.consignments.length === 0 && (
+                  <Empty>That sailing is empty — the whole {plan.container.lengthM}m is free.</Empty>
+                )}
               </>
             )}
           </Step>
@@ -652,6 +769,15 @@ function Meta({ label, value, sub, pill }: {
       </div>
       {sub && <div className="text-[11px] text-text-muted truncate">{sub}</div>}
     </div>
+  );
+}
+
+function Fact({ k, v }: { k: string; v: string }) {
+  return (
+    <span className="inline-flex flex-col">
+      <span className="text-[10px] uppercase tracking-wide text-text-muted">{k}</span>
+      <span className="text-text-primary tabular-nums">{v}</span>
+    </span>
   );
 }
 
