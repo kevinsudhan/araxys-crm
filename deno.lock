@@ -1,0 +1,74 @@
+{
+  "version": "3",
+  "packages": {
+    "specifiers": {
+      "npm:@anthropic-ai/sdk@0.120.0": "npm:@anthropic-ai/sdk@0.120.0"
+    },
+    "npm": {
+      "@anthropic-ai/sdk@0.120.0": {
+        "integrity": "sha512-ZlvmNFT/iIF6JD13rxbbMWD8nvGR0RaUp6yMQnoc+4Af0YjVVe/bIdW1XSQQsoxXAtg1NaT6Vak0LKFlJ4d37Q==",
+        "dependencies": {
+          "json-schema-to-ts": "json-schema-to-ts@3.1.1",
+          "standardwebhooks": "standardwebhooks@1.1.1"
+        }
+      },
+      "@babel/runtime@7.29.7": {
+        "integrity": "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==",
+        "dependencies": {}
+      },
+      "@stablelib/base64@1.0.1": {
+        "integrity": "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==",
+        "dependencies": {}
+      },
+      "fast-sha256@1.3.0": {
+        "integrity": "sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==",
+        "dependencies": {}
+      },
+      "json-schema-to-ts@3.1.1": {
+        "integrity": "sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g==",
+        "dependencies": {
+          "@babel/runtime": "@babel/runtime@7.29.7",
+          "ts-algebra": "ts-algebra@2.0.0"
+        }
+      },
+      "standardwebhooks@1.1.1": {
+        "integrity": "sha512-bCbX9ZEyFkWPsRz7Bl3NuQUJohmwGSev/yhr7vhaGPlc4AfIrspIRa6cPTBuI1ItmrTDJ4d/S2hCsfe4+vQGnQ==",
+        "dependencies": {
+          "@stablelib/base64": "@stablelib/base64@1.0.1",
+          "fast-sha256": "fast-sha256@1.3.0"
+        }
+      },
+      "ts-algebra@2.0.0": {
+        "integrity": "sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw==",
+        "dependencies": {}
+      }
+    }
+  },
+  "remote": {},
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@types/cors@^2.8.19",
+        "npm:@types/express@^5.0.6",
+        "npm:@types/react-dom@^18.3.0",
+        "npm:@types/react@^18.3.10",
+        "npm:@vitejs/plugin-react@^4.3.1",
+        "npm:autoprefixer@^10.4.20",
+        "npm:cloudflared@^0.7.3",
+        "npm:cors@^2.8.6",
+        "npm:dotenv@^17.4.2",
+        "npm:express@^5.2.1",
+        "npm:jspdf@^4.2.1",
+        "npm:lucide-react@^0.446.0",
+        "npm:postcss@^8.4.47",
+        "npm:react-dom@^18.3.1",
+        "npm:react-router-dom@^6.26.2",
+        "npm:react@^18.3.1",
+        "npm:tailwindcss@^3.4.13",
+        "npm:tsx@^4.23.12",
+        "npm:typescript@^5.6.2",
+        "npm:vite@^5.4.8"
+      ]
+    }
+  }
+}
