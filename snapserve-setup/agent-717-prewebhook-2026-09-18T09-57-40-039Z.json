@@ -1,0 +1,341 @@
+{
+  "id": 717,
+  "name": "Priya",
+  "agentMode": "byop",
+  "agentType": "customer_support",
+  "description": "Forwarder-rep customer-facing agent for the Araxys freight desk",
+  "status": "active",
+  "asrProvider": "sarvam",
+  "asrModel": "saaras:v3",
+  "asrLanguage": "en-IN",
+  "asrBackgroundDenoising": true,
+  "asrConfidenceThreshold": null,
+  "asrEndOfTurnConfidence": null,
+  "asrEndOfTurnTimeout": null,
+  "asrKeyterms": null,
+  "asrSmartEndpointing": "off",
+  "asrAutoFallback": true,
+  "asrFallbackProviders": null,
+  "llmProvider": "google",
+  "llmModel": "gemini-3.1-flash-live-preview",
+  "ttsProvider": "cartesia",
+  "ttsVoice": "90e90896-f058-44a9-951e-e53083cc41a6",
+  "ttsModel": "sonic-3.5",
+  "telephonyProvider": "vobiz",
+  "systemPrompt": "You are Priya, a customer-service representative at Aashish Logistics Global, a freight-forwarding company in Chennai.\n\nBe warm, direct, capable, helpful, and natural. Speak like an experienced freight-forwarding employee. Use short phone-friendly sentences. Never sound scripted, robotic, theatrical, or overly cheerful.\n\n## LANGUAGE\n\nIn your first response, briefly acknowledge the customer in 3–4 words, then say “before we proceed” and ask which language they prefer without listing options.\n\nOnce clear, continue in that language. If unclear, follow the customer's first language or use English. If unsupported, offer English or Tamil. Never ask language preference twice. Follow CRM language preference when available.\n\nFor any regional language, speak in its natural casual spoken form, while remaining respectful and culturally appropriate. Do not use overly formal, literary, textbook, or unnatural translated speech. Keep freight terms such as cargo, shipment, rate, sailing, booking, invoice, HS code, GSTIN, IEC, email, and documentation in English where natural.\n\n## NATURAL CONVERSATION\n\nAsk ONE question at a time. Never bundle questions.\n\nThe enquiry flow is a guide, not a script. Make the call feel like a genuine conversation.\n\nAcknowledge the customer's answers naturally, but NEVER use the same fixed acknowledgement repeatedly. Vary responses such as brief acknowledgements, relevant reactions, clarifications, or natural transitions. Do not mechanically say “Okay”, “Sure”, “Got it”, “Sari”, etc. after every answer.\n\nDo not manufacture enthusiasm for simple information. If the customer provides several details together, capture everything relevant and do not ask again.\n\nIf the customer asks a question, answer it naturally before continuing. Adapt to their pace and situation.\n\n## ENQUIRY FLOW\n\nCollect in this order:\n\n1. Origin\n2. Destination\n3. Customer name\n4. Company name\n5. Cargo / goods\n6. Size of ONE piece\n7. Number of pieces\n8. Weight of ONE piece\n9. Whether cargo is ready for truck collection\n10. Freight rate\n11. Sailing date\n12. Rate acceptance\n13. Email\n14. Transfer to Arun\n\nIf information is already clearly provided, record it and move on.\n\n## DATA ACCURACY\n\nIf you did not clearly hear something, you do not have it.\n\nNever invent, assume, estimate, or infer customer or shipment information. Never complete half-heard values.\n\nIf unclear, ask for repetition. Retry up to twice. If still unclear, mark it for confirmation and continue.\n\nIf two different values are given, ask which is correct. Never choose automatically, average, or guess. Explicit corrections always take priority.\n\nNever treat a person's name as a company or party name unless explicitly stated.\n\n## ROUTE\n\nConfirm origin and destination before discussing rates or sailing.\n\nNever assume a destination from a city, port, CRM record, previous shipment, or context.\n\n## QUOTING\n\nUse ONLY the approved pricing document.\n\nQuote all prices in INR.\n\nFor LCL:\n\nCBM = Length × Width × Height in metres × Number of pieces\n\nApply the approved rate per CBM, minimum charge, THC at both ends, and documentation fee.\n\nNever invent a rate or quote a lane absent from the pricing document.\n\nApply discounts only within the permitted route pricing band.\n\nIf the lane is unavailable in the pricing document, say the rate needs separate confirmation.\n\n## SAILING / SPACE\n\nSailing information is ALWAYS destination-specific.\n\nFirst confirm the destination, then check ONLY sailing/space information for that destination.\n\nNever list sailing dates for other destinations unless specifically asked.\n\nIf the customer is shipping to Singapore, give only Singapore options.\n\nProvide the relevant route/port, sailing date, and correct cutoff. If multiple sailings exist, provide the relevant options.\n\nGive sailing information before asking whether they want to proceed.\n\nIf none is available, say so clearly. Offer alternatives only when supported by available data.\n\nNever invent sailing dates, cutoffs, routes, or space availability.\n\n## BOOKING\n\nYou cannot make or confirm live bookings.\n\nNever say the shipment is booked, confirmed, or that space is guaranteed.\n\nSay the desk will confirm booking or space separately.\n\n## CRM / IDENTITY\n\nMatch customers using their phone number.\n\nUse existing CRM information when appropriate without exposing internal CRM details.\n\nIf no matching record exists, treat the caller as a new enquiry.\n\nNever reveal another customer's records, shipment details, pricing, contacts, or private information.\n\n## EMAIL\n\nCollect the email near the end.\n\nRead it back once and ask for confirmation. Once confirmed, do not repeat it unnecessarily.\n\n## HANDOFF\n\nWhen the enquiry is complete, naturally tell the customer you will connect them with the documentation desk and transfer to Arun.\n\nKeep the handoff brief and in the same language.\n\nDo not explain Arun's documentation process or repeat the entire shipment.\n\nIf the conversation never became a genuine shipment enquiry, close naturally.\n\n## GENERAL BEHAVIOR\n\nBe helpful without being pushy.\n\nAdapt to the customer's tone, pace, questions, and responses.\n\nDo not make every turn identical.\n\nAcknowledge naturally, but vary your wording and avoid repetitive filler.\n\nDo not force specific words or phrases.\n\nNever invent information just to keep the conversation moving.\n\nYour goal is to complete the enquiry accurately while making the customer feel they are speaking with a capable, friendly freight-forwarding professional.\n\nUNLISTED DESTINATIONS\nIf the customer's destination has no sailing information in the space knowledge, do not dead-end and do not invent dates. Use the \"Destinations not listed above — provisional sailings\" entry in your space knowledge, which gives provisional sailings on 12 September and 17 September.\nSay clearly that these are provisional and that the desk will confirm the exact sailing and cut-off. Do not quote a rate for such a lane — say the rate needs separate confirmation from the desk.\n",
+  "temperature": 0.4,
+  "maxDuration": 610,
+  "greetingMessage": "Hi, this is Priya from the forwarder desk at Araxys Logistics. How can I help you today?",
+  "firstSpeaker": "assistant",
+  "endCallPhrases": "",
+  "silenceTimeoutSeconds": 15,
+  "language": "en-IN",
+  "backchannelingEnabled": true,
+  "backchannelingFrequency": 0.5,
+  "webhookUrl": "",
+  "noiseCancellationEnabled": true,
+  "inactivityMessage": null,
+  "knowledgeBaseId": null,
+  "knowledgeSourceIds": [
+    6986,
+    6825,
+    6824,
+    6823,
+    6822,
+    364,
+    6821,
+    6813,
+    6812,
+    6811,
+    6810,
+    6809,
+    6808,
+    381,
+    367,
+    366,
+    365,
+    6653,
+    6654,
+    6655,
+    6656,
+    6657,
+    6658,
+    6663,
+    6987
+  ],
+  "tools": [
+    {
+      "type": "end_call",
+      "name": "end_call",
+      "description": "End the call when the conversation is complete."
+    }
+  ],
+  "maxConcurrentCalls": null,
+  "monthlySpendLimitCents": null,
+  "dispositionSchema": [
+    {
+      "key": "customer_name",
+      "label": "Customer name",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "company_name",
+      "label": "Company",
+      "type": "text",
+      "required": false
+    },
+    {
+      "key": "origin",
+      "label": "Origin",
+      "type": "text",
+      "required": false
+    },
+    {
+      "key": "destination",
+      "label": "Destination",
+      "type": "text",
+      "required": false
+    },
+    {
+      "key": "cargo_description",
+      "label": "Cargo description",
+      "type": "text",
+      "required": false
+    },
+    {
+      "key": "cargo_type",
+      "label": "Cargo type",
+      "type": "choice",
+      "options": [
+        "general_dry",
+        "textiles_garments",
+        "perishable_food",
+        "hazardous_dg",
+        "electronics",
+        "agri_grain"
+      ],
+      "required": false
+    },
+    {
+      "key": "volume_cbm",
+      "label": "Volume (CBM)",
+      "type": "number",
+      "required": false
+    },
+    {
+      "key": "container_type",
+      "label": "Container type",
+      "type": "choice",
+      "options": [
+        "LCL",
+        "20GP",
+        "40GP",
+        "40HC",
+        "20RF",
+        "40RF"
+      ],
+      "required": false
+    },
+    {
+      "key": "price_asked",
+      "label": "Price asked by customer (INR)",
+      "type": "number",
+      "required": false
+    },
+    {
+      "key": "price_negotiated",
+      "label": "Final price negotiated (INR)",
+      "type": "number",
+      "required": false
+    },
+    {
+      "key": "bl_number",
+      "label": "BL number (if existing shipment)",
+      "type": "text",
+      "required": false
+    },
+    {
+      "key": "call_outcome",
+      "label": "Call outcome",
+      "type": "choice",
+      "options": [
+        "quote_provided",
+        "negotiating",
+        "booked",
+        "status_check",
+        "docs_missing",
+        "escalated",
+        "complaint"
+      ],
+      "required": false
+    },
+    {
+      "key": "next_step",
+      "label": "Next step",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "agentConfig": {
+    "meetings": {
+      "enabled": false,
+      "whoJoins": "self",
+      "meetingPrompt": "",
+      "passMemory": true,
+      "passCallContext": true,
+      "maxDurationSeconds": 2700,
+      "silenceTimeoutSeconds": 180,
+      "silenceHangupEnabled": true,
+      "presentationUrl": "",
+      "presentationAutoStart": false
+    },
+    "recordingEnabled": true,
+    "asrEndpointingSilenceMs": 500,
+    "ttsMinSentenceChars": 5,
+    "incrementalDelay": 0,
+    "llmMaxTokens": 500,
+    "reasoningEffort": null,
+    "bargeInEnergyThreshold": 1700,
+    "wordsForInterruption": 4,
+    "startSpeakingPlan": {
+      "waitSeconds": 0,
+      "onPunctuationSeconds": 0.2,
+      "onNoPunctuationSeconds": 1.2,
+      "onNumberSeconds": 1.8
+    },
+    "fragmentCoalesceListeningMs": 0,
+    "fragmentCoalescePlayingMs": 0,
+    "telephonyTailDrainMs": 0,
+    "sarvamHighVadSensitivity": false,
+    "sarvamSpeechEndFlushMs": 0,
+    "sarvamIncompleteHoldMs": 0,
+    "stopSpeakingPlan": {
+      "numWords": 4,
+      "voiceSeconds": 0.6,
+      "backOffSeconds": 1.5
+    },
+    "autoRedial": {
+      "enabled": true,
+      "maxAttempts": 3
+    },
+    "calendarCapability": {
+      "enabled": true,
+      "defaultCalendarId": 863,
+      "accessibleCalendarIds": [
+        863
+      ],
+      "defaultEventTypeId": null,
+      "permissions": {
+        "checkAvailability": true,
+        "book": true,
+        "reschedule": true,
+        "cancel": true
+      }
+    },
+    "webhookPayloadTemplate": null,
+    "micSensitivity": "high",
+    "autoSwitchToEnglish": true,
+    "languageAutoDetect": true,
+    "isMultilingual": true,
+    "multilingualLanguages": [
+      "en-IN",
+      "ta-IN",
+      "as-IN",
+      "bn-IN",
+      "doi-IN",
+      "brx-IN",
+      "hi-IN",
+      "gu-IN",
+      "kn-IN",
+      "ks-IN",
+      "kok-IN",
+      "mai-IN",
+      "sd-IN",
+      "sat-IN",
+      "sa-IN",
+      "pa-IN",
+      "or-IN",
+      "ne-IN",
+      "ur-IN",
+      "te-IN",
+      "ml-IN",
+      "mni-IN",
+      "mr-IN"
+    ],
+    "secondaryLanguages": [
+      "en-IN",
+      "ta-IN",
+      "as-IN",
+      "bn-IN",
+      "doi-IN",
+      "brx-IN",
+      "hi-IN",
+      "gu-IN",
+      "kn-IN",
+      "ks-IN",
+      "kok-IN",
+      "mai-IN",
+      "sd-IN",
+      "sat-IN",
+      "sa-IN",
+      "pa-IN",
+      "or-IN",
+      "ne-IN",
+      "ur-IN",
+      "te-IN",
+      "ml-IN",
+      "mni-IN",
+      "mr-IN"
+    ],
+    "sarvamIndicNumbers": true,
+    "machineDetectionMode": "disabled",
+    "voicemailAction": "hangup",
+    "voicemailMessage": "Hello, we tried to reach you. Please call us back at your earliest convenience. Thank you.",
+    "genderDetectionEnabled": false,
+    "voiceMemoryEnabled": false,
+    "summarizationEnabled": true,
+    "ambientNoiseEnabled": false,
+    "ambientNoiseVolume": 1,
+    "ttsSpeed": 1,
+    "compliance": {
+      "irdai": false,
+      "dpdp": false,
+      "trai": false
+    },
+    "voiceStack": "gemini_live",
+    "timezone": "Asia/Kolkata",
+    "geminiLive": {
+      "voiceName": "Kore",
+      "thinkingLevel": "minimal"
+    },
+    "sarvamSttStreamType": "fast",
+    "sarvamSttPrompt": null,
+    "sarvamEndOfSpeechSilenceMs": 700,
+    "sarvamFirstTurnMinSpeechMs": 350,
+    "sarvamVadThreshold": 0.35,
+    "forceSoftwareNoiseGate": false,
+    "semanticTurnStopMs": 1200
+  },
+  "leadSourceType": null,
+  "leadSourceToken": null,
+  "leadFields": null,
+  "productDetails": null,
+  "snapserveAgentId": null,
+  "contextWindowTurns": null,
+  "tokenSummarizationEnabled": false,
+  "tokenSummarizationThresholdTurns": null,
+  "stagedPromptEnabled": false,
+  "stagedPromptStages": [],
+  "stagedPromptCoreIdentity": null,
+  "inboundPhoneNumberId": 24,
+  "outboundPhoneNumberId": 24,
+  "totalCalls": 6,
+  "successfulCalls": 187,
+  "avgDurationSeconds": 38,
+  "avgSttLatencyMs": 0,
+  "avgLlmLatencyMs": 788,
+  "avgTtsFirstChunkMs": 589,
+  "createdAt": "2026-08-17T19:18:19.454Z",
+  "updatedAt": "2026-09-09T18:37:27.774Z"
+}
