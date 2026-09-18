@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Plug,
   BookOpen,
-} from "lucide-react";
+  Workflow,} from "lucide-react";
 
 interface NavItem {
   to: string;
@@ -33,6 +33,7 @@ const groups: NavGroup[] = [
   {
     title: "Pipeline",
     items: [
+      { to: "/orchestration", label: "Agent orchestration", icon: Workflow },
       { to: "/inbound", label: "Inbound requests", icon: Inbox },
       { to: "/shipments/in-process", label: "In-process shipments", icon: PackageSearch },
       { to: "/shipments/completed", label: "Completed shipments", icon: PackageCheck },

@@ -43,9 +43,16 @@ export interface RecentCall {
   id: number;
   agentName: string;
   fromNumber: string;
+  toNumber?: string;
+  direction?: string;
   status: string;
   durationSeconds: number | null;
-  createdAt: string;
+  /**
+   * When the call began. The field was declared as `createdAt` and the endpoint has always
+   * sent `startedAt`, so every consumer reading it got undefined — which renders as a dash
+   * and looks like missing data rather than a wrong field name.
+   */
+  startedAt: string;
 }
 
 export interface CallDetail {

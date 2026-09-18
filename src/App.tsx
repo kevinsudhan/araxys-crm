@@ -7,6 +7,7 @@ const Login = lazy(() => import("./pages/Login"));
 const AdminControl = lazy(() => import("./pages/AdminControl"));
 
 const Overview = lazy(() => import("./pages/Overview"));
+const AgentOrchestration = lazy(() => import("./pages/AgentOrchestration"));
 const InboundRequests = lazy(() => import("./pages/InboundRequests"));
 const InboundRequestDetail = lazy(() => import("./pages/InboundRequestDetail"));
 const RecordDetail = lazy(() => import("./pages/RecordDetail"));
@@ -45,6 +46,7 @@ export default function App() {
         <Route element={<RequireAuth role="employee" />}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<Overview />} />
+            <Route path="/orchestration" element={<AgentOrchestration />} />
             <Route path="/inbound" element={<InboundRequests />} />
             <Route path="/inbound/:id" element={<InboundRequestDetail />} />
             <Route path="/shipments/in-process" element={<ShipmentsInProcess />} />
