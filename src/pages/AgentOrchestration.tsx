@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   PhoneCall, ScanText, Boxes, Users, Mail, Calculator, ShieldCheck,
-  ArrowUpRight, Check, Loader2, MinusCircle, RefreshCw,
+  ArrowUpRight, Check, Loader2, MinusCircle, RefreshCw, FileText,
 } from "lucide-react";
 import Waveform from "../components/orchestration/Waveform";
 import ContainerScene from "../components/ContainerScene";
@@ -12,6 +12,10 @@ import {
   type CheckSpaceResponse,
 } from "../services/backend";
 import { REQUEST_FIELDS } from "../data/requestFields";
+import {
+  documentDataFromRecord, documentStatuses, generateDocumentForRecord,
+  type DocSpec, type DocumentData,
+} from "../lib/documents";
 
 /**
  * The desk, while the agent is working.
@@ -336,6 +340,33 @@ export default function AgentOrchestration() {
     };
   }, [plan, placement, loaded]);
 
+  /**
+   * The documents this enquiry could produce, and what each one is still missing.
+   *
+   * Readiness is per document and per field, because "3 of 12 ready" is not actionable —
+   * the useful sentence is which fact is holding which document. A document blocked on the
+   * HS code and one blocked on the consignee address need different phone calls.
+   */
+  const [docId, setDocId] = useState<string | null>(null);
+  const docData: DocumentData | null = useMemo(
+    () => (record ? documentDataFromRecord(record) : null),
+    [record],
+  );
+  const docs = useMemo(() => (docData ? documentStatuses(docData) : []), [docData]);
+  const readyDocs = docs.filter((d) => d.ready);
+
+  // Default to the first issuable document rather than the first in the list: opening on
+  // one that cannot be issued makes the panel look broken on a thin enquiry.
+  useEffect(() => {
+    if (!docs.length) { setDocId(null); return; }
+    setDocId((cur) => {
+      if (cur && docs.some((d) => d.spec.id === cur)) return cur;
+      return (docs.find((d) => d.ready) ?? docs[0]).spec.id;
+    });
+  }, [docs]);
+
+  const openDoc = docs.find((d) => d.spec.id === docId) ?? null;
+
   const inProgress = live.some((c) => c.id === selectedId);
 
   /**
@@ -423,6 +454,14 @@ export default function AgentOrchestration() {
     { key: "rfq",      n: 5, title: "Rate requests",     icon: Mail,        state: stateFor(4) },
     { key: "price",    n: 6, title: "Pricing",           icon: Calculator,  state: stateFor(5) },
     { key: "approve",  n: 7, title: "Approval",          icon: ShieldCheck, state: stateFor(6) },
+    // Not stateFor(7). Document readiness is an independent fact about the record rather
+    // than a position in the pipeline: the quotation is issuable long before anyone
+    // approves a rate, and the bill of lading is not issuable even after they do. Driving
+    // it off the pipeline would show a green tick over documents nobody could produce.
+    {
+      key: "docs", n: 8, title: "Documents", icon: FileText,
+      state: readyDocs.length ? "done" : docs.length ? "waiting" : "skipped",
+    },
   ];
 
   const [positions, setPositions] = useState<Record<string, number>>({});
@@ -764,6 +803,132 @@ export default function AgentOrchestration() {
               </Empty>
             ) : (
               <Empty>Nothing to approve yet.</Empty>
+            )}
+          </Step>
+
+          {/* ---------------------------------------------------------- step 8 */}
+          <Step
+            n={8}
+            title="Documents"
+            icon={FileText}
+            state={readyDocs.length ? "done" : docs.length ? "waiting" : "skipped"}
+            badge={docs.length ? { text: `${readyDocs.length} of ${docs.length} issuable`, tone: readyDocs.length ? "ok" : "warn" } : undefined}
+          >
+            {!docData ? (
+              <Empty>Waiting for a record to draw a document from.</Empty>
+            ) : (
+              <>
+                <p className="text-[12.5px] text-text-muted leading-relaxed mb-3">
+                  Read the document before it goes out. What is shown here is rendered from
+                  the same specification the PDF is, so this is the document&rsquo;s content
+                  and not a summary of it — a field that prints TBD below prints TBD on paper.
+                </p>
+
+                <div className="grid lg:grid-cols-[minmax(0,230px)_minmax(0,1fr)] gap-3">
+                  {/* the list */}
+                  <ul className="space-y-1 max-h-[420px] overflow-y-auto pr-1">
+                    {docs.map(({ spec, ready, need, have, missingLabels }) => {
+                      const on = spec.id === docId;
+                      return (
+                        <li key={spec.id}>
+                          <button
+                            type="button"
+                            onClick={() => setDocId(spec.id)}
+                            aria-selected={on}
+                            className={`w-full text-left px-2.5 py-2 rounded-lg border transition-colors ${
+                              on
+                                ? "bg-surface-2 border-border-strong"
+                                : "bg-transparent border-transparent hover:bg-surface-2"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full flex-none ${
+                                  ready ? "bg-emerald-500" : "bg-amber-500"
+                                }`}
+                                aria-hidden="true"
+                              />
+                              <span className="text-[12.5px] font-medium truncate">
+                                {spec.shortName}
+                              </span>
+                            </span>
+                            <span className="block text-[11px] text-text-muted mt-0.5 pl-3.5">
+                              {ready ? "ready to issue" : `${need - have} of ${need} facts missing`}
+                            </span>
+                            {!ready && on && (
+                              <span className="block text-[11px] text-amber-700 mt-1 pl-3.5">
+                                {missingLabels.join(", ")}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+
+                  {/* the content */}
+                  {openDoc && (
+                    <div className="border border-border rounded-xl overflow-hidden bg-surface">
+                      <div className="flex items-start justify-between gap-3 px-3.5 py-2.5 border-b border-border bg-surface-2">
+                        <div className="min-w-0">
+                          <div className="text-[12.5px] font-semibold">{openDoc.spec.title}</div>
+                          <div className="text-[11px] text-text-muted mt-0.5">{openDoc.spec.purpose}</div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!openDoc.ready || !record}
+                          onClick={() => record && generateDocumentForRecord(openDoc.spec.id, record)}
+                          className="flex-none text-[11.5px] font-medium px-2.5 py-1.5 rounded-lg border border-border-strong bg-surface hover:bg-surface-2 disabled:opacity-45 disabled:cursor-not-allowed"
+                          title={openDoc.ready ? "Download the PDF" : "Cannot be issued until the missing facts are established"}
+                        >
+                          Generate PDF
+                        </button>
+                      </div>
+
+                      {/*
+                        An authority document is not ours to issue. Printing one as though
+                        the chamber or customs had signed it would be a forgery, so it is
+                        labelled as what it actually is — our filing.
+                      */}
+                      {openDoc.spec.issuer === "authority" && (
+                        <div className="px-3.5 py-2 text-[11.5px] text-amber-800 bg-amber-50 border-b border-amber-200">
+                          Issued by an authority, not by us. What this produces is our
+                          application or filing record, not the authority&rsquo;s document.
+                        </div>
+                      )}
+
+                      <div className="p-3.5 max-h-[360px] overflow-y-auto space-y-3">
+                        {openDoc.spec.sections.map((sec) => (
+                          <div key={sec.title}>
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-text-muted pb-1 mb-1.5 border-b border-border">
+                              {sec.title}
+                            </div>
+                            <dl className="grid sm:grid-cols-2 gap-x-5 gap-y-1">
+                              {sec.rows.map((row) => {
+                                const v = row.value(docData);
+                                return (
+                                  <div key={row.label} className="flex items-baseline justify-between gap-3 py-0.5">
+                                    <dt className="text-[11.5px] text-text-muted">{row.label}</dt>
+                                    <dd className={`text-[11.5px] text-right ${v ? "" : "text-amber-700"}`}>
+                                      {v ?? "TBD"}
+                                    </dd>
+                                  </div>
+                                );
+                              })}
+                            </dl>
+                          </div>
+                        ))}
+
+                        {openDoc.spec.declaration && (
+                          <p className="text-[11px] text-text-muted leading-relaxed pt-2 border-t border-border">
+                            {openDoc.spec.declaration}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </Step>
         </div>
