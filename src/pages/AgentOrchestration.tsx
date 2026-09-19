@@ -114,10 +114,17 @@ export default function AgentOrchestration() {
       setRecent(r);
       setCheckedAt(at);
       setError(null);
-      // A call that is actually ringing wins; otherwise the most recent one is what the
-      // desk wants to look at. There is no list to pick from any more, so this is the
-      // only thing choosing.
-      const next = l[0]?.id ?? r[0]?.id ?? null;
+      // Only a call that is actually happening selects itself.
+      //
+      // This used to fall back to the most recent call, so an idle desk sat there showing
+      // somebody's number and the fields from a conversation that ended hours ago. It
+      // reads as a call in progress when there is none, and the enquiry beside it belongs
+      // to whoever rang last rather than to anything the desk chose.
+      //
+      // A call that has just ended stays selected, because selectedId is not cleared here
+      // — you want to see the call you were on. An enquiry is still chosen independently
+      // through the picker, which sets refOverride and does not touch this.
+      const next = l[0]?.id ?? null;
       if (next !== null) setSelectedId((cur) => (cur === next ? cur : next));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
