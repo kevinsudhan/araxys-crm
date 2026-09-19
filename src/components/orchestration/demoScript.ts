@@ -90,9 +90,19 @@ export interface DemoRun {
   armed: boolean;
   /** The script is driving the page (still true once it has finished, so it holds its end state). */
   active: boolean;
+  /**
+   * The fixture is on screen — during the lead-in as well as the run.
+   *
+   * The five seconds after the button is pressed are for starting the capture, so they
+   * are the first thing on the recording. Leaving the desk's own enquiry up for them put
+   * a real customer's data in the opening frames and then cut to a different business
+   * entirely. Staging the fixture early means the take opens on the right enquiry, idle,
+   * waiting for the call that is about to come in.
+   */
+  staged: boolean;
   /** Seconds since the first frame. */
   t: number;
-  /** The stage in hand. Everything below it is finished. */
+  /** The stage in hand. Everything below it is finished. -1 during the lead-in: nothing yet. */
   reached: number;
   /** True while the call is meant to be open. */
   callLive: boolean;
@@ -154,7 +164,7 @@ export function useDemoScript(): DemoRun {
   const active = phase === "running";
 
   const reached = !active
-    ? 0
+    ? (phase === "armed" ? -1 : 0)
     : t < CUES.intake ? 0
     : t < CUES.space ? 1
     : t < CUES.partners ? 2
@@ -169,6 +179,7 @@ export function useDemoScript(): DemoRun {
     idle: phase === "idle",
     armed: phase === "armed",
     active,
+    staged: active || phase === "armed",
     t,
     reached,
     callLive: active && t < CUES.intake,

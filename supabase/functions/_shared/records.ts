@@ -205,6 +205,43 @@ export interface RecordInput {
 /** Identity fields the pattern pass must not overwrite once the model has established them. */
 const MODEL_OWNED = ["customer_name", "company", "origin", "destination", "cargo_description"] as const;
 
+/**
+ * Who the customer is, which a later call does not get to re-open.
+ *
+ * Records are keyed by phone number, so every call from a caller lands on the same record
+ * and the details merge key by key. That is right for facts — a customer who rings back
+ * with their consignee address has not retracted last week's dimensions. It is wrong for
+ * identity, because a short or noisy second call re-runs the extractor over a transcript
+ * that never names the company, and the model offers the nearest noun phrase it can find.
+ *
+ * Measured on this desk: ARX-ENQ-0009 was "Kevin Imports" and became "Bangalore To
+ * Chennai Only" — the caller's route, recorded as their company. ARX-ENQ-0004 is
+ * "You After", which is ASR debris. Both are established values replaced by worse ones.
+ *
+ * So a name, once set, is not re-opened by an EXTRACTOR. A later call may fill one that is
+ * missing; it may not replace one that is there.
+ *
+ * The guard is on the automatic writers only, keyed on `from`. A write with no `from` is a
+ * deliberate correction — a person, or a script acting for one — and it goes through,
+ * including an empty string to clear a value that should never have been recorded. The
+ * first version of this guard applied to every writer, which made a bad name permanent:
+ * there is no PATCH route and no edit form on this CRM, so nothing could have fixed it.
+ */
+const IDENTITY_FIELDS = ["customer_name", "company", "shipper_legal_name", "consignee_name"] as const;
+
+/**
+ * True when an automatic writer must leave this field alone.
+ *
+ * `from` identifies the extractor that produced the value — "regex" for the pattern pass,
+ * "model" for the reader. A write without it is a person's, and is never blocked.
+ */
+function locked(prior: Record<string, unknown>, key: string, from?: string): boolean {
+  if (!from) return false;
+  if (!(IDENTITY_FIELDS as readonly string[]).includes(key)) return false;
+  const v = prior[key];
+  return typeof v === "string" && v.trim().length > 0;
+}
+
 /** Newest first — the CRM lists most-recently-touched customers at the top. */
 export async function listRecords() {
   const rows = await rest("real_records?select=*&order=updated_at.desc");
@@ -278,6 +315,7 @@ export async function upsertRecord(input: RecordInput) {
   const row: Record<string, unknown> = { phone: input.phone, phone_key: key };
   for (const [k, v] of Object.entries(input)) {
     if (k === "phone" || k === "request_details" || k === "from") continue;
+    if (v === "" && !input.from) { row[k] = null; continue; }
     if (v === undefined || v === null || v === "") continue;
 
     // The pattern pass reads "I am shipping machinery parts" and offers "Shipping
@@ -292,6 +330,10 @@ export async function upsertRecord(input: RecordInput) {
       continue;
     }
 
+    // An established name is not replaced by an extractor. company is a column as well as
+    // a detail, and the guard above only covers the pattern pass.
+    if (locked(priorDetails, k, input.from)) continue;
+
     row[k] = v;
   }
 
@@ -301,7 +343,13 @@ export async function upsertRecord(input: RecordInput) {
   if (input.request_details && Object.keys(input.request_details).length) {
     const merged = { ...priorDetails };
     for (const [k, v] of Object.entries(input.request_details)) {
-      if (v !== undefined && v !== null && v !== "") merged[k] = v;
+      // An empty string from a person clears a value that should not have been recorded.
+      // From an extractor it means "not found", which is not the same claim.
+      if (v === "" && !input.from) { delete merged[k]; continue; }
+      if (v === undefined || v === null || v === "") continue;
+      // Facts may be corrected by a later call. Names may not be re-opened by one.
+      if (locked(priorDetails, k, input.from)) continue;
+      merged[k] = v;
     }
     row.request_details = merged;
   }
