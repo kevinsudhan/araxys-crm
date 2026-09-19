@@ -483,7 +483,10 @@ export default function AgentOrchestration() {
    */
   const fieldsShown = demo.active
     ? Math.round(demo.intake * fields.length)
-    : isLiveText ? fields.length : Math.round(playhead * fields.length);
+    // A call in progress shows every field it has. The reveal exists to play out a
+    // recording at the pace it was spoken; there is nothing to play out when the words
+    // are arriving now.
+    : activeCall || isLiveText ? fields.length : Math.round(playhead * fields.length);
 
   /**
    * Step state, read off real data rather than a timer.
@@ -764,16 +767,32 @@ export default function AgentOrchestration() {
             busy={steps[1].state === "running" || (!demo.active && fields.length > 0 && fieldsShown < fields.length)}
             activity={fields.length && fieldsShown < fields.length ? `reading field ${Math.min(fieldsShown + 1, fields.length)} of ${fields.length}` : "reading the transcript"}
             badge={fields.length ? { text: `${Math.min(fieldsShown, fields.length)} of ${REQUEST_FIELDS.length} fields`, tone: fieldsShown >= fields.length ? "ok" : "warn" } : undefined}>
-            {!record ? (
-              <Empty>
-                No CRM record for {selected ? prettyPhone(selected.fromNumber) : "this caller"} yet.
-                A record is written when the call ends and the reader has been through it.
-              </Empty>
-            ) : fields.length === 0 ? (
-              <Empty>
-                The record exists but no fields were captured. That is a real outcome — a short
-                call where nobody said anything the reader could use.
-              </Empty>
+            {/*
+              Fields first, record second.
+              This used to ask "is there a record?" before showing anything, which was
+              right when the only source of fields was a record written after the call.
+              It is wrong now that the extractor reads the live transcript: a first-time
+              caller has no record while they are still talking, so the step said "no CRM
+              record yet" and hid facts it had already pulled out of the conversation
+              happening on the left of the screen.
+            */}
+            {fields.length === 0 ? (
+              activeCall ? (
+                <Empty>
+                  Listening. Fields appear as the caller gives them — the first ones once
+                  there is enough of the call to read.
+                </Empty>
+              ) : !record ? (
+                <Empty>
+                  No CRM record for {selected ? prettyPhone(selected.fromNumber) : "this caller"} yet.
+                  A record is written when the call ends and the reader has been through it.
+                </Empty>
+              ) : (
+                <Empty>
+                  The record exists but no fields were captured. That is a real outcome — a short
+                  call where nobody said anything the reader could use.
+                </Empty>
+              )
             ) : (
               <div className="grid sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-3">
                 {fields.slice(0, 12).map((f, i) => (
