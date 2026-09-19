@@ -14,11 +14,10 @@
  *    because a prompt does not control what retrieval returns. Detaching is the fix;
  *    telling the agent not to look is not.
  *
- * 2. THE COMPANY HAS TWO NAMES. Priya's prompt says "Aashish Logistics Global" and her
- *    greeting says "Araxys Logistics". Arun says "Araxys Logistics" in both. So the
- *    first sentence a caller hears is the old name, and a caller transferred from Priya
- *    to Arun hears the company rename itself mid-call. The CRM settled on Aashish
- *    Logistics Global, and that is the mark the UI carries.
+ * 2. THE COMPANY HAS TWO NAMES — moved out to scripts/set-agent-brand.mjs, which sets
+ *    the name in the prompt and the greeting together so they cannot drift apart. It
+ *    lives in its own script because the answer has already changed once and will change
+ *    again; this script is for faults with one correct fix, not for a decision.
  *
  * 3. SAILING DATES BAKED INTO THE PROMPT. Priya's unlisted-destination fallback names
  *    "12 September and 17 September" in the prompt text. Both are in the past as of
@@ -67,8 +66,12 @@ const H = {
 const REVERT = process.argv.includes("--revert");
 const backupPath = (id) => join(root, "snapserve-setup", `agent-${id}-configdrift-backup.json`);
 
-const OLD_BRAND = "Araxys Logistics";
-const NEW_BRAND = "Aashish Logistics Global";
+// The company name is NOT set here any more. scripts/set-agent-brand.mjs owns it.
+//
+// This script used to rewrite "Araxys Logistics" to "Aashish Logistics Global", which
+// was right when it was written and is now backwards. Two scripts that both rewrite the
+// same field is how a rename gets quietly undone by whoever runs the other one next —
+// so this one no longer touches it at all.
 
 /** The dated sentence, and the one that reads the date from the knowledge instead. */
 const DATED =
@@ -161,8 +164,7 @@ for (const id of [717, 758]) {
   if (prompt.includes(DATED)) prompt = prompt.replace(DATED, UNDATED);
 
   // 2 — one company name
-  prompt = prompt.split(OLD_BRAND).join(NEW_BRAND);
-  const greeting = (live.greetingMessage ?? "").split(OLD_BRAND).join(NEW_BRAND);
+  const greeting = live.greetingMessage ?? "";
 
   // 1 — drop the crop-insurance knowledge base
   const attached = (live.knowledgeSourceIds ?? []).map(Number);
@@ -183,7 +185,6 @@ for (const id of [717, 758]) {
 
   console.log(`\n${id} ${live.name}:`);
   console.log(`  prompt        ${before} -> ${after.systemPrompt.length} chars ${after.systemPrompt.length <= 6000 ? "(within 6000)" : "*** STILL OVER 6000 ***"}`);
-  console.log(`  brand         ${after.systemPrompt.includes(OLD_BRAND) || after.greetingMessage.includes(OLD_BRAND) ? "*** old name remains ***" : "one name everywhere"}`);
   console.log(`  dated sailing ${after.systemPrompt.includes("12 September") ? "*** still dated ***" : "reads from knowledge"}`);
   console.log(`  sources       ${attached.length} -> ${(after.knowledgeSourceIds ?? []).length} (dropped ${dropped.length} crop-insurance)`);
   console.log(`  readback      ${ok ? "matches" : "*** MISMATCH — check the dashboard ***"}`);
