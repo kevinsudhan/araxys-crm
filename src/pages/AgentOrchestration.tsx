@@ -8,6 +8,7 @@ import Waveform from "../components/orchestration/Waveform";
 import ContainerScene from "../components/ContainerScene";
 import DemoPlayButton from "../components/orchestration/DemoPlayButton";
 import { useDemoScript } from "../components/orchestration/demoScript";
+import { DEMO_CALL, DEMO_DOC_EXTRAS, DEMO_FIT, DEMO_PLAN, DEMO_RECORD } from "../components/orchestration/demoFixture";
 import {
   getLiveCalls, getCallLogs, getRealRecords, getSlotPlan, checkSpace,
   type LiveCall, type RecentCall, type CallLog, type RealRecord, type SlotPlan,
@@ -57,7 +58,7 @@ export default function AgentOrchestration() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [logs, setLogs] = useState<CallLog[]>([]);
   const [records, setRecords] = useState<RealRecord[]>([]);
-  const [plan, setPlan] = useState<SlotPlan | null>(null);
+  const [planLive, setPlan] = useState<SlotPlan | null>(null);
   /**
    * How many of this consignment's pieces have been drawn into the container so far.
    *
@@ -151,7 +152,7 @@ export default function AgentOrchestration() {
   // ---------------------------------------------------------------- derived
 
   const activeCall = live[0] ?? null;
-  const selected = useMemo(
+  const selectedLive = useMemo(
     () => live.find((c) => c.id === selectedId) ?? recent.find((c) => c.id === selectedId) ?? null,
     [live, recent, selectedId],
   );
@@ -164,6 +165,8 @@ export default function AgentOrchestration() {
    * one currently ringing, and because a call that gave no dimensions genuinely cannot get
    * past the space check, which makes it a poor thing to be stuck on.
    */
+  const selected = demo.active ? DEMO_CALL : selectedLive;
+
   const [refOverride, setRefOverride] = useState<string | null>(null);
 
   const matched = useMemo(() => {
@@ -172,10 +175,21 @@ export default function AgentOrchestration() {
     return records.find((r) => r.phone.replace(/\D/g, "").slice(-10) === key) ?? null;
   }, [records, selected]);
 
-  const record = useMemo(
+  const recordLive = useMemo(
     () => (refOverride ? records.find((r) => r.ref === refOverride) ?? null : matched),
     [records, refOverride, matched],
   );
+
+  /*
+   * What the page shows.
+   *
+   * On script these are the fixture's, not the desk's — a complete enquiry rather than
+   * whichever call happened to be selected, which is usually half-filled and makes a poor
+   * demonstration of a pipeline that finishes things. Nothing is written: the live values
+   * sit underneath untouched and come back the moment the run ends.
+   */
+  const record = demo.active ? DEMO_RECORD : recordLive;
+  const plan = demo.active ? DEMO_PLAN : planLive;
 
   // A new call takes the view back to its own record — otherwise the desk keeps staring at
   // whatever they last picked while a customer is on the line.
@@ -188,8 +202,10 @@ export default function AgentOrchestration() {
       .filter((f) => f.value !== undefined && f.value !== null && f.value !== "");
   }, [record]);
 
-  const [fit, setFit] = useState<CheckSpaceResponse | null>(null);
-  const [fitReason, setFitReason] = useState<string | null>(null);
+  const [fitLive, setFit] = useState<CheckSpaceResponse | null>(null);
+  const [fitReasonLive, setFitReason] = useState<string | null>(null);
+  const fit = demo.active ? DEMO_FIT : fitLive;
+  const fitReason = demo.active ? null : fitReasonLive;
 
   /**
    * Everything the space answer depends on, as a string. See the dependency note below.
@@ -371,8 +387,13 @@ export default function AgentOrchestration() {
    */
   const [docId, setDocId] = useState<string | null>(null);
   const docData: DocumentData | null = useMemo(
-    () => (record ? documentDataFromRecord(record) : null),
-    [record],
+    () =>
+      record
+        ? demo.active
+          ? { ...documentDataFromRecord(record), ...DEMO_DOC_EXTRAS }
+          : documentDataFromRecord(record)
+        : null,
+    [record, demo.active],
   );
   const docs = useMemo(() => (docData ? documentStatuses(docData) : []), [docData]);
   const readyDocs = docs.filter((d) => d.ready);
@@ -525,8 +546,8 @@ export default function AgentOrchestration() {
             <span className="text-red-600">desk unreachable — {error}</span>
           ) : (
             <span className="inline-flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${activeCall ? "bg-emerald-500 animate-pulse" : "bg-text-muted/50"}`} />
-              {activeCall ? "call in progress" : "waiting for calls"}
+              <span className={`w-1.5 h-1.5 rounded-full ${(demo.active ? demo.callLive : activeCall) ? "bg-emerald-500 animate-pulse" : "bg-text-muted/50"}`} />
+              {(demo.active ? demo.callLive : activeCall) ? "call in progress" : "waiting for calls"}
             </span>
           )}
           <span className="inline-flex items-center gap-1">
@@ -584,6 +605,11 @@ export default function AgentOrchestration() {
               <div className="min-w-[190px]">
                 <label htmlFor="enq" className="text-[10px] uppercase tracking-wide text-text-muted">Enquiry</label>
                 <div className="flex items-center gap-2 mt-0.5">
+                  {demo.active ? (
+                    <span className="text-[13px] font-medium text-text-primary">
+                      {record?.ref}{record?.company ? ` · ${record.company}` : ""}
+                    </span>
+                  ) : (
                   <select
                     id="enq"
                     value={record?.ref ?? ""}
@@ -597,7 +623,8 @@ export default function AgentOrchestration() {
                       </option>
                     ))}
                   </select>
-                  {refOverride && (
+                  )}
+                  {!demo.active && refOverride && (
                     <button
                       onClick={() => setRefOverride(null)}
                       className="text-[10.5px] text-text-muted hover:text-text-primary underline"
@@ -843,12 +870,23 @@ export default function AgentOrchestration() {
           {/* ---------------------------------------------------------- step 6 */}
           <Step n={6} title="Pricing" icon={Calculator} state={steps[5].state}
             activity="working out the sell price"
-            badge={record?.quotedAmountInr ? { text: "quoted", tone: "ok" } : undefined}>
+            badge={record?.quotedAmountInr ? { text: demo.active ? "agreed" : "quoted", tone: "ok" } : undefined}>
             {record?.quotedAmountInr ? (
               <div className="flex flex-wrap items-end gap-8">
-                <Figure label="Quoted" value={`₹${record.quotedAmountInr.toLocaleString("en-IN")}`} strong />
-                {record.agreedAmountInr && (
-                  <Figure label="Agreed" value={`₹${record.agreedAmountInr.toLocaleString("en-IN")}`} />
+                {/*
+                  A clean run settles at the rate it quoted, so on script the two figures
+                  are the same number and printing both reads as an error rather than as a
+                  negotiation. One figure, the one that matters.
+                */}
+                {demo.active ? (
+                  <Figure label="Agreed" value={`₹${(record.agreedAmountInr ?? record.quotedAmountInr).toLocaleString("en-IN")}`} strong />
+                ) : (
+                  <>
+                    <Figure label="Quoted" value={`₹${record.quotedAmountInr.toLocaleString("en-IN")}`} strong />
+                    {record.agreedAmountInr && (
+                      <Figure label="Agreed" value={`₹${record.agreedAmountInr.toLocaleString("en-IN")}`} />
+                    )}
+                  </>
                 )}
                 <p className="text-[11.5px] text-text-muted max-w-sm">
                   Margin is taken on the sell, not marked up on cost. A partner rate read ten
@@ -866,8 +904,13 @@ export default function AgentOrchestration() {
 
           {/* ---------------------------------------------------------- step 7 */}
           <Step n={7} title="Approval" icon={ShieldCheck} state={steps[6].state}
-            activity="holding for a person">
-            {record?.agreedAmountInr ? (
+            activity={demo.active && demo.approved ? "released to documents" : "holding for a person"}>
+            {demo.active && !demo.approved ? (
+              <Empty tone="warn">
+                Waiting on a human. Nothing goes to the customer until someone here says so —
+                that is the brake, and it is deliberate.
+              </Empty>
+            ) : record?.agreedAmountInr ? (
               <Empty tone="ok">Approved and agreed at ₹{record.agreedAmountInr.toLocaleString("en-IN")}.</Empty>
             ) : record?.quotedAmountInr ? (
               <Empty tone="warn">

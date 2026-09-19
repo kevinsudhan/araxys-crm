@@ -21,11 +21,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * not when it starts, and not on a timer that runs underneath it. `reached` is the index
  * of the stage in hand; everything below it is done, everything above is waiting.
  *
- * It ends on approval, held amber, and does not resolve it. That is where the real
- * pipeline stops: nothing reaches the customer until a person says so, and a recording
- * that showed the machine approving its own quote would be advertising the opposite of
- * what this system is for. Documents stay waiting behind it, which is also true — they
- * cannot be issued against a quote nobody has released.
+ * It runs the whole way: the hold at approval clears and the documents follow, because
+ * the point of the recording is the finished pipeline. The enquiry it performs is a
+ * fixture (demoFixture.ts) and every value in it is invented, so nothing here is claiming
+ * that a real desk approved a real quote — it is a staged run of a real mechanism.
  */
 
 /** Seconds between the play button being pressed and the first frame of the script. */
@@ -40,12 +39,13 @@ export const LEAD_IN_SECONDS = 5;
 const CUES = {
   call: 0,
   intake: 6.5,
-  space: 15.5,
-  partners: 25,
-  rates: 29,
-  pricing: 33.5,
-  approval: 38.5,
-  done: 46,
+  space: 16,
+  partners: 28,
+  rates: 32,
+  pricing: 37,
+  approval: 42,
+  docs: 48,
+  done: 56,
 } as const;
 
 export const SCRIPT_SECONDS = CUES.done;
@@ -76,11 +76,11 @@ function searchX(t: number, finalX: number, containerLength: number): number {
   const far = Math.min(containerLength * 0.62, finalX + 4.5);
   const near = Math.max(0.2, finalX - 2.6);
 
-  if (t < 17.5) return leg(0.3, far, CUES.space, 17.5);
-  if (t < 19.5) return leg(far, near, 17.5, 19.5);
-  if (t < 21.5) return leg(near, finalX + 1.1, 19.5, 21.5);
-  if (t < 23) return leg(finalX + 1.1, finalX - 0.5, 21.5, 23);
-  return leg(finalX - 0.5, finalX, 23, CUES.space + 8.5);
+  if (t < 19) return leg(0.3, far, CUES.space, 19);
+  if (t < 21.5) return leg(far, near, 19, 21.5);
+  if (t < 24) return leg(near, finalX + 1.1, 21.5, 24);
+  if (t < 25.5) return leg(finalX + 1.1, finalX - 0.5, 24, 25.5);
+  return leg(finalX - 0.5, finalX, 25.5, CUES.partners - 1);
 }
 
 export interface DemoRun {
@@ -104,6 +104,8 @@ export interface DemoRun {
   stow: number;
   /** Metres along the container, or null when the script is not driving the box. */
   boxX: (finalX: number, containerLength: number) => number | null;
+  /** True once the hold at approval has cleared, so documents may be drawn. */
+  approved: boolean;
   start: () => void;
   reset: () => void;
 }
@@ -159,7 +161,9 @@ export function useDemoScript(): DemoRun {
     : t < CUES.rates ? 3
     : t < CUES.pricing ? 4
     : t < CUES.approval ? 5
-    : 6;
+    : t < CUES.docs ? 6
+    : t < CUES.done ? 7
+    : 8;
 
   return {
     idle: phase === "idle",
@@ -169,8 +173,9 @@ export function useDemoScript(): DemoRun {
     reached,
     callLive: active && t < CUES.intake,
     callElapsed: Math.floor(Math.min(t, CUES.intake)),
+    approved: active && t >= CUES.docs,
     intake: span(t, CUES.intake, CUES.space - 0.5),
-    stow: span(t, CUES.space, CUES.partners - 0.5),
+    stow: span(t, CUES.space, CUES.partners - 1),
     boxX: (finalX: number, containerLength: number) => {
       if (!active) return null;
       if (t < CUES.space) return 0.3;
