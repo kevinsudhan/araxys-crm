@@ -30,6 +30,15 @@ const SPACE_SOURCE_NAME = "Araxys container space availability";
  *
  * Adding a pack in the dashboard means adding its name here. That is the cost of failing
  * closed, and it is worth paying on an account shared with another project.
+ *
+ * v2's packs are deliberately absent, and they are the ones worth arguing about: they are
+ * freight, they look right, and they were attached when this allowlist was first written,
+ * so they got carried over on the reasoning that they already belonged. They do not.
+ * "Route pricing & negotiation bands (v2)" is a SECOND rate card, and it disagrees with
+ * v1's — ₹4,800 and ₹38,000 against ₹1,550 and ₹42,000 for the same document. Retrieval
+ * returns whichever scores better for the phrasing of the question, so an agent holding
+ * both can quote either. The same goes for v2's customer records and container space: a
+ * second set of customers and a second board of sailings, neither of which v1 knows about.
  */
 const FREIGHT_REFERENCE_PACKS = new Set([
   "Container specifications",
@@ -37,15 +46,7 @@ const FREIGHT_REFERENCE_PACKS = new Set([
   "Documents required by cargo type",
   "Destination customs & regulations",
   "Shipment details",
-  "Container specifications (v2)",
-  "Route pricing & negotiation bands (v2)",
-  "Documents required by cargo type (v2)",
-  "Destination customs & regulations (v2)",
-  "Araxys v2 — customer records",
-  "Araxys v2 — container space availability",
-  "Araxys v2 — partner network",
 ]);
-
 /**
  * Re-attaches the reference packs to every agent that is missing them.
  *
@@ -617,8 +618,13 @@ export async function syncSpaceKb(agentIds: number[] = AGENT_IDS) {
 
   const list = await snap("/knowledge-sources");
   if (list.ok && Array.isArray(list.body)) {
-    const existing = (list.body as Array<{ id: number; name: string }>).find((s) => s.name === NAME);
-    if (existing) await snap(`/knowledge-sources/${existing.id}`, { method: "DELETE" });
+    // Every source with this name, not just the first. The refresh is
+    // delete-then-recreate, so a delete that fails or races leaves a second
+    // copy that .find() will never reach again — and each later sync then adds
+    // one while removing one. Three copies of the customer records accumulated
+    // that way, two of them stale, all three attached and retrievable.
+    const dead = (list.body as Array<{ id: number; name: string }>).filter((s) => s.name === NAME);
+    for (const d of dead) await snap(`/knowledge-sources/${d.id}`, { method: "DELETE" });
   }
 
   const created = await snap("/knowledge-sources", {
@@ -655,8 +661,9 @@ export async function syncKb() {
 
   const list = await snap("/knowledge-sources");
   if (list.ok && Array.isArray(list.body)) {
-    const existing = (list.body as Array<{ id: number; name: string }>).find((s) => s.name === KB_SOURCE_NAME);
-    if (existing) await snap(`/knowledge-sources/${existing.id}`, { method: "DELETE" });
+    // See the note above: all of them, not the first.
+    const dead = (list.body as Array<{ id: number; name: string }>).filter((s) => s.name === KB_SOURCE_NAME);
+    for (const d of dead) await snap(`/knowledge-sources/${d.id}`, { method: "DELETE" });
   }
 
   const created = await snap("/knowledge-sources", {
