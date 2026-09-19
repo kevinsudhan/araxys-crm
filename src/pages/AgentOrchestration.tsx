@@ -10,7 +10,7 @@ import DemoPlayButton from "../components/orchestration/DemoPlayButton";
 import { useDemoScript } from "../components/orchestration/demoScript";
 import { DEMO_CALL, DEMO_DOC_EXTRAS, DEMO_FIT, DEMO_PLAN, DEMO_RECORD } from "../components/orchestration/demoFixture";
 import {
-  getLiveCalls, getCallLogs, getRealRecords, getSlotPlan, checkSpace,
+  getLiveCalls, getCallLogs, getRealRecords, getSlotPlan, checkSpace, getLiveFields,
   type LiveCall, type RecentCall, type CallLog, type RealRecord, type SlotPlan,
   type CheckSpaceResponse,
 } from "../services/backend";
@@ -77,6 +77,19 @@ export default function AgentOrchestration() {
    * below falls back to the live derivation and the page behaves exactly as before.
    */
   const demo = useDemoScript();
+
+  /**
+   * Fields read out of the call that is happening right now.
+   *
+   * The transcript has always streamed — /calls/live carries it while the caller is still
+   * talking — but the enquiry beside it stayed empty until they hung up, because
+   * extraction only ran on a finished call. Watching the words arrive with none of the
+   * facts is the half of it that is no use to a desk.
+   *
+   * These are never written to the record. The post-call pass is still the one that
+   * persists; this is a read of where it would get to if the call ended now.
+   */
+  const [liveFields, setLiveFields] = useState<Record<string, unknown>>({});
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -196,11 +209,14 @@ export default function AgentOrchestration() {
   useEffect(() => { setRefOverride(null); }, [selected?.id]);
 
   const fields = useMemo(() => {
-    const d = record?.requestDetails ?? {};
+    // While a call is open the live read wins: the record still holds the last call's
+    // answers, and showing those beside a conversation about something else is worse
+    // than showing nothing.
+    const d = (activeCall && Object.keys(liveFields).length ? liveFields : record?.requestDetails) ?? {};
     return REQUEST_FIELDS
       .map((f) => ({ key: f.key, label: f.label, value: (d as Record<string, unknown>)[f.key] }))
       .filter((f) => f.value !== undefined && f.value !== null && f.value !== "");
-  }, [record]);
+  }, [record, activeCall, liveFields]);
 
   const [fitLive, setFit] = useState<CheckSpaceResponse | null>(null);
   const [fitReasonLive, setFitReason] = useState<string | null>(null);
@@ -514,6 +530,20 @@ export default function AgentOrchestration() {
       state: demo.active ? stateFor(7) : readyDocs.length ? "done" : docs.length ? "waiting" : "skipped",
     },
   ];
+
+  useEffect(() => {
+    if (!activeCall) { setLiveFields({}); return; }
+    let stop = false;
+    const read = async () => {
+      try {
+        const r = await getLiveFields(activeCall.id);
+        if (!stop && r.extracted) setLiveFields(r.fields as Record<string, unknown>);
+      } catch { /* the card still has the transcript */ }
+    };
+    read();
+    const t = setInterval(read, 4000);
+    return () => { stop = true; clearInterval(t); };
+  }, [activeCall]);
 
   const [positions, setPositions] = useState<Record<string, number>>({});
 

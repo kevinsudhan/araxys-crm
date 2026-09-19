@@ -9,6 +9,7 @@
  * the same reason the Express version existed at all.
  */
 import { listRecords, findByAnything, upsertRecord, advanceStage, syncKb, syncCallerMemory, syncSpaceKb, phoneKey, type RecordStage } from "../_shared/records.ts";
+import { extractRequestDetails } from "../_shared/extractFields.ts";
 import { refreshKnowledge } from "../_shared/extractQueue.ts";
 import { autoBookSpace } from "../_shared/autoBook.ts";
 import {
@@ -78,6 +79,19 @@ async function slotView(slot: Awaited<ReturnType<typeof getSlot>>) {
     remaining: rem ? { lengthM: rem.lengthM, payloadKg: rem.payloadKg, cbm: rem.cbm } : null,
   };
 }
+
+/** Re-extract once the transcript has grown by this many characters. */
+const LIVE_EXTRACT_STEP = 260;
+
+/** Below this a transcript is a greeting, and there is nothing in it to find. */
+const MIN_LIVE_TRANSCRIPT = 120;
+
+/**
+ * Last live extraction per call, so a poll every second and a half does not become a
+ * model call every second and a half. Module state, so it survives between invocations
+ * on a warm instance and costs nothing when the instance is recycled.
+ */
+const liveFieldCache = new Map<string, { chars: number; fields: Record<string, unknown> }>();
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -393,6 +407,57 @@ Deno.serve(async (req) => {
     }
 
     // -------------------------------------------------------------- SnapServe proxy
+
+    /**
+     * The fields so far, from a call that is still running.
+     *
+     * SnapServe grows the transcript while the caller is talking and /calls/live already
+     * carries it, so the desk can read the conversation as it happens — but the enquiry
+     * stayed empty until the caller hung up, because extraction only ever ran on a
+     * finished call. Watching a page that shows the words and none of the facts is the
+     * half of it that is no use to anyone.
+     *
+     * Nothing here is written to the record. A partial transcript is a partial claim: the
+     * caller may not have said the destination yet, may correct the weight in a minute,
+     * may be about to spell the company. The post-call extraction remains the one that
+     * persists, and this is a read of where it would get to if the call ended now.
+     *
+     * Cached on the transcript's length. Polling is every second and a half; extracting
+     * on every poll would run the model forty times a minute on a conversation that has
+     * barely moved, and cost more than the call.
+     */
+    if (path.match(/^\/calls\/[^/]+\/live-fields$/) && req.method === "GET") {
+      if (!SNAPSERVE_KEY) return json({ fields: {}, error: "SnapServe not configured" });
+      const id = decodeURIComponent(path.split("/")[2]);
+
+      const r = await fetch(`${SNAPSERVE_BASE}/calls/${encodeURIComponent(id)}`, {
+        headers: { Authorization: `Bearer ${SNAPSERVE_KEY}` },
+      });
+      if (!r.ok) return json({ fields: {}, error: `call ${id}: HTTP ${r.status}` }, 404);
+      const call = await r.json() as Record<string, unknown>;
+      const transcript = typeof call.transcript === "string" ? call.transcript : "";
+
+      // Below this there is nothing to read but the greeting, and a model asked to find
+      // facts in a greeting invents them.
+      if (transcript.trim().length < MIN_LIVE_TRANSCRIPT) {
+        return json({ fields: {}, chars: transcript.length, extracted: false });
+      }
+
+      const hit = liveFieldCache.get(id);
+      if (hit && Math.abs(hit.chars - transcript.length) < LIVE_EXTRACT_STEP) {
+        return json({ fields: hit.fields, chars: hit.chars, extracted: true, cached: true });
+      }
+
+      const envelope = await extractRequestDetails(transcript, {}, String(call.createdAt ?? ""));
+      liveFieldCache.set(id, { chars: transcript.length, fields: envelope.fields });
+      return json({
+        fields: envelope.fields,
+        chars: transcript.length,
+        extracted: true,
+        cached: false,
+        sourceLanguage: envelope.source_language,
+      });
+    }
 
     if (path === "/calls/live" && req.method === "GET") {
       if (!SNAPSERVE_KEY) return json({ live: [], recent: [], error: "SnapServe not configured" });

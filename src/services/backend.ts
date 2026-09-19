@@ -88,6 +88,22 @@ export const getLiveCalls = () =>
 
 export const getCallDetail = (id: number) => get<CallDetail>(`/api/calls/${id}`);
 
+/**
+ * What the extractor can see so far, from a call still in progress.
+ *
+ * Read-only and not persisted: the caller may not have said the destination yet and may
+ * correct the weight in a minute. The post-call extraction is still the one that writes
+ * to the record. `extracted` is false while the transcript is too short to read.
+ */
+export const getLiveFields = (id: number) =>
+  get<{
+    fields: RequestDetails;
+    chars: number;
+    extracted: boolean;
+    cached?: boolean;
+    sourceLanguage?: string;
+  }>(`/api/calls/${id}/live-fields`);
+
 // ---- space ---------------------------------------------------------------
 
 export interface SlotRemaining {
