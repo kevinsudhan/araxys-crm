@@ -866,13 +866,8 @@ export default function AgentOrchestration() {
 
           {/* ---------------------------------------------------------- step 7 */}
           <Step n={7} title="Approval" icon={ShieldCheck} state={steps[6].state}
-            activity={demo.active && demo.approved ? "released" : "holding for a person"}>
-            {demo.active && demo.approved ? (
-              <Empty tone="ok">
-                Released by the desk. The quote can go to the customer and the documents
-                can be drawn.
-              </Empty>
-            ) : record?.agreedAmountInr ? (
+            activity="holding for a person">
+            {record?.agreedAmountInr ? (
               <Empty tone="ok">Approved and agreed at ₹{record.agreedAmountInr.toLocaleString("en-IN")}.</Empty>
             ) : record?.quotedAmountInr ? (
               <Empty tone="warn">

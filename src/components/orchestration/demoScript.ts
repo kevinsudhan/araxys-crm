@@ -20,6 +20,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * The stage gate is the point. A circle only goes green when its stage is FINISHED —
  * not when it starts, and not on a timer that runs underneath it. `reached` is the index
  * of the stage in hand; everything below it is done, everything above is waiting.
+ *
+ * It ends on approval, held amber, and does not resolve it. That is where the real
+ * pipeline stops: nothing reaches the customer until a person says so, and a recording
+ * that showed the machine approving its own quote would be advertising the opposite of
+ * what this system is for. Documents stay waiting behind it, which is also true — they
+ * cannot be issued against a quote nobody has released.
  */
 
 /** Seconds between the play button being pressed and the first frame of the script. */
@@ -39,9 +45,7 @@ const CUES = {
   rates: 29,
   pricing: 33.5,
   approval: 38.5,
-  approved: 44.5,
-  docs: 44.5,
-  done: 50,
+  done: 46,
 } as const;
 
 export const SCRIPT_SECONDS = CUES.done;
@@ -100,8 +104,6 @@ export interface DemoRun {
   stow: number;
   /** Metres along the container, or null when the script is not driving the box. */
   boxX: (finalX: number, containerLength: number) => number | null;
-  /** True once the desk has "approved", so step 7 can finish. */
-  approved: boolean;
   start: () => void;
   reset: () => void;
 }
@@ -157,9 +159,7 @@ export function useDemoScript(): DemoRun {
     : t < CUES.rates ? 3
     : t < CUES.pricing ? 4
     : t < CUES.approval ? 5
-    : t < CUES.approved ? 6
-    : t < CUES.done ? 7
-    : 8;
+    : 6;
 
   return {
     idle: phase === "idle",
@@ -171,7 +171,6 @@ export function useDemoScript(): DemoRun {
     callElapsed: Math.floor(Math.min(t, CUES.intake)),
     intake: span(t, CUES.intake, CUES.space - 0.5),
     stow: span(t, CUES.space, CUES.partners - 0.5),
-    approved: t >= CUES.approved,
     boxX: (finalX: number, containerLength: number) => {
       if (!active) return null;
       if (t < CUES.space) return 0.3;
