@@ -531,17 +531,34 @@ export default function AgentOrchestration() {
     },
   ];
 
+  /**
+   * Only ask again once the caller has actually said something more.
+   *
+   * The throttle lives here rather than on the server because this is where the state
+   * survives. The function keeps a cache keyed on transcript length, but Supabase gives
+   * each invocation a fresh instance — measured: two requests seconds apart both reported
+   * cached:false — so that cache almost never hits and every poll was a model call.
+   *
+   * The page already knows the length: /calls/live carries the transcript it is showing.
+   * So it can tell for itself whether there is anything new to read, and a conversation
+   * that has paused costs nothing.
+   */
+  const lastReadChars = useRef(-1);
   useEffect(() => {
-    if (!activeCall) { setLiveFields({}); return; }
+    if (!activeCall) { setLiveFields({}); lastReadChars.current = -1; return; }
     let stop = false;
     const read = async () => {
+      const chars = (activeCall.transcript ?? "").length;
+      if (chars < 120) return;
+      if (lastReadChars.current >= 0 && chars - lastReadChars.current < 260) return;
+      lastReadChars.current = chars;
       try {
         const r = await getLiveFields(activeCall.id);
         if (!stop && r.extracted) setLiveFields(r.fields as Record<string, unknown>);
       } catch { /* the card still has the transcript */ }
     };
     read();
-    const t = setInterval(read, 4000);
+    const t = setInterval(read, 3000);
     return () => { stop = true; clearInterval(t); };
   }, [activeCall]);
 
