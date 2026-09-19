@@ -45,8 +45,20 @@ export default function RecordDetail() {
   }, [ref]);
 
   if (state === "loading") return <p className="text-sm text-text-muted py-10">Loading…</p>;
-  if (state === "error") return <EmptyState label="Backend not reachable." />;
-  if (!record) return <EmptyState label="Record not found." />;
+  if (state === "error")
+    return (
+      <EmptyState
+        label="Backend not reachable."
+        hint="The record exists; this screen could not load it. Nothing has been lost — retry, or check the API is up."
+      />
+    );
+  if (!record)
+    return (
+      <EmptyState
+        label="Record not found."
+        hint={`No enquiry or shipment on this desk matches ${ref}. It may have been a different reference, or on another environment.`}
+      />
+    );
 
   const backTo =
     record.stage === "enquiry"

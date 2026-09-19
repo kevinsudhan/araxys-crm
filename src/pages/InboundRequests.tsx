@@ -94,7 +94,16 @@ export default function InboundRequests() {
         ))}
       </div>
 
-      {list.length === 0 && <EmptyState label="No requests on this channel yet." />}
+      {list.length === 0 && (
+        <EmptyState
+          label={filter === "all" ? "No inbound requests yet." : "Nothing on this channel."}
+          hint={
+            filter === "all"
+              ? "Requests appear here as calls and mail come in — the reader files them automatically."
+              : "There are requests on other channels. Choose All channels to see them."
+          }
+        />
+      )}
 
       {list.map((r) => {
         const onCall = liveByPhone.get(digitsOnly(r.phone).slice(-10));
