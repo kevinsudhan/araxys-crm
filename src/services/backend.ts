@@ -175,6 +175,14 @@ export interface CheckSpaceResponse {
     total_weight_kg: number;
   };
   space_left_after?: { lengthM: number; payloadKg: number };
+  /**
+   * How the engine turned each piece to make it fit. Needed to draw the stow: a
+   * 120×100×145 box laid on its side is 1.45 long and 1.20 high, and drawing it
+   * upright would show a load plan the engine never proposed.
+   */
+  orientation?: { lengthM: number; widthM: number; heightM: number };
+  /** On a refusal: how many of the pieces would have fitted. Drives the overflow drawing. */
+  max_pieces_that_fit?: number;
   alternatives?: Array<{ slot_id: string; sailing_date: string; cutoff_date: string; container: string }>;
   considered?: Array<{
     slot_id: string;

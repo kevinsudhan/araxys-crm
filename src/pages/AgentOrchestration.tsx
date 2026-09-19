@@ -52,6 +52,15 @@ export default function AgentOrchestration() {
   const [logs, setLogs] = useState<CallLog[]>([]);
   const [records, setRecords] = useState<RealRecord[]>([]);
   const [plan, setPlan] = useState<SlotPlan | null>(null);
+  /**
+   * How many of this consignment's pieces have been drawn into the container so far.
+   *
+   * The engine answers instantly; a number appearing fully formed does not read as work
+   * being done. Loading the blocks in one at a time shows the shape of the answer — how
+   * the pieces sit, how far down the container they reach — which is the part a person
+   * checks. It is a reveal of a computed result, not a simulation of one being computed.
+   */
+  const [loaded, setLoaded] = useState(0);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -168,6 +177,19 @@ export default function AgentOrchestration() {
   const [fitReason, setFitReason] = useState<string | null>(null);
 
   /**
+   * Everything the space answer depends on, as a string. See the dependency note below.
+   */
+  const spaceKey = useMemo(() => {
+    if (!record) return "";
+    const d = (record.requestDetails ?? {}) as Record<string, unknown>;
+    return [
+      record.ref, record.origin, record.destination, record.sailingDate,
+      d.piece_length_cm, d.piece_width_cm, d.piece_height_cm,
+      d.piece_count, d.weight_per_piece_kg, d.stackable, d.upright_only,
+    ].join("|");
+  }, [record]);
+
+  /**
    * The space check for THIS caller's cargo, on their route.
    *
    * It used to show the fullest container on the book, which was real geometry belonging
@@ -214,6 +236,7 @@ export default function AgentOrchestration() {
       .then(async (res) => {
         if (cancelled) return;
         setFit(res);
+        setLoaded(0);
         // The container it would actually go into, so the drawing matches the answer.
         if (res.slot_id) {
           try { const p = await getSlotPlan(res.slot_id); if (!cancelled) setPlan(p); } catch { /* the card says */ }
@@ -221,7 +244,97 @@ export default function AgentOrchestration() {
       })
       .catch((e) => { if (!cancelled) setFitReason(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [record]);
+  // Deliberately NOT [record]. `record` is records.find(...), so the poll that refreshes
+  // the call list hands back a new object every few seconds even when nothing about this
+  // enquiry changed — the check re-ran on a loop, and each run reset `fit`, which reset
+  // the loading animation to row one forever. Keyed on the values the answer depends on.
+  }, [spaceKey]);
+
+  /**
+   * This consignment, placed where the engine said it goes.
+   *
+   * Until now step 2 drew the sailing's existing cargo and nothing else, so the one
+   * genuinely three-dimensional answer in the system — how these boxes sit in this
+   * container — arrived as a sentence. The blocks below are the engine's own stow:
+   * `across`, `high` and `rows` come back from checkFit, and `orientation` is how it
+   * turned the piece to make it work. Nothing here is re-derived on the client, because
+   * a second implementation of the packing arithmetic would eventually disagree with the
+   * first and the drawing would quietly stop matching the answer.
+   */
+  const placement = useMemo(() => {
+    if (!fit || !plan || !record) return null;
+    const lp = fit.loading_plan;
+    const o = fit.orientation;
+    if (!lp || !o || !lp.rows) return null;
+    const total = lp.per_row * lp.rows;
+    return {
+      id: "__this-consignment",
+      slotId: plan.slot.id,
+      clientName: record.company || record.customerName || "This consignment",
+      reference: record.ref,
+      // The frontier is where the plan says new cargo starts, not the end of used length:
+      // cargo already aboard can leave gaps that are not bookable.
+      xM: plan.frontier,
+      lengthM: lp.floor_length_needed_m,
+      piecesAcross: lp.across,
+      piecesHigh: lp.high,
+      rows: lp.rows,
+      quantity: total,
+      pieceLengthM: o.lengthM,
+      pieceWidthM: o.widthM,
+      pieceHeightM: o.heightM,
+      weightKg: lp.total_weight_kg,
+      colorIndex: 2,
+      source: "voice_agent" as const,
+    };
+  }, [fit, plan, record]);
+
+  /**
+   * Loads the blocks in, one row at a time, once there is something to load.
+   *
+   * Keyed on a string rather than on `placement` itself. `placement` is a useMemo that
+   * builds a new object whenever any of its inputs re-render, so depending on the object
+   * restarted this interval on every pass and the count never got past one — the caption
+   * read "Loading row 1 of 5" forever while the container stayed empty.
+   */
+  const placementKey = placement ? `${placement.reference}:${placement.slotId}:${placement.rows}` : "";
+  const placementRows = placement?.rows ?? 0;
+  useEffect(() => {
+    if (!placementKey || placementRows < 1) return;
+    setLoaded(0);
+    let n = 0;
+    const id = setInterval(() => {
+      n += 1;
+      setLoaded(n);
+      if (n >= placementRows) clearInterval(id);
+    }, 260);
+    return () => clearInterval(id);
+  }, [placementKey, placementRows]);
+
+  /**
+   * The plan handed to the scene, with this consignment's rows added as they load.
+   *
+   * Partial rows rather than a partial block: a half-drawn block would imply the engine
+   * proposed splitting a row, which it did not.
+   */
+  const scenePlan = useMemo(() => {
+    if (!plan) return null;
+    if (!placement || loaded <= 0) return plan;
+    const rows = Math.min(loaded, placement.rows);
+    const perRow = placement.quantity / placement.rows;
+    return {
+      ...plan,
+      consignments: [
+        ...plan.consignments,
+        {
+          ...placement,
+          rows,
+          quantity: Math.round(perRow * rows),
+          lengthM: (placement.lengthM / placement.rows) * rows,
+        },
+      ],
+    };
+  }, [plan, placement, loaded]);
 
   const inProgress = live.some((c) => c.id === selectedId);
 
@@ -540,26 +653,54 @@ export default function AgentOrchestration() {
                   )}
                 </div>
 
-                {plan && plan.consignments.length > 0 && (
+                {scenePlan && (scenePlan.consignments.length > 0 || placement) && (
                   <>
                     <ContainerScene
-                      plan={plan}
+                      plan={scenePlan}
                       positions={positions}
                       onMove={(id, xM) => setPositions((p) => ({ ...p, [id]: xM }))}
                       onRestow={() => {}}
                       dragMode="reorder"
-                      selectedId={null}
+                      selectedId={placement && loaded > 0 ? placement.id : null}
                       onSelect={() => {}}
                       explode={0}
                     />
-                    <p className="text-[11.5px] text-text-muted mt-2">
-                      What is already stowed on {plan.slot.route}, the sailing this cargo would
-                      join. Drag a block to restow it.
-                    </p>
+                    {placement ? (
+                      <p className="text-[11.5px] text-text-muted mt-2">
+                        {loaded < placement.rows ? (
+                          <>
+                            Loading row {Math.max(1, loaded)} of {placement.rows} —{" "}
+                            {placement.piecesAcross} across × {placement.piecesHigh} high.
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-text-primary font-medium">
+                              {placement.quantity} pieces placed
+                            </span>{" "}
+                            at {placement.xM.toFixed(2)}m, taking{" "}
+                            {placement.lengthM.toFixed(2)}m of floor — {placement.piecesAcross}{" "}
+                            across × {placement.piecesHigh} high, {placement.rows} rows deep.
+                            The paler blocks were already aboard. Drag to restow.
+                          </>
+                        )}
+                      </p>
+                    ) : (
+                      <p className="text-[11.5px] text-text-muted mt-2">
+                        What is already stowed on {scenePlan.slot.route}, the sailing this cargo
+                        would join. Drag a block to restow it.
+                      </p>
+                    )}
                   </>
                 )}
-                {plan && plan.consignments.length === 0 && (
-                  <Empty>That sailing is empty — the whole {plan.container.lengthM}m is free.</Empty>
+                {scenePlan && scenePlan.consignments.length === 0 && !placement && (
+                  <Empty>That sailing is empty — the whole {scenePlan.container.lengthM}m is free.</Empty>
+                )}
+                {!fit.available && fit.max_pieces_that_fit !== undefined && (
+                  <p className="text-[11.5px] text-amber-800 mt-2">
+                    {fit.max_pieces_that_fit} of the pieces would fit on this sailing. The rest
+                    need the next one, or a second container — the desk decides which, because
+                    splitting a consignment is a commercial call and not an arithmetic one.
+                  </p>
                 )}
               </>
             )}

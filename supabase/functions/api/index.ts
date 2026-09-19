@@ -335,8 +335,22 @@ Deno.serve(async (req) => {
 
       const workable = options.filter((o) => o.fit.fits);
       if (!workable.length) {
-        const why = options[0]?.fit.explanation ?? "There are no open sailings left on that route in this window.";
-        return json({ available: false, route: resolved, result: why, spoken_answer: why });
+        const near = options[0];
+        const why = near?.fit.explanation ?? "There are no open sailings left on that route in this window.";
+        // How much would fit is a different fact from "it does not fit", and the desk needs
+        // both: one decides whether to split the consignment, the other only says no.
+        return json({
+          available: false,
+          route: resolved,
+          result: why,
+          spoken_answer: why,
+          slot_id: near?.slot.id,
+          sailing_date: near?.slot.sailing_date,
+          container: near?.slot.container_code,
+          max_pieces_that_fit: near?.fit.maxPiecesThatFit,
+          orientation: near?.fit.orientation,
+          space_left_after: near?.fit.remainingAfter,
+        });
       }
 
       workable.sort(
@@ -352,6 +366,10 @@ Deno.serve(async (req) => {
           : `Nothing on that exact date, but the ${best.slot.sailing_date} sailing works. `) +
         `${best.fit.explanation} Booking has to be confirmed by ${best.slot.cutoff_date}.`;
 
+      // The stow is already computed -- checkFit returns how the pieces sit and how much
+      // floor they take, and the spoken answer reads those numbers out loud. Not putting
+      // them in the JSON meant the CRM could repeat the sentence but never draw it, so the
+      // one genuinely three-dimensional answer in the system arrived as prose.
       return json({
         available: true,
         route: resolved,
@@ -361,6 +379,16 @@ Deno.serve(async (req) => {
         container: best.slot.container_code,
         result: spoken,
         spoken_answer: spoken,
+        orientation: best.fit.orientation,
+        loading_plan: {
+          across: best.fit.piecesAcrossWidth,
+          high: best.fit.piecesStackedHigh,
+          per_row: best.fit.piecesPerRow,
+          rows: best.fit.rowsNeeded,
+          floor_length_needed_m: best.fit.lengthConsumedM,
+          total_weight_kg: best.fit.totalWeightKg,
+        },
+        space_left_after: best.fit.remainingAfter,
       });
     }
 
