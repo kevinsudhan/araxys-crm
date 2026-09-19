@@ -79,23 +79,21 @@ export default function Sidebar() {
         {groups.map((group, gi) => (
           <div key={gi} className="mb-4">
             {group.title && (
-              <p className="px-2 mb-1 text-[11px] uppercase tracking-wide text-text-muted font-medium">
-                {group.title}
-              </p>
+              <p className="eyebrow px-2.5 mb-1.5">{group.title}</p>
             )}
             {group.items.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] mb-0.5 transition-colors ${
+                  `relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] mb-0.5 transition-colors duration-150 ${
                     isActive
-                      ? "bg-surface-2 text-text-primary font-medium"
-                      : "text-text-secondary hover:bg-surface-2"
+                      ? "bg-surface-2 text-text-primary font-medium before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[2px] before:rounded-full before:bg-brand"
+                      : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
                   }`
                 }
               >
-                <item.icon size={16} />
+                <item.icon size={15} strokeWidth={1.9} className="flex-none" />
                 {item.label}
               </NavLink>
             ))}

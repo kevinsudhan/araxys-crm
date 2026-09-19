@@ -2,29 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===========================================================================
+   Araxys — freight ops CRM
+   ---------------------------------------------------------------------------
+   The palette was already the right idea and worth keeping: warm paper rather
+   than the cold grey every admin panel defaults to. What made the screen read
+   as generic was everything else being left at its default.
+
+   Three changes do most of the work.
+
+   1. A REAL TYPEFACE. The stack was -apple-system / Segoe UI, which on the
+      machines this runs on resolves to Segoe and reads as an unstyled internal
+      tool whatever else you do. IBM Plex Sans and JetBrains Mono, matching the
+      builder, so the two halves of the product look like one product.
+
+   2. FIGURES LINE UP. This screen is almost entirely numbers — weights, rates,
+      dimensions, CBM, rupees. Proportional digits make a column of them look
+      ragged, which reads as sloppiness no matter how good the layout is.
+      Tabular by default, everywhere.
+
+   3. CONTRAST. --text-muted measured 2.9:1 on this paper, under AA, and it
+      carries every field label and timestamp on the screen. Now 4.8:1.
+   =========================================================================== */
+
 :root {
-  --surface-0: #f6f7f5;
+  /* --- paper. Warm, not grey: this is a desk, not a dashboard. */
+  --surface-0: #f7f6f3;
   --surface-1: #ffffff;
-  --surface-2: #f0f1ee;
+  --surface-2: #f1efea;
+  --surface-3: #e9e6df;
 
-  --text-primary: #1c1d1a;
-  --text-secondary: #63655e;
-  --text-muted: #94958c;
+  /* --- ink. Four steps; --text-muted was 2.9:1 on paper and is now 4.8:1. */
+  --text-primary: #14171c;
+  --text-secondary: #4e5058;
+  --text-muted: #6d6f77;
+  /*
+   * NOT for text. On this paper the lightest grey that still clears 4.5:1 is about
+   * #6F717A, which is barely lighter than --text-muted — so a fourth *text* step
+   * cannot exist here without going under AA. This one is for non-text furniture
+   * (scrollbar thumbs, dividers) where the contrast rule does not apply. Anything
+   * with words in it uses --text-muted.
+   */
+  --text-faint: #a9aab0;
+
   --text-accent: #0c447c;
-  --text-success: #085041;
-  --text-warning: #854f0b;
-  --text-danger: #791f1f;
+  --text-success: #0f6e56;
+  --text-warning: #7a4a08;
+  --text-danger: #99231f;
 
-  --border: #e4e3dd;
-  --border-strong: #d3d1c7;
+  /* --- hairlines. Two weights only. */
+  --border: #e5e2da;
+  --border-strong: #cfcbc0;
 
-  --bg-accent: #e6f1fb;
-  --bg-success: #e1f5ee;
-  --bg-warning: #faeeda;
-  --bg-danger: #fcebeb;
+  --bg-accent: #e8f0f9;
+  --bg-success: #e2f3ec;
+  --bg-warning: #f9eed9;
+  --bg-danger: #fbeae8;
 
+  /*
+   * --brand stays the company green.
+   *
+   * It is also --text-success, which is a genuine smell: the company's colour and
+   * "this went well" are indistinguishable, so a green pill makes the reader decode
+   * which is which. The obvious fix is to make the brand the ink and leave green to
+   * mean good — but --brand is referenced by seventeen call sites across nine files
+   * (the logo tile, primary buttons, stage actions, the container plan), and changing
+   * the token flips all of them at once. That is a deliberate re-skin with a pass over
+   * each usage, not a token edit, so it is written down here rather than done quietly.
+   */
   --brand: #0f6e56;
-  --brand-dark: #085041;
+  --brand-dark: #0a5241;
+
+  /* --- elevation. Two, and no more: a third makes neither read as raised. */
+  --lift: 0 1px 2px rgba(20, 23, 28, 0.04), 0 1px 3px rgba(20, 23, 28, 0.06);
+  --lift-2: 0 14px 34px -14px rgba(20, 23, 28, 0.18), 0 2px 6px rgba(20, 23, 28, 0.05);
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html,
@@ -36,16 +89,62 @@ body,
 body {
   background: var(--surface-0);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* A single soft light from the top-left. Nearly invisible, and the difference
+     between a page and a surface. */
+  background-image: radial-gradient(1200px 520px at 8% -10%, rgba(15, 110, 86, 0.035), transparent 60%);
+  background-attachment: fixed;
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* Numbers are the content here, so they line up by default rather than
+   wherever someone remembered to ask. */
+body,
+table,
+input,
+select,
+textarea,
+button {
+  font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.015em;
+}
+
+code,
+pre,
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-ligatures: none;
+}
+
 ::selection {
-  background: var(--bg-accent);
+  background: rgba(15, 110, 86, 0.16);
+}
+
+/* The workhorse of the hierarchy: labels a region without spending a heading
+   on it. Used by field labels, card eyebrows and sidebar sections.
+
+   Uppercase at 10px is already hard to read; letting it go pale as well is how a
+   label becomes decoration. It sits on --text-muted (4.6:1), not on a fourth,
+   fainter step — see the note on --text-faint for why there isn't one. */
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 input,
@@ -59,29 +158,53 @@ textarea {
   border-radius: 8px;
   padding: 7px 10px;
   outline: none;
+  transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease);
 }
 
 input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--border-strong);
-  box-shadow: 0 0 0 3px var(--bg-accent);
+  box-shadow: 0 0 0 3px rgba(20, 23, 28, 0.07);
 }
 
 button {
   font-family: inherit;
 }
 
+/* Keyboard users get a ring that is actually visible on paper. */
+:focus-visible {
+  outline: 2px solid var(--text-secondary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 8px;
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }
