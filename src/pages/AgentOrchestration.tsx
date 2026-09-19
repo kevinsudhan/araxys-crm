@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import Waveform from "../components/orchestration/Waveform";
 import ContainerScene from "../components/ContainerScene";
+import DemoPlayButton from "../components/orchestration/DemoPlayButton";
+import { useDemoScript } from "../components/orchestration/demoScript";
 import {
   getLiveCalls, getCallLogs, getRealRecords, getSlotPlan, checkSpace,
   type LiveCall, type RecentCall, type CallLog, type RealRecord, type SlotPlan,
@@ -65,6 +67,15 @@ export default function AgentOrchestration() {
    * checks. It is a reveal of a computed result, not a simulation of one being computed.
    */
   const [loaded, setLoaded] = useState(0);
+
+  /**
+   * The scripted run, for recording.
+   *
+   * It never changes a value, only when that value is allowed to appear: the fields,
+   * the stow and the quote are the enquiry's own. When it is not running, every line
+   * below falls back to the live derivation and the page behaves exactly as before.
+   */
+  const demo = useDemoScript();
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -302,7 +313,7 @@ export default function AgentOrchestration() {
    * read "Loading row 1 of 5" forever while the container stayed empty.
    */
   /** True while the agent is stacking rows, and for a beat after a very short stow. */
-  const stowing = useMinimumOn(!!placement && loaded < (placement?.rows ?? 0), 1400);
+  const stowingLive = useMinimumOn(!!placement && loaded < (placement?.rows ?? 0), 1400);
 
   const placementKey = placement ? `${placement.reference}:${placement.slotId}:${placement.rows}` : "";
   const placementRows = placement?.rows ?? 0;
@@ -324,10 +335,18 @@ export default function AgentOrchestration() {
    * Partial rows rather than a partial block: a half-drawn block would imply the engine
    * proposed splitting a row, which it did not.
    */
+  /**
+   * Rows drawn. The live page reveals them one at a time as the stow is written; the
+   * script needs the whole block on screen from the moment the search starts, because
+   * what it is showing is the block MOVING, and a block that grows while it travels
+   * reads as two different things happening at once.
+   */
+  const loadedRows = demo.active && placement ? (demo.t >= 15.5 ? placement.rows : 0) : loaded;
+
   const scenePlan = useMemo(() => {
     if (!plan) return null;
-    if (!placement || loaded <= 0) return plan;
-    const rows = Math.min(loaded, placement.rows);
+    if (!placement || loadedRows <= 0) return plan;
+    const rows = Math.min(loadedRows, placement.rows);
     const perRow = placement.quantity / placement.rows;
     return {
       ...plan,
@@ -341,7 +360,7 @@ export default function AgentOrchestration() {
         },
       ],
     };
-  }, [plan, placement, loaded]);
+  }, [plan, placement, loadedRows]);
 
   /**
    * The documents this enquiry could produce, and what each one is still missing.
@@ -418,7 +437,9 @@ export default function AgentOrchestration() {
    * given second would be a fiction. Spreading them is honest about the order without
    * inventing a timestamp.
    */
-  const fieldsShown = isLiveText ? fields.length : Math.round(playhead * fields.length);
+  const fieldsShown = demo.active
+    ? Math.round(demo.intake * fields.length)
+    : isLiveText ? fields.length : Math.round(playhead * fields.length);
 
   /**
    * Step state, read off real data rather than a timer.
@@ -446,8 +467,14 @@ export default function AgentOrchestration() {
     return 7;                                     // done
   })();
 
+  /** True while the agent is working out the stow, on script or off it. */
+  const stowing = demo.active ? demo.reached === 2 : stowingLive;
+
+  /** The script owns the gate while it runs; otherwise the live derivation does. */
+  const gate = demo.active ? demo.reached : reached;
+
   const stateFor = (i: number): StepState =>
-    i < reached ? "done" : i === reached ? "running" : "waiting";
+    i < gate ? "done" : i === gate ? "running" : "waiting";
 
   const steps: Array<{ key: string; n: number; title: string; icon: typeof PhoneCall; state: StepState }> = [
     { key: "call",     n: 1, title: "Call",              icon: PhoneCall,   state: stateFor(0) },
@@ -463,14 +490,29 @@ export default function AgentOrchestration() {
     // it off the pipeline would show a green tick over documents nobody could produce.
     {
       key: "docs", n: 8, title: "Documents", icon: FileText,
-      state: readyDocs.length ? "done" : docs.length ? "waiting" : "skipped",
+      state: demo.active ? stateFor(7) : readyDocs.length ? "done" : docs.length ? "waiting" : "skipped",
     },
   ];
 
   const [positions, setPositions] = useState<Record<string, number>>({});
 
+  /**
+   * Where the scene draws this consignment.
+   *
+   * Off-script this is whatever the desk has dragged it to. On-script the box is walked
+   * down the container and back before it settles on the frontier the engine actually
+   * chose — the answer is the real one, the hunting is staged. An agent that lands on
+   * the right slot first time is the single thing that makes a recording look faked.
+   */
+  const demoPositions = (() => {
+    if (!demo.active || !placement || !scenePlan) return positions;
+    const x = demo.boxX(placement.xM, scenePlan.container.lengthM);
+    return x === null ? positions : { ...positions, [placement.id]: x };
+  })();
+
   return (
     <div className="p-5 max-w-[1500px] mx-auto">
+      {demo.idle && <DemoPlayButton onStart={demo.start} />}
       <header className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
           <h1 className="text-[21px] font-semibold text-text-primary">Agent orchestration</h1>
@@ -497,7 +539,12 @@ export default function AgentOrchestration() {
       <div className="grid lg:grid-cols-[340px_minmax(0,1fr)] gap-4 items-start">
         {/* ============================================================ left rail */}
         <div className="space-y-3">
-          <CallCard call={activeCall ?? selected} live={Boolean(activeCall)} turnCount={turns.length} />
+          <CallCard
+            call={activeCall ?? selected}
+            live={demo.active ? demo.callLive : Boolean(activeCall)}
+            turnCount={turns.length}
+            elapsedOverride={demo.active ? demo.callElapsed : undefined}
+          />
 
           {turns.length > 0 && (
             <section className="rounded-xl border border-border bg-surface-1 overflow-hidden">
@@ -585,7 +632,10 @@ export default function AgentOrchestration() {
             and pills spaced evenly apart read as seven independent switches. The line
             between them is the thing being demonstrated.
           */}
-          <nav className="rounded-xl border border-border bg-surface-1 px-4 py-3 min-w-0" aria-label="Pipeline">
+          <nav
+            className="sticky top-0 z-30 rounded-xl border border-border bg-surface-1/95 backdrop-blur px-4 py-3 min-w-0 shadow-[0_6px_16px_-12px_rgba(20,23,28,0.35)]"
+            aria-label="Pipeline"
+          >
             <ol className="flex items-start gap-0 overflow-x-auto">
               {steps.map((st, i) => {
                 const Icon = st.icon;
@@ -630,8 +680,8 @@ export default function AgentOrchestration() {
           {/* ---------------------------------------------------------- step 1 */}
           <Step n={1} title="Intake facts" icon={ScanText}
             state={steps[1].state}
-            busy={(fields.length > 0 && fieldsShown < fields.length) || steps[1].state === "running"}
-            activity={fields.length && fieldsShown < fields.length ? `reading field ${fieldsShown + 1} of ${fields.length}` : "reading the transcript"}
+            busy={steps[1].state === "running" || (!demo.active && fields.length > 0 && fieldsShown < fields.length)}
+            activity={fields.length && fieldsShown < fields.length ? `reading field ${Math.min(fieldsShown + 1, fields.length)} of ${fields.length}` : "reading the transcript"}
             badge={fields.length ? { text: `${Math.min(fieldsShown, fields.length)} of ${REQUEST_FIELDS.length} fields`, tone: fieldsShown >= fields.length ? "ok" : "warn" } : undefined}>
             {!record ? (
               <Empty>
@@ -670,9 +720,11 @@ export default function AgentOrchestration() {
           <Step n={2} title="Space check" icon={Boxes} state={steps[2].state}
             busy={stowing || steps[2].state === "running"}
             activity={
-              stowing && placement
-                ? `stacking row ${Math.min(Math.max(1, loaded), placement.rows)} of ${placement.rows}`
-                : "measuring the sailing"
+              !stowing || !placement
+                ? "measuring the sailing"
+                : demo.active && demo.stow < 0.82
+                  ? "testing positions along the floor"
+                  : `stacking row ${Math.min(Math.max(1, demo.active ? placement.rows : loaded), placement.rows)} of ${placement.rows}`
             }
             badge={fit ? { text: fit.available ? "fits" : "will not fit", tone: fit.available ? "ok" : "warn" } : undefined}>
             {fitReason ? (
@@ -712,7 +764,7 @@ export default function AgentOrchestration() {
                     <AgentFocus active={stowing}>
                     <ContainerScene
                       plan={scenePlan}
-                      positions={positions}
+                      positions={demoPositions}
                       onMove={(id, xM) => setPositions((p) => ({ ...p, [id]: xM }))}
                       onRestow={() => {}}
                       dragMode="reorder"
@@ -814,8 +866,13 @@ export default function AgentOrchestration() {
 
           {/* ---------------------------------------------------------- step 7 */}
           <Step n={7} title="Approval" icon={ShieldCheck} state={steps[6].state}
-            activity="holding for a person">
-            {record?.agreedAmountInr ? (
+            activity={demo.active && demo.approved ? "released" : "holding for a person"}>
+            {demo.active && demo.approved ? (
+              <Empty tone="ok">
+                Released by the desk. The quote can go to the customer and the documents
+                can be drawn.
+              </Empty>
+            ) : record?.agreedAmountInr ? (
               <Empty tone="ok">Approved and agreed at ₹{record.agreedAmountInr.toLocaleString("en-IN")}.</Empty>
             ) : record?.quotedAmountInr ? (
               <Empty tone="warn">
@@ -960,15 +1017,21 @@ export default function AgentOrchestration() {
 
 /* ================================================================= pieces */
 
-function CallCard({ call, live, turnCount }: { call: LiveCall | RecentCall | null; live: boolean; turnCount: number }) {
+function CallCard({ call, live, turnCount, elapsedOverride }: {
+  call: LiveCall | RecentCall | null; live: boolean; turnCount: number;
+  /** Seconds to show instead of the wall clock. The scripted run counts its own call. */
+  elapsedOverride?: number;
+}) {
   const [elapsed, setElapsed] = useState(0);
   const started = call?.startedAt;
 
   useEffect(() => {
-    if (!live || !started) return;
+    if (!live || !started || elapsedOverride !== undefined) return;
     const id = setInterval(() => setElapsed(Math.floor((Date.now() - new Date(started).getTime()) / 1000)), 1000);
     return () => clearInterval(id);
-  }, [live, started]);
+  }, [live, started, elapsedOverride]);
+
+  const shown = elapsedOverride ?? elapsed;
 
   if (!call) {
     return (
@@ -982,7 +1045,7 @@ function CallCard({ call, live, turnCount }: { call: LiveCall | RecentCall | nul
   }
 
   return (
-    <section className={`rounded-xl border p-4 ${live ? "border-emerald-300 bg-emerald-50/40" : "border-border bg-surface-1"}`}>
+    <section className={`rounded-xl border p-4 transition-shadow duration-300 ${live ? "border-emerald-300 bg-emerald-50/40 call-live" : "border-border bg-surface-1"}`}>
       <div className="flex items-center justify-between mb-2.5">
         <span className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full border ${
           live ? "border-emerald-300 bg-white text-emerald-700" : "border-border bg-surface-2 text-text-muted"
@@ -991,7 +1054,7 @@ function CallCard({ call, live, turnCount }: { call: LiveCall | RecentCall | nul
           {live ? "In progress" : call.status}
         </span>
         <span className="text-[13px] tabular-nums text-text-primary">
-          {live ? mmss(elapsed) : mmss(call.durationSeconds)}
+          {live ? mmss(shown) : mmss(call.durationSeconds)}
         </span>
       </div>
 
@@ -1002,7 +1065,7 @@ function CallCard({ call, live, turnCount }: { call: LiveCall | RecentCall | nul
         {call.direction || "inbound"} · {call.agentName}
       </div>
 
-      <div className="my-3" style={{ ["--wf-active" as string]: "#10b981" }}>
+      <div className={`my-3 ${live ? "wf-glow" : ""}`} style={{ ["--wf-active" as string]: "#10b981" }}>
         <Waveform active={live} height={44} />
       </div>
 

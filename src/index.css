@@ -344,6 +344,47 @@ button {
   }
 }
 
+/* ------------------------------------------------------------- the open line
+
+   The waveform already moves, which says "a call is happening". What it did not say is
+   that the call is happening RIGHT NOW rather than being a recording of one — on a page
+   full of finished work, motion alone is not enough to carry that.
+
+   So the card breathes a green ring and the bars carry a glow, both on the same slow
+   cycle. The pair of them is the signal; either one on its own is decoration.
+*/
+
+@keyframes call-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3), 0 0 18px -8px rgba(16, 185, 129, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0), 0 0 30px -6px rgba(16, 185, 129, 0.6);
+  }
+}
+
+.call-live {
+  animation: call-ring 2.2s var(--ease) infinite;
+}
+
+/* A drop-shadow rather than a box-shadow: the bars are separate elements with gaps
+   between them, and a box-shadow would outline the container instead of the shape. */
+@keyframes wf-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 3px rgba(16, 185, 129, 0.35));
+  }
+  50% {
+    filter: drop-shadow(0 0 9px rgba(16, 185, 129, 0.75));
+  }
+}
+
+.wf-glow {
+  animation: wf-glow 1.8s ease-in-out infinite;
+}
+
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
