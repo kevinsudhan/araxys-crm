@@ -23,31 +23,69 @@ const KB_SOURCE_NAME = "Araxys real customer records";
 const SPACE_SOURCE_NAME = "Araxys container space availability";
 
 /**
- * The reference packs that belong to this freight desk, by name.
+ * What each agent is allowed to retrieve, by source name.
  *
- * Names rather than ids because ids churn: the two synced packs are deleted and recreated
- * on every refresh, and a dashboard re-paste gets a new id too. Names are what survive.
+ * Per agent rather than per desk, because the two agents have different jobs and
+ * retrieval does not read the prompt. Arun is told "do not negotiate rates, discuss
+ * routes or space" -- but a rate card he can retrieve is a rate card he can quote from,
+ * and an instruction is not an access control. The only way he cannot answer from the
+ * rate card is for the rate card not to be attached to him.
  *
- * Adding a pack in the dashboard means adding its name here. That is the cost of failing
- * closed, and it is worth paying on an account shared with another project.
+ * Names rather than ids because ids churn: both synced packs are deleted and recreated
+ * on every refresh.
  *
- * v2's packs are deliberately absent, and they are the ones worth arguing about: they are
- * freight, they look right, and they were attached when this allowlist was first written,
- * so they got carried over on the reasoning that they already belonged. They do not.
- * "Route pricing & negotiation bands (v2)" is a SECOND rate card, and it disagrees with
- * v1's — ₹4,800 and ₹38,000 against ₹1,550 and ₹42,000 for the same document. Retrieval
- * returns whichever scores better for the phrasing of the question, so an agent holding
- * both can quote either. The same goes for v2's customer records and container space: a
- * second set of customers and a second board of sailings, neither of which v1 knows about.
+ * v2's packs are deliberately absent everywhere, and they are the ones worth arguing
+ * about: they are freight, they look right, and they were attached when this allowlist
+ * was first written, so they got carried over on the reasoning that they already
+ * belonged. They do not. "Route pricing & negotiation bands (v2)" is a SECOND rate card
+ * and it disagrees with v1's on every figure. Retrieval returns whichever scores better
+ * for how the caller phrased the question, so an agent holding both can quote either.
  */
-const FREIGHT_REFERENCE_PACKS = new Set([
+const INTAKE_PACKS = new Set([
   "Container specifications",
   "Route pricing & negotiation bands",
   "Documents required by cargo type",
   "Destination customs & regulations",
   "Shipment details",
+  KB_SOURCE_NAME,
+  SPACE_SOURCE_NAME,
 ]);
+
 /**
+ * The documentation desk holds only what a documentation question needs.
+ *
+ * "Destination customs & regulations" is in because it carries the per-destination
+ * certificate requirements -- a certificate of origin attested by a chamber of commerce
+ * is a document, and being asked for one is squarely his call. It also carries detention
+ * and demurrage rates, which he is prompted not to discuss; that is the cost of the pack
+ * being organised by destination rather than by subject, and it is a smaller risk than
+ * him being unable to say which certificates a port wants.
+ *
+ * Deliberately NOT here: the rate card and the sailing board (not his job, and he can
+ * quote from anything he can retrieve), and the customer records -- 21,000 characters of
+ * every customer's history on an agent who was handed this caller's details by Priya and
+ * has no reason to look anyone up. Caller identity reaches him through caller memory,
+ * which is a separate mechanism.
+ */
+const DOCS_PACKS = new Set([
+  "Documents required by cargo type",
+  "Destination customs & regulations",
+]);
+
+/** Priya 717 takes the enquiry; Arun 758 takes documentation after the handoff. */
+const PACKS_BY_AGENT: Record<number, Set<string>> = { 717: INTAKE_PACKS, 758: DOCS_PACKS };
+
+/**
+ * An agent nobody has classified gets the reference packs and none of the customer or
+ * space data. That keeps a newly added agent working while failing closed on the two
+ * things worth failing closed on.
+ */
+function packsFor(agentId: number): Set<string> {
+  const known = PACKS_BY_AGENT[agentId];
+  if (known) return known;
+  console.log(`[araxys] agent ${agentId} is not in PACKS_BY_AGENT - reference packs only, no customer or space data`);
+  return new Set([...INTAKE_PACKS].filter((n) => n !== KB_SOURCE_NAME && n !== SPACE_SOURCE_NAME));
+}/**
  * Re-attaches the reference packs to every agent that is missing them.
  *
  * Container specs, pricing bands, document rules and port regulations are static: nothing
@@ -67,43 +105,51 @@ export async function ensureReferenceSources(agentIds: number[] = AGENT_IDS) {
   const list = await snap("/knowledge-sources");
   if (!list.ok || !Array.isArray(list.body)) return { ok: false as const, error: "could not list sources" };
 
-  // Identified by an allowlist, NOT by exclusion.
+  // Identified by an allowlist, NOT by exclusion, and per agent.
   //
   // This used to attach everything on the account that was not one of the two synced
   // packs, on the reasoning that a pack added in the dashboard later would then be
   // protected without a code change. The account is not ours alone: it also carries the
-  // PMFBY crop-insurance knowledge base -- scheme facts, evidence checklists, and
-  // "Farmer vocabulary, local units and crop names". All eleven sources matched "not one
-  // of our two", so every call re-attached crop insurance to both freight agents, and
+  // PMFBY crop-insurance knowledge base. All eleven of those sources matched "not one of
+  // our two", so every call re-attached crop insurance to both freight agents, and
   // detaching by hand held until the next call and no longer.
-  //
-  // Failing closed is the right way round here. An unrecognised source is skipped and
-  // logged, so a genuinely new freight pack is one line away rather than silently live.
-  const reference = (list.body as Array<{ id: number; name: string }>).filter((s) =>
-    FREIGHT_REFERENCE_PACKS.has(s.name),
-  );
-
-  const skipped = (list.body as Array<{ id: number; name: string }>)
-    .filter((s) => !FREIGHT_REFERENCE_PACKS.has(s.name) && s.name !== KB_SOURCE_NAME && s.name !== SPACE_SOURCE_NAME)
-    .map((s) => s.name);
-  if (skipped.length) {
-    console.log(`[araxys] not freight, left unattached: ${skipped.join(", ")}`);
-  }
+  const catalogue = list.body as Array<{ id: number; name: string }>;
+  const byId = new Map(catalogue.map((c) => [c.id, c.name]));
 
   const repaired: string[] = [];
+  const removed: string[] = [];
+
   for (const agentId of agentIds) {
+    const allowed = packsFor(agentId);
     const agent = await snap(`/agents/${agentId}`);
     if (!agent.ok) continue;
-    const have = new Set(((agent.body as { knowledgeSourceIds?: number[] }).knowledgeSourceIds) ?? []);
-    for (const src of reference) {
-      if (have.has(src.id)) continue;
+    const have = ((agent.body as { knowledgeSourceIds?: number[] }).knowledgeSourceIds) ?? [];
+    const haveSet = new Set(have);
+
+    // Attach what is missing.
+    for (const src of catalogue) {
+      if (!allowed.has(src.name)) continue;
+      if (haveSet.has(src.id)) continue;
       const a = await snap(`/knowledge-sources/${src.id}/attach-agent/${agentId}`, { method: "POST" });
       if (a.ok) repaired.push(`${agentId}:${src.name}`);
     }
+
+    // And take away what should not be there. Attaching alone only ever grows the set,
+    // so a pack that arrives by any other route -- a dashboard click, another project's
+    // sync, a stale duplicate -- stays forever. This is the half that was missing, and
+    // it is why every hand-detach so far survived exactly one call.
+    const keep = have.filter((id) => allowed.has(byId.get(id) ?? ""));
+    if (keep.length !== have.length) {
+      const patched = await snap(`/agents/${agentId}`, { method: "PATCH", body: JSON.stringify({ knowledgeSourceIds: keep }) });
+      if (patched.ok) {
+        for (const id of have) if (!keep.includes(id)) removed.push(`${agentId}:${byId.get(id) ?? id}`);
+      }
+    }
   }
 
+  if (removed.length) console.log(`[araxys] detached packs that do not belong: ${removed.join(", ")}`);
   if (repaired.length) console.log(`[araxys] re-attached reference packs: ${repaired.join(", ")}`);
-  return { ok: true as const, repaired };
+  return { ok: true as const, repaired, removed };
 }
 
 /** MUST match server/supabase.ts — a caller is identified by the last 10 digits. */
@@ -646,6 +692,7 @@ export async function syncSpaceKb(agentIds: number[] = AGENT_IDS) {
 
   const attached: Record<string, boolean> = {};
   for (const id of agentIds) {
+    if (!packsFor(id).has(SPACE_SOURCE_NAME)) continue;   // the documentation desk gets no sailing board
     const a = await snap(`/knowledge-sources/${sourceId}/attach-agent/${id}`, { method: "POST" });
     attached[String(id)] = a.ok;
   }
@@ -679,6 +726,7 @@ export async function syncKb() {
   const sourceId = (created.body as { id: number }).id;
   const attached: Record<string, boolean> = {};
   for (const id of AGENT_IDS) {
+    if (!packsFor(id).has(KB_SOURCE_NAME)) continue;      // and no customer book either
     const a = await snap(`/knowledge-sources/${sourceId}/attach-agent/${id}`, { method: "POST" });
     attached[String(id)] = a.ok;
   }
