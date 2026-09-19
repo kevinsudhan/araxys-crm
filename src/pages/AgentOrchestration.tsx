@@ -301,6 +301,9 @@ export default function AgentOrchestration() {
    * restarted this interval on every pass and the count never got past one — the caption
    * read "Loading row 1 of 5" forever while the container stayed empty.
    */
+  /** True while the agent is stacking rows, and for a beat after a very short stow. */
+  const stowing = useMinimumOn(!!placement && loaded < (placement?.rows ?? 0), 1400);
+
   const placementKey = placement ? `${placement.reference}:${placement.slotId}:${placement.rows}` : "";
   const placementRows = placement?.rows ?? 0;
   useEffect(() => {
@@ -627,6 +630,8 @@ export default function AgentOrchestration() {
           {/* ---------------------------------------------------------- step 1 */}
           <Step n={1} title="Intake facts" icon={ScanText}
             state={steps[1].state}
+            busy={(fields.length > 0 && fieldsShown < fields.length) || steps[1].state === "running"}
+            activity={fields.length && fieldsShown < fields.length ? `reading field ${fieldsShown + 1} of ${fields.length}` : "reading the transcript"}
             badge={fields.length ? { text: `${Math.min(fieldsShown, fields.length)} of ${REQUEST_FIELDS.length} fields`, tone: fieldsShown >= fields.length ? "ok" : "warn" } : undefined}>
             {!record ? (
               <Empty>
@@ -643,9 +648,13 @@ export default function AgentOrchestration() {
                 {fields.slice(0, 12).map((f, i) => (
                   <div
                     key={f.key}
-                    className={`transition-all duration-500 ${
+                    // agent-land runs once, on the pass where this field first appears:
+                    // it marks an arrival, and a thing that keeps flashing stops reading
+                    // as new. The key includes the index so React remounts it and the
+                    // one-shot animation actually replays per field.
+                    className={`transition-all duration-500 px-1 -mx-1 ${
                       i < fieldsShown ? "opacity-100 translate-y-0" : "opacity-25 translate-y-1"
-                    }`}
+                    } ${i === fieldsShown - 1 && fieldsShown < fields.length ? "agent-land" : ""}`}
                   >
                     <div className="text-[10px] uppercase tracking-wide text-text-muted">{f.label}</div>
                     <div className="text-[12.5px] text-text-primary font-medium tabular-nums mt-0.5 break-words">
@@ -659,6 +668,12 @@ export default function AgentOrchestration() {
 
           {/* ---------------------------------------------------------- step 2 */}
           <Step n={2} title="Space check" icon={Boxes} state={steps[2].state}
+            busy={stowing || steps[2].state === "running"}
+            activity={
+              stowing && placement
+                ? `stacking row ${Math.min(Math.max(1, loaded), placement.rows)} of ${placement.rows}`
+                : "measuring the sailing"
+            }
             badge={fit ? { text: fit.available ? "fits" : "will not fit", tone: fit.available ? "ok" : "warn" } : undefined}>
             {fitReason ? (
               <Empty>
@@ -694,6 +709,7 @@ export default function AgentOrchestration() {
 
                 {scenePlan && (scenePlan.consignments.length > 0 || placement) && (
                   <>
+                    <AgentFocus active={stowing}>
                     <ContainerScene
                       plan={scenePlan}
                       positions={positions}
@@ -704,6 +720,7 @@ export default function AgentOrchestration() {
                       onSelect={() => {}}
                       explode={0}
                     />
+                    </AgentFocus>
                     {placement ? (
                       <p className="text-[11.5px] text-text-muted mt-2">
                         {loaded < placement.rows ? (
@@ -747,7 +764,8 @@ export default function AgentOrchestration() {
 
           {/* ---------------------------------------------------------- steps 3-5 */}
           <div className="grid lg:grid-cols-2 gap-3">
-            <Step n={3} title="Partner selection" icon={Users} state={steps[3].state} compact>
+            <Step n={3} title="Partner selection" icon={Users} state={steps[3].state} compact
+              activity="ranking partners on this lane">
               {record?.quotedAmountInr ? (
                 <Empty tone="ok">
                   Partners were asked and a rate came back. The round is on the enquiry record.
@@ -761,7 +779,8 @@ export default function AgentOrchestration() {
               )}
             </Step>
 
-            <Step n={4} title="Rate requests" icon={Mail} state={steps[4].state} compact>
+            <Step n={4} title="Rate requests" icon={Mail} state={steps[4].state} compact
+              activity="sending rate requests">
               <Empty>
                 Each request becomes a commitment owned by that partner, so whoever goes quiet
                 gets chased by the cut-off sentinel rather than by a person remembering.
@@ -771,6 +790,7 @@ export default function AgentOrchestration() {
 
           {/* ---------------------------------------------------------- step 6 */}
           <Step n={6} title="Pricing" icon={Calculator} state={steps[5].state}
+            activity="working out the sell price"
             badge={record?.quotedAmountInr ? { text: "quoted", tone: "ok" } : undefined}>
             {record?.quotedAmountInr ? (
               <div className="flex flex-wrap items-end gap-8">
@@ -793,7 +813,8 @@ export default function AgentOrchestration() {
           </Step>
 
           {/* ---------------------------------------------------------- step 7 */}
-          <Step n={7} title="Approval" icon={ShieldCheck} state={steps[6].state}>
+          <Step n={7} title="Approval" icon={ShieldCheck} state={steps[6].state}
+            activity="holding for a person">
             {record?.agreedAmountInr ? (
               <Empty tone="ok">Approved and agreed at ₹{record.agreedAmountInr.toLocaleString("en-IN")}.</Empty>
             ) : record?.quotedAmountInr ? (
@@ -998,19 +1019,38 @@ function CallCard({ call, live, turnCount }: { call: LiveCall | RecentCall | nul
 }
 
 function Step({
-  n, title, icon: Icon, state, badge, compact, children,
+  n, title, icon: Icon, state, badge, activity, busy, compact, children,
 }: {
   n: number; title: string; icon: typeof PhoneCall; state: StepState;
-  badge?: { text: string; tone: "ok" | "warn" | "neutral" }; compact?: boolean;
+  badge?: { text: string; tone: "ok" | "warn" | "neutral" };
+  /**
+   * What the agent is doing inside this step, right now, in its own words.
+   *
+   * Shown only while the step is running. The badge beside it says what was FOUND
+   * ("fits", "8 of 9 fields"); this says what is HAPPENING ("loading row 3 of 5"), and
+   * the two are different questions a person watching this page wants answered.
+   */
+  activity?: string;
+  /**
+   * Whether the agent is working in here right now.
+   *
+   * Defaults to the step being the running one, which is usually the same thing. It is
+   * not always: re-opening a finished enquiry replays the stow into the container, so
+   * step 2 is genuinely doing something while its state reads "done". Without this the
+   * glow appeared and the words did not, which is the page contradicting itself.
+   */
+  busy?: boolean;
+  compact?: boolean;
   children: React.ReactNode;
 }) {
+  const working = busy ?? state === "running";
   return (
-    <section className={`rounded-xl border bg-surface-1 ${state === "running" ? "border-amber-300" : "border-border"}`}>
+    <section className={`rounded-xl border bg-surface-1 ${working ? "agent-step" : "border-border"}`}>
       <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border/70">
         <div className="flex items-center gap-2.5 min-w-0">
           <span className={`grid place-items-center w-6 h-6 rounded-lg shrink-0 ${
-            state === "done" ? "bg-brand/10 text-brand"
-            : state === "running" ? "bg-amber-100 text-amber-700"
+            working ? "bg-amber-100 text-amber-700"
+            : state === "done" ? "bg-brand/10 text-brand"
             : "bg-surface-2 text-text-muted"
           }`}>
             <Icon size={13} />
@@ -1020,6 +1060,13 @@ function Step({
             <div className="text-[13px] font-medium text-text-primary truncate">{title}</div>
           </div>
         </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+        {working && activity && (
+          <span className="agent-chip">
+            <span className="agent-chip-dot" aria-hidden="true" />
+            {activity}
+          </span>
+        )}
         {badge && (
           <span className={`text-[10.5px] px-2 py-0.5 rounded-full border shrink-0 ${
             badge.tone === "ok" ? "border-brand/30 bg-brand/5 text-brand"
@@ -1029,10 +1076,53 @@ function Step({
             {badge.text}
           </span>
         )}
+        </div>
       </div>
       <div className={compact ? "p-3.5" : "p-4"}>{children}</div>
     </section>
   );
+}
+
+/**
+ * The one element the agent is acting on this second.
+ *
+ * Stronger than the card's own breathing edge, and deliberately so: the card says where
+ * the agent is, this says what it has its hands on — the container it is stacking a row
+ * into, the figure it has just worked out. The sweep takes no pointer events, so a
+ * container being loaded can still be dragged by a person while it happens.
+ */
+/**
+ * Holds a flag on for a minimum time after it first goes on.
+ *
+ * The container loads a row every 260ms, so a placement one or two rows deep switched the
+ * focus glow on and off again inside half a second — measured at a single 100ms sample.
+ * That is a flicker, not a signal, and a signal nobody can see is the same as none.
+ *
+ * It only ever extends: the glow never appears before the work does, it just outlives a
+ * very short piece of it, which is the honest direction to round in.
+ */
+function useMinimumOn(active: boolean, ms: number): boolean {
+  const [on, setOn] = useState(active);
+  const since = useRef(0);
+  useEffect(() => {
+    if (active) {
+      since.current = Date.now();
+      setOn(true);
+      return;
+    }
+    const left = ms - (Date.now() - since.current);
+    if (left <= 0) {
+      setOn(false);
+      return;
+    }
+    const id = setTimeout(() => setOn(false), left);
+    return () => clearTimeout(id);
+  }, [active, ms]);
+  return on;
+}
+
+function AgentFocus({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return <div className={active ? "agent-focus" : undefined}>{children}</div>;
 }
 
 function StateDot({ state }: { state: StepState }) {
