@@ -7,6 +7,7 @@ import { approvalCounts } from "../services/quoteApproval";
 import { ACCOUNTS_DESK } from "../lib/features";
 import {
   Building2,
+  CalendarClock,
   CalendarRange,
   IndianRupee,
   Handshake,
@@ -117,6 +118,8 @@ const groups: NavGroup[] = [
       // Mail first: it is the daily work, and the directory is the thing you
       // open when something about a partner has changed.
       { to: "/partners/mail", label: "Partner mail", icon: Mail },
+      // The Sunday rate requests (101): the rates that come back each week.
+      { to: "/partners/live-rates", label: "Live rates", icon: CalendarClock },
       { to: "/partners", label: "Directory", icon: Handshake, end: true },
     ],
   },

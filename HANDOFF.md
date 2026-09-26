@@ -18,7 +18,7 @@ new session should read this whole file before changing anything. §0 is the sho
 - **Before every push:** `npm test` (46 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **100**, so the next one is `101-….sql`.
+  migration filename (§6). The last migration is **101**, so the next one is `102-….sql`.
 - **Where things stand:** the tree is clean at the head in §11, everything is pushed, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -90,7 +90,7 @@ v2 has its own Supabase project, `izgbrdeybhbepftloxgk`. v1's project is
   surface) to `mockBackend.ts`. `netlify.toml` keeps `VITE_MOCK_BACKEND=on` and
   deliberately leaves `VITE_API_BASE` unset, so nothing can reach v1.
 
-### Edge Functions (7)
+### Edge Functions (8)
 
 | Function | What it does | Secrets |
 |---|---|---|
@@ -101,9 +101,10 @@ v2 has its own Supabase project, `izgbrdeybhbepftloxgk`. v1's project is
 | `outlook-token` | Keeps Outlook connected past Microsoft's hour (094). `link`: the browser hands over the Microsoft refresh token once after the Microsoft sign-in; it is redeemed and the rotated one kept, sealed, against that Supabase sign-in. `token`: a fresh access token from it. 409 `{reconnect}` when Microsoft has ended the connection | `OUTLOOK_TOKEN_KEY` (`set-outlook-key.mjs`), and the three `MS_*` below |
 | `outlook-connect` | "Connect Outlook" on the Mail page (095), for a login of any kind. POST `start` (checks the caller itself) answers Microsoft's sign-in URL with the login's address filled in; Microsoft returns the browser to the GET, which connects the mailbox **only if it is the login's own** (`lib/outlookConnect.ts`, copied into the function) and goes back to the Mail page with `#outlook=connected / refused / failed`. **verify_jwt OFF** (Microsoft's redirect has no Supabase token): deploy without `--verify-jwt`. Its address must be a Web redirect URI on the Azure app | `OUTLOOK_REDIRECT_URI` (pinned), `OUTLOOK_TOKEN_KEY`, the three `MS_*`; optional `OUTLOOK_APP_ORIGINS` for another site to return to |
 | `mail-sync` | Every CRM login's Sent Items into `mail_log`, app-only Graph; cron every 5 minutes (087), or an admin's button | `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MAIL_SYNC_SECRET` |
+| `live-rates` | The Sunday rate requests (101): `weekly` from pg_cron (Sun 22:30 IST, re-runs every 10 minutes to 23:20), and from the Live rates page `now`, `test` (to the caller only) and `check` (whether Microsoft lets the app send; sends nothing). App-only Graph `sendMail` from the request's mailbox, one mail per partner, 2 s apart | the three `MS_*`, and `MAIL_SYNC_SECRET` as the scheduler's secret (header `x-scheduler-secret`) |
 
 Deploy a function with `node supabase-v2/deploy-function.mjs <slug>` (`--verify-jwt` for
-`track-shipment` and `mail-sync`: the cron sends the anon key and the shared secret).
+`track-shipment`, `mail-sync` and `live-rates`: the cron sends the anon key and the shared secret).
 `node supabase-v2/set-mail-sync-secret.mjs` sets mail-sync's tenant, client id and scheduler
 secret (and `MS_CLIENT_SECRET` from `ms_client_secret` in `server-v2/.keys.json`, if present).
 
@@ -137,7 +138,7 @@ Functions → Secrets. Nothing in the repo reads them.
 | (separate item) | **Job closing** `/job-closing` |
 | Operations | **Sailing schedule** `/sailing-schedule` · Consoles · Documentation · Rate master `/rates` · Mail · Complaints |
 | Customers | Directory `/customers` |
-| Agents & partners | Partner mail · Directory `/partners` |
+| Agents & partners | Partner mail · Live rates `/partners/live-rates` · Directory `/partners` |
 | Accounts (flag) | 14 pages under `/accounts/*` |
 | Insights | Analytics |
 | Admin (admins only) | Team oversight |
@@ -162,7 +163,7 @@ flag on, it also has invoices and costs.
 
 ## 4. Data model — 93 migrations
 
-`supabase-v2/001…100`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…101`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -188,6 +189,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `101` | Live rates: `live_rate_requests` (service, what to quote, mailbox, running), `live_rate_recipients` (partners), `live_rate_sends` (every mail, sent or refused; the function writes it, staff read it). A partner is claimed once per Sunday (unique index). Trigger: the mailbox must be a CRM login and only an admin changes it. Cron `araxys-v2-live-rates` `0,10,20,30,40,50 17 * * 0` (22:30–23:20 IST) with the scheduler's Vault secrets |
 | `100` | ICEGATE's replies: `csn_files.reply_status` (accepted / rejected / failed), `reply` (as read), `replied_at/by`; `csn_file_reply(job, status, reply)` writes them (staff; the table stays read-only); `shipment_customs.cin_type/cin_no` for each house's CIN |
 | `099` | CSN amendments: `csn_files.draft` keeps the form each file was made from; `csn_file_new` takes it as a fifth argument (the four-argument version is dropped) and accepts the event SCA |
 | `098` | `icegate_settings.iec`: the desk's IEC for the export CSN, when it is not the PAN (the CSN uses the PAN when blank) |
@@ -448,6 +450,14 @@ screen.
     shows "Microsoft rejected the CRM app's client secret". Renew it as in §1.
   - Optional: an Exchange `ApplicationAccessPolicy` can limit the app to the desk's
     mailboxes. That is the user's call.
+- **Live rates need Microsoft's permission to send (101).** The Azure app above has only
+  `Mail.ReadBasic.All`. Add **Mail.Send (application)** and grant admin consent: Azure portal →
+  App registrations → the app → API permissions → Add a permission → Microsoft Graph →
+  Application permissions → Mail.Send → Grant admin consent. Checked 26 Sep: `canSend` false.
+  Until it is granted every Sunday send is refused and logged, and the page says so.
+  - Mail.Send (application) can send as any mailbox in the tenant. The CRM only ever sends from
+    a CRM login's mailbox (the table's trigger), and only an admin changes which. The
+    `ApplicationAccessPolicy` above would narrow Microsoft's side too.
 - The voice-era secrets above: remove them in the dashboard.
 - (Done 26 Sep: `server/`, the first version's Express backend with the voice-agent import
   code, was removed with `scripts/seed-space.ts` and the packages only it used: express, cors,
@@ -699,6 +709,31 @@ screen.
     - **Unconfirmed:** the reader follows Customs' 2020 samples. Check the first real ACK reads
       as expected: the CSN number, and the CINs landing on the right jobs.
   - **Recording by hand** stays, for a reply that came some other way.
+
+- **Live rates (101, 26 Sep).** Agents & partners → Live rates. The desk names a service
+  ("FCL 20' / 40' · Chennai → Jebel Ali"), says what to quote, and picks the partners.
+  - **When:** every Sunday at 10:30 pm IST each partner gets their own mail (nobody sees who else
+    was asked). It asks for the Monday to the Sunday after, so the rates are in on Monday
+    morning. A mail sent by hand asks from that day to the coming Sunday.
+  - **The mail:** `lib/liveRates.ts`, copied into the function with `lib/company.ts` (a test
+    keeps both copies identical). The subject starts "Rate request", so Team oversight files it
+    as one. It is sent from the request's mailbox (info@ by default), so replies land there and
+    show under Partner mail.
+  - **Sending:** the `live-rates` function, app-only (nobody signed in), needs Mail.Send (§9).
+    Exchange takes about 30 mails a minute from a mailbox, so mails go 2 s apart. A run stops
+    after 100 s and the next 10-minute run carries on. Each partner is claimed once per Sunday,
+    so re-runs retry only failures and never mail twice. A refusal of the app itself (no
+    permission, bad secret) stops the run.
+  - **The page:** next send and the week it asks for; whether Microsoft lets the app send (with
+    the Azure steps if not); per request, last Sunday's result partner by partner with
+    Microsoft's reason for any refusal, a preview of the exact mail, **Send a test to me** (to
+    the signed-in person only), **Send now** (after a confirm; a second press within 5 minutes
+    skips partners already mailed), Pause, Edit, Delete.
+  - **Verified 26 Sep:** the database guard as an employee and an admin (rolled back); the
+    function refuses anonymous callers and anything but `weekly` from the scheduler; a real
+    `weekly` run with no requests sends nothing and reports `canSend: false`; the page in a
+    harness. No mail was sent: the two partners on the directory are real.
+  - **Not built:** reading the rates that come back into the Rate master.
 - **Passwords (26 Sep).** Auth settings: at least 10 characters, with letters and a number
   (`password_min_length` 10, `password_required_characters` letters:digits). The staff-accounts
   function and the Staff accounts screen check the same rule first, so the admin reads a plain
@@ -859,6 +894,7 @@ There are 63 commits. Grouped:
 | Free time (083) | see `git log` | Free days and D&D rates per job; each box's clocks on the Containers tab; an alert on the job file header and the worklist (badge, "Free time running out" filter, urgency sort, Excel column); the terms on the arrival notice |
 | Team oversight (086, 087) | see `git log` | A live view of the desk: every mail each mailbox sent and to whom (from Outlook too), enquiries taken on, quoted and booked, job steps ticked, per person and per period. A server copy of every mailbox every 5 minutes |
 | Sign-ups closed, staff accounts, backups (093) | see `git log` | Only an admin adds staff (Staff accounts); the leaked starter password is dead; a tested nightly backup with a status card, downloads and a restore script |
+| Live rates (101) | see `git log` | Name a service, pick the partners: every Sunday 10:30 pm IST each gets their own mail asking for the coming week's rates, from info@, replies under Partner mail. Send now, a test to yourself, preview, pause; every send and Microsoft's reason for any refusal on the page |
 | ICEGATE replies (100) | see `git log` | "Read a reply" takes ICEGATE's ACK or SFL, finds the file by job number, shows each error on its house and container in the desk's words, and on an accepted live file records the CSN number and date and the MCIN/PCINs; a rejected file stops being the amendment baseline |
 | CSN amendments (SCA, 099) | see `git log` | Once the CSN number is recorded, the panel lists what changed since the last live file and makes the amendment with only that, flagged U/S/D, pointing back at the CSN; houses keep their sub-lines across amendments; checked against CBIC's SCA schema |
 | CSN for exports (SCX, 098) | see `git log` | An export console makes the CSN on exit: the desk as shipper with its IEC, each house pointing at its exporter's shipping bill by PCIN, shaped by cargo movement as the guide's table says; checked against CBIC's schema |

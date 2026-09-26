@@ -79,6 +79,7 @@ const CustomerEdit = lazy(() => import("./pages/CustomerEdit"));
 const Partners = lazy(() => import("./pages/Partners"));
 const PartnerEdit = lazy(() => import("./pages/PartnerEdit"));
 const PartnerMail = lazy(() => import("./pages/PartnerMail"));
+const LiveRates = lazy(() => import("./pages/LiveRates"));
 const PartnerThreads = lazy(() => import("./pages/PartnerThreads"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 
@@ -245,6 +246,7 @@ export default function App() {
             <Route path="/partners/new" element={<PartnerEdit />} />
             <Route path="/partners/:id/edit" element={<PartnerEdit />} />
             <Route path="/partners/mail" element={<PartnerMail />} />
+            <Route path="/partners/live-rates" element={<LiveRates />} />
             <Route path="/partners/mail/:id" element={<PartnerThreads />} />
             <Route path="/analytics" element={<Analytics />} />
           </Route>
