@@ -29,8 +29,9 @@ import SignatureEditor from "../components/SignatureEditor";
 import PushMailToQueue from "../components/PushMailToQueue";
 import FileToEnquiry from "../components/FileToEnquiry";
 import MailBody from "../components/MailBody";
-import MessageHeader from "../components/MessageHeader";
 import MailListRow from "../components/MailListRow";
+import MailConversation from "../components/MailConversation";
+import { groupIntoThreads } from "../lib/threads";
 import { useAuth } from "../lib/auth";
 import { outcomeText } from "../lib/outlookConnect";
 import type { ComposeMode } from "../lib/mailQuote";
@@ -147,6 +148,21 @@ export default function Mail() {
    */
   const [replyRef, setReplyRef] = useState<string | null>(null);
   const [editingSignature, setEditingSignature] = useState(false);
+  /** Bumped after a send, so the open conversation fetches the reply just sent. */
+  const [sentTick, setSentTick] = useState(0);
+  /**
+   * How many messages each conversation holds, once one has been opened.
+   *
+   * The list only knows the messages in this folder — a customer's two mails in
+   * Inbox, not our three replies in Sent — so the count on a row grows to the
+   * real one when the conversation is read.
+   */
+  const [sizes, setSizes] = useState<Map<string, number>>(new Map());
+  const noteSize = useCallback(
+    (conversationId: string, n: number) =>
+      setSizes((prev) => (prev.get(conversationId) === n ? prev : new Map(prev).set(conversationId, n))),
+    []
+  );
   const live = mailIsLive();
 
   /*
@@ -337,6 +353,13 @@ export default function Mail() {
     () => messages.find((m) => m.id === selectedId) ?? null,
     [messages, selectedId]
   );
+
+  /**
+   * The folder as conversations, the way Outlook lists it: one row each, drawn
+   * from its newest message here, most recent first. A reply and the mail it
+   * answers were two rows that nothing tied together.
+   */
+  const conversations = useMemo(() => groupIntoThreads(messages), [messages]);
   const selected = useMemo(
     () => (full && full.id === selectedId ? { ...row, ...full } : row),
     [row, full, selectedId]
@@ -381,7 +404,12 @@ export default function Mail() {
     loadBody(wanted);
   }, [wanted, setParams, loadBody]);
 
-  async function open(m: MailMessage) {
+  /**
+   * Opens a message — from the list, the conversation's newest here — and marks
+   * the conversation's unread ones in this folder read, as Outlook does when a
+   * conversation is selected.
+   */
+  async function open(m: MailMessage, conversation: MailMessage[] = [m]) {
     setSelectedId(m.id);
 
     // The next message opened starts at its own top, not part-way down where
@@ -394,27 +422,38 @@ export default function Mail() {
     // The body has to be fetched; the row does not have one.
     loadBody(m.id);
 
-    if (!m.isRead) {
+    const unread = conversation.filter((x) => !x.isRead);
+    if (unread.length) {
       // Optimistic: the row should stop looking unread the instant it is clicked.
-      setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, isRead: true } : x)));
-      setFolders((prev) =>
-        prev.map((f) => (f.id === "inbox" ? { ...f, unread: Math.max(0, f.unread - 1) } : f))
-      );
+      const ids = new Set(unread.map((x) => x.id));
+      setMessages((prev) => prev.map((x) => (ids.has(x.id) ? { ...x, isRead: true } : x)));
+      if (folder === "inbox") {
+        setFolders((prev) =>
+          prev.map((f) => (f.id === "inbox" ? { ...f, unread: Math.max(0, f.unread - unread.length) } : f))
+        );
+      }
       try {
-        await setMailRead(mailbox, m.id, true);
+        await Promise.all(unread.map((x) => setMailRead(mailbox, x.id, true)));
       } catch {
         void load();
       }
     }
   }
 
+  /**
+   * Archives the conversation's messages in this folder, not only the one open:
+   * the list shows the conversation as one row, and archiving one message of
+   * three left the row standing on the next one, as if nothing had happened.
+   */
   async function archive(m: MailMessage) {
-    setMessages((prev) => prev.filter((x) => x.id !== m.id));
+    const going = m.conversationId ? messages.filter((x) => x.conversationId === m.conversationId) : [];
+    if (!going.some((x) => x.id === m.id)) going.push(m);
+    const ids = new Set(going.map((x) => x.id));
+    setMessages((prev) => prev.filter((x) => !ids.has(x.id)));
     setSelectedId(null);
     try {
-      await moveMailMessage(mailbox, m.id, "archive");
-      void load();
-    } catch {
+      await Promise.all(going.map((x) => moveMailMessage(mailbox, x.id, "archive")));
+    } finally {
       void load();
     }
   }
@@ -627,17 +666,22 @@ export default function Mail() {
             </p>
           ) : (
             <ul className="divide-y divide-border max-h-[calc(100vh-260px)] min-h-[300px] overflow-y-auto overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
-              {messages.map((m) => (
-                <MailListRow
-                  key={m.id}
-                  message={m}
-                  folder={folder}
-                  selected={selectedId === m.id}
-                  queued={queued.get(m.id)}
-                  onOpen={() => void open(m)}
-                  onChanged={() => void load()}
-                />
-              ))}
+              {conversations.map((t) => {
+                const newest = t.messages[t.messages.length - 1];
+                return (
+                  <MailListRow
+                    key={t.conversationId}
+                    message={newest}
+                    folder={folder}
+                    selected={Boolean(selected) && (t.conversationId === selected?.conversationId || t.messages.some((m) => m.id === selectedId))}
+                    queued={t.messages.map((m) => queued.get(m.id)).find(Boolean)}
+                    count={Math.max(t.messages.length, sizes.get(t.conversationId) ?? 0)}
+                    anyUnread={t.unread}
+                    onOpen={() => void open(newest, t.messages)}
+                    onChanged={() => void load()}
+                  />
+                );
+              })}
             </ul>
           )}
 
@@ -759,8 +803,8 @@ export default function Mail() {
                 {selected.folder !== "archive" && (
                   <button
                     onClick={() => void archive(selected)}
-                    title="Archive"
-                    aria-label="Archive"
+                    title="Archive the conversation"
+                    aria-label="Archive the conversation"
                     className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
                   >
                     <Archive size={13} />
@@ -771,52 +815,62 @@ export default function Mail() {
               </div>
 
               <div ref={readerScroll} className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain lg:px-5 lg:pb-5">
-              {/* Sender, recipients and the forward chain, as one record of who
-                  is involved rather than three lines of grey text. */}
-              <MessageHeader
+              {/*
+                The whole conversation, Outlook's way: this message open, every
+                other one in the thread — from any folder — a line that opens in
+                place. A conversation of one reads exactly as a single message.
+              */}
+              <MailConversation
+                mailbox={mailbox}
                 message={selected}
                 complete={Boolean(full && full.id === selectedId)}
-                when={fullTime(selected.receivedDateTime)}
+                when={fullTime}
+                refresh={sentTick}
+                onSize={noteSize}
+                onReply={(m, mode) => setComposing({ replyTo: m, mode })}
+                opened={
+                  <>
+                    <ShipmentLinks text={`${selected.subject} ${selected.body.content}`} />
+
+                    <div className="mt-4 pt-4 border-t border-border">
+                      {/*
+                        The body is only ever drawn from the fetched message. The list
+                        row carries a 255-character preview in the same shape, and
+                        rendering that on a failure is what made a broken request look
+                        like a short mail.
+                      */}
+                      {full && full.id === selectedId ? (
+                        <MailBody message={selected} />
+                      ) : bodyError ? (
+                        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-bg-danger px-3 py-2.5 text-[12px] text-text-danger">
+                          <span className="inline-flex items-start gap-2">
+                            <AlertCircle size={13} className="mt-px shrink-0" />
+                            {bodyError}
+                          </span>
+                          <button
+                            onClick={() => loadBody(selected.id)}
+                            className="h-7 px-2.5 rounded-lg border border-current/30 text-[12px] hover:bg-white/40 transition-colors"
+                          >
+                            Try again
+                          </button>
+                        </div>
+                      ) : (
+                        <SectionSkeleton lines={5} label="Loading the message" className="py-2" />
+                      )}
+                    </div>
+
+                    {/*
+                      No enquiryRef: this screen is the mailbox, not a case. A message
+                      here may belong to no enquiry, or to one nobody has decided on
+                      yet — saving an attachment would have to guess which, and a
+                      customer's packing list filed onto the wrong job is worse than
+                      one not filed at all. File the thread first, then save from the
+                      case file.
+                    */}
+                    <MessageAttachments message={selected} />
+                  </>
+                }
               />
-
-              <ShipmentLinks text={`${selected.subject} ${selected.body.content}`} />
-
-              <div className="mt-4 pt-4 border-t border-border">
-                {/*
-                  The body is only ever drawn from the fetched message. The list
-                  row carries a 255-character preview in the same shape, and
-                  rendering that on a failure is what made a broken request look
-                  like a short mail.
-                */}
-                {full && full.id === selectedId ? (
-                  <MailBody message={selected} />
-                ) : bodyError ? (
-                  <div className="flex flex-wrap items-center gap-3 rounded-lg bg-bg-danger px-3 py-2.5 text-[12px] text-text-danger">
-                    <span className="inline-flex items-start gap-2">
-                      <AlertCircle size={13} className="mt-px shrink-0" />
-                      {bodyError}
-                    </span>
-                    <button
-                      onClick={() => loadBody(selected.id)}
-                      className="h-7 px-2.5 rounded-lg border border-current/30 text-[12px] hover:bg-white/40 transition-colors"
-                    >
-                      Try again
-                    </button>
-                  </div>
-                ) : (
-                  <SectionSkeleton lines={5} label="Loading the message" className="py-2" />
-                )}
-              </div>
-
-              {/*
-                No enquiryRef: this screen is the mailbox, not a case. A message
-                here may belong to no enquiry, or to one nobody has decided on
-                yet — saving an attachment would have to guess which, and a
-                customer's packing list filed onto the wrong job is worse than
-                one not filed at all. File the thread first, then save from the
-                case file.
-              */}
-              <MessageAttachments message={selected} />
               </div>
             </article>
           )}
@@ -842,6 +896,7 @@ export default function Mail() {
           onClose={() => setComposing(null)}
           onSent={() => {
             setComposing(null);
+            setSentTick((t) => t + 1);
             void load();
           }}
         />

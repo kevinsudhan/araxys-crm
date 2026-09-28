@@ -467,6 +467,20 @@ formatting alone.
 **Graph threading needs `createReply`, not `sendMail`.** Also, `internetMessageHeaders` is
 not in Graph's default fields, and `$select` replaces the defaults rather than adding to them.
 
+**Mail threads (28 Sep).** The Mail page lists a folder by conversation (one row, its newest
+message there, with a count) and reads a whole conversation from every folder
+(`MailConversation.tsx`, `graphMail.messagesInConversation`): the opened message expanded,
+the others one line each that expand in place with their own Reply / Reply all / Forward.
+Deleted, junk and draft messages are left out. Archive moves the conversation's messages in
+that folder. The quotation, booking confirmation and tracking-link mails no longer start new
+conversations: `services/customerThread.ts` `threadWith` finds the newest message with that
+person in the job's correspondence (bound threads plus anything carrying the reference) and
+`ComposeMail` answers it (`replyTo` with `initial`), under the thread's own subject plus the
+reference, with the thread quoted under it. Gmail splits a thread whose subject changes, which
+is why the letter's own subject is not used there. No such message in the signed-in mailbox
+(a phoned-in job, or mail that came to a colleague) means a new conversation, and the compose
+window says so.
+
 **Email HTML must be table-based with inline styles.**
 
 - The rich-text editor's sanitiser (`RichTextEditor.tsx`) allows email tables, `bgcolor`

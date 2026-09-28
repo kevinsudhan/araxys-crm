@@ -20,6 +20,8 @@ import { quotationFile, renderQuotationPdf } from "../lib/documents";
 import { quotationHtml, quotationMessage, quotationSubject } from "../lib/quotationMail";
 import { MAIL_LOGO_PATH } from "../lib/company";
 import { acceptUrl, isReachable, issueLink } from "../services/publicQuote";
+import { threadWith } from "../services/customerThread";
+import type { MailMessage } from "../services/backend";
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
 import { linesFor, type QuoteLine } from "../services/quoteLines";
 import {
@@ -96,6 +98,12 @@ export default function QuoteSend({
    * the mail twice does not leave two.
    */
   const [link, setLink] = useState<string | null>(null);
+  /**
+   * The customer's conversation on this job, when there is one in this
+   * mailbox: the quotation goes as a reply in it rather than as a new thread.
+   */
+  const [replyTo, setReplyTo] = useState<MailMessage | null>(null);
+  const [opening, setOpening] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -179,6 +187,11 @@ export default function QuoteSend({
    * from the first is how a customer ends up holding two quotations.
    */
   function openMail() {
+    if (opening) return;
+    setOpening(true);
+    // Looked for while the link is issued. A failed look is a new conversation,
+    // not a quotation that cannot be sent.
+    const thread = threadWith(enquiry.ref, session?.email ?? "", [to, ...(customer?.emails ?? [])]).catch(() => null);
     // The accept link is only issued for a cleared quotation, so an admin's
     // send clears it first. For everybody else `ready` already means cleared.
     const cleared =
@@ -191,7 +204,12 @@ export default function QuoteSend({
       // Best-effort: a quotation that cannot carry an accept button is still a
       // quotation worth sending.
       .catch(() => setLink(null))
-      .finally(() => setComposing(true));
+      .then(() => thread)
+      .then((m) => {
+        setReplyTo(m);
+        setComposing(true);
+      })
+      .finally(() => setOpening(false));
   }
 
   async function persistTerms() {
@@ -438,9 +456,10 @@ export default function QuoteSend({
             <button
               type="button"
               onClick={openMail}
-              className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-[12px] font-medium text-white hover:bg-brand-dark"
+              disabled={opening}
+              className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
             >
-              <Mail size={13} /> Email the quotation
+              {opening ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />} Email the quotation
             </button>
             <button
               type="button"
@@ -482,9 +501,10 @@ export default function QuoteSend({
             <button
               type="button"
               onClick={openMail}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-border-strong bg-surface-1 px-3 text-[12px] font-medium text-text-primary hover:bg-surface-2"
+              disabled={opening}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-border-strong bg-surface-1 px-3 text-[12px] font-medium text-text-primary hover:bg-surface-2 disabled:opacity-60"
             >
-              <Mail size={13} /> Send again
+              {opening ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />} Send again
             </button>
             <button
               type="button"
@@ -530,9 +550,17 @@ export default function QuoteSend({
           signature={session?.signature ?? ""}
           enquiryRef={enquiry.ref}
           reference={enquiry.ref}
+          /*
+            Into the customer's thread when there is one: a reply to its newest
+            message, under the subject it already has (with the reference), so
+            the quotation sits in the same conversation as their enquiry.
+          */
+          replyTo={replyTo ?? undefined}
+          mode="reply"
+          newThreadNote={`No earlier mail with ${to} on ${enquiry.ref} in your mailbox, so this starts a new conversation.`}
           initial={{
             to,
-            subject: quotationSubject({ enquiry, quote }),
+            subject: replyTo ? undefined : quotationSubject({ enquiry, quote }),
             body: quotationHtml({
               enquiry,
               customer,
@@ -560,6 +588,7 @@ export default function QuoteSend({
           onClose={() => {
             setComposing(false);
             setLink(null);
+            setReplyTo(null);
           }}
           onSent={() => {
             setComposing(false);

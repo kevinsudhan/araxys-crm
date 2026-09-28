@@ -11,6 +11,8 @@ import { milestonesFor } from "../services/milestones";
 import { isReachable } from "../services/publicQuote";
 import { extraPartiesFor, type ExtraParty } from "../services/shipmentExtras";
 import { issueTrackLink, trackUrl } from "../services/tracking";
+import { threadWith } from "../services/customerThread";
+import type { MailMessage } from "../services/backend";
 
 /**
  * "Email the tracking link" — the customer's page, sent from the Tracking tab.
@@ -52,7 +54,8 @@ export default function SendTrackingLink({
   const { session } = useAuth();
   const [extra, setExtra] = useState<ExtraParty[]>([]);
   const [to, setTo] = useState("");
-  const [draft, setDraft] = useState<{ subject: string; body: string } | null>(null);
+  /** With the conversation it answers, when this person already has one on the job. */
+  const [draft, setDraft] = useState<{ subject: string; body: string; replyTo: MailMessage | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,8 +91,14 @@ export default function SendTrackingLink({
     setBusy(true);
     setError(null);
     try {
-      const [link, milestones] = await Promise.all([issueTrackLink(s.id), milestonesFor(s.id)]);
       const chosen = options.find((o) => o.value === to);
+      // The customer is any of their addresses; anybody else is the one chosen.
+      const same = chosen?.hint === "Customer" ? [to, ...(customer?.emails ?? [])] : [to];
+      const [link, milestones, replyTo] = await Promise.all([
+        issueTrackLink(s.id),
+        milestonesFor(s.id),
+        threadWith(s.enquiry_ref, session?.email ?? "", same).catch(() => null),
+      ]);
       const latest = customerView(milestones).latest;
       const input = {
         ref: s.enquiry_ref,
@@ -109,7 +118,7 @@ export default function SendTrackingLink({
         etaTime: s.eta_time,
         houseBill: s.bl_number,
       };
-      setDraft({ subject: trackingMailSubject(input), body: trackingMailHtml(input) });
+      setDraft({ subject: trackingMailSubject(input), body: trackingMailHtml(input), replyTo });
     } catch (e) {
       setError(failureText(e, "Could not prepare the mail.").message);
     } finally {
@@ -149,7 +158,11 @@ export default function SendTrackingLink({
           signature={session?.signature ?? ""}
           enquiryRef={s.enquiry_ref}
           reference={s.enquiry_ref}
-          initial={{ to, subject: draft.subject, body: draft.body }}
+          // Into their conversation on this job when there is one, not a new thread.
+          replyTo={draft.replyTo ?? undefined}
+          mode="reply"
+          newThreadNote={`No earlier mail with ${to} on ${s.enquiry_ref} in your mailbox, so this starts a new conversation.`}
+          initial={{ to, subject: draft.replyTo ? undefined : draft.subject, body: draft.body }}
           onClose={() => setDraft(null)}
           onSent={() => {
             setDraft(null);

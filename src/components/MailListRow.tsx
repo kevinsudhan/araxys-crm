@@ -44,13 +44,20 @@ export default function MailListRow({
   folder,
   selected,
   queued,
+  count = 1,
+  anyUnread,
   onOpen,
   onChanged,
 }: {
+  /** The conversation's newest message in this folder, which the row stands for. */
   message: MailMessage;
   folder: FolderId;
   selected: boolean;
   queued?: Pick<Intake, "id" | "status" | "enquiry_ref">;
+  /** How many messages the conversation holds, as far as is known. */
+  count?: number;
+  /** Whether anything in the conversation is unread, not only the newest. */
+  anyUnread?: boolean;
   onOpen: () => void;
   onChanged: () => void;
 }) {
@@ -61,7 +68,7 @@ export default function MailListRow({
       : message.from.emailAddress;
 
   const who = other?.name?.trim() || other?.address || "—";
-  const unread = !message.isRead && folder === "inbox";
+  const unread = (anyUnread ?? !message.isRead) && folder === "inbox";
 
   return (
     /*
@@ -119,6 +126,15 @@ export default function MailListRow({
               {who}
             </span>
 
+            {/* A conversation, not one message: how many, as Outlook counts them. */}
+            {count > 1 && (
+              <span
+                title={`${count} messages in this conversation`}
+                className="shrink-0 rounded-full border border-border bg-surface-1 px-1.5 text-[10.5px] font-medium tabular-nums leading-4 text-text-secondary"
+              >
+                {count}
+              </span>
+            )}
             {message.importance === "high" && (
               <AlertCircle size={11} className="shrink-0 text-text-danger" />
             )}
@@ -158,7 +174,7 @@ export default function MailListRow({
 }
 
 /** Today shows a clock; anything older shows a date. */
-function shortTime(iso: string): string {
+export function shortTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const now = new Date();

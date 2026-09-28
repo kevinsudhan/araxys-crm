@@ -11,6 +11,7 @@ import MailAttachments, { type Attachable, type Attached } from "./MailAttachmen
 import { bytesToBase64 } from "../lib/base64";
 import { composeSubject, quoteHeaderHtml, quotedBodyHtml, replyRecipients, type ComposeMode } from "../lib/mailQuote";
 import { inlineForeign } from "../lib/mailHtml";
+import { baseSubject } from "../lib/threads";
 
 /**
  * Compose, reply, reply all and forward.
@@ -39,6 +40,7 @@ export default function ComposeMail({
   attachables,
   loadAttachables,
   attachments: initialAttachments,
+  newThreadNote,
 }: {
   mailbox: string;
   fromName: string;
@@ -104,6 +106,12 @@ export default function ComposeMail({
    * conversation, without anybody having to remember to file it.
    */
   reference?: string | null;
+  /**
+   * Why a CRM mail that would answer the job's thread is starting a new one
+   * instead — no earlier mail with this person in this mailbox. Shown above
+   * the form, so nobody is surprised when it arrives on its own.
+   */
+  newThreadNote?: string;
 }) {
   /**
    * The signature is seeded into the editable body rather than bolted on at
@@ -144,13 +152,15 @@ export default function ComposeMail({
    * would get two.
    */
   // Worked out once: folding a long thread's stylesheet in is not free.
+  // A CRM mail (a quotation, a confirmation) sent into the job's thread
+  // carries the thread under it, as any reply does.
   const [tail] = useState(() =>
-    initial?.body !== undefined
-      ? sig
-      : replyTo
-        ? `${sig}<div><br></div>${quoteHeaderHtml(replyTo)}${inlineForeign(quotedBodyHtml(replyTo))}`
-        : sig
+    replyTo
+      ? `${sig}<div><br></div>${quoteHeaderHtml(replyTo)}${inlineForeign(quotedBodyHtml(replyTo))}`
+      : sig
   );
+  /** A drafted letter going into the conversation already running with them. */
+  const inThread = Boolean(replyTo && answering && initial?.body !== undefined);
 
   /**
    * What the box opens with.
@@ -293,7 +303,10 @@ export default function ComposeMail({
         failure reported here would read as a send failure and invite a second
         copy of the same reply.
       */
-      if (replyTo && answering) await recordReply({ repliedTo: replyTo, partnerId });
+      // Not for an answer to our own message: that answers nobody.
+      if (replyTo && answering && replyTo.from.emailAddress.address?.toLowerCase() !== mailbox.toLowerCase()) {
+        await recordReply({ repliedTo: replyTo, partnerId });
+      }
 
       onSent();
     } catch (err) {
@@ -345,6 +358,19 @@ export default function ComposeMail({
                 folder. Connect Outlook on the Mail page to send for real.
               </span>
             </div>
+          )}
+
+          {inThread && replyTo && (
+            <p className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12px] text-text-secondary">
+              Goes as a reply in the conversation{" "}
+              <strong className="font-medium text-text-primary">“{baseSubject(replyTo.subject)}”</strong>, under
+              the subject it already has, so it stays in one thread in their mailbox and yours.
+            </p>
+          )}
+          {!replyTo && newThreadNote && live && (
+            <p className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12px] text-text-secondary">
+              {newThreadNote}
+            </p>
           )}
 
           <Row label="From">
@@ -405,7 +431,7 @@ export default function ComposeMail({
             Offered on replies only. A new message has no thread to answer, and
             a model given nothing to work from writes filler.
           */}
-          {replyTo && answering && (
+          {replyTo && answering && !inThread && (
             <div className="mt-3 overflow-hidden rounded-card border border-border bg-surface-2">
               <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
                 <span

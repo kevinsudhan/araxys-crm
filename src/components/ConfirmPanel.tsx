@@ -3,7 +3,8 @@ import { AlertCircle, Loader2, MailCheck } from "lucide-react";
 import ComposeMail from "./ComposeMail";
 import { MAIL_LOGO_PATH } from "../lib/company";
 import { confirmationHtml, confirmationSubject } from "../lib/confirmationMail";
-import { mailIsLive } from "../services/backend";
+import { mailIsLive, type MailMessage } from "../services/backend";
+import { threadWith } from "../services/customerThread";
 import {
   linkCustomerEmail,
   logEvent,
@@ -63,6 +64,9 @@ export default function ConfirmPanel({
   const known = customer?.emails ?? [];
   const [address, setAddress] = useState(known[0] ?? "");
   const [composing, setComposing] = useState(false);
+  /** The customer's conversation on this job, which the confirmation answers. */
+  const [replyTo, setReplyTo] = useState<MailMessage | null>(null);
+  const [opening, setOpening] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +74,19 @@ export default function ConfirmPanel({
 
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address.trim());
   const isNew = valid && !known.some((e) => e.toLowerCase() === address.trim().toLowerCase());
+
+  /** Into the customer's thread when there is one in this mailbox; a new one when not. */
+  function openMail() {
+    if (opening) return;
+    setOpening(true);
+    void threadWith(enquiry.ref, mailbox, [address, ...known])
+      .catch(() => null)
+      .then((m) => {
+        setReplyTo(m);
+        setComposing(true);
+      })
+      .finally(() => setOpening(false));
+  }
 
   /** Recorded only once the message has actually gone. */
   async function sent() {
@@ -120,12 +137,12 @@ export default function ConfirmPanel({
         </label>
 
         <button
-          onClick={() => setComposing(true)}
-          disabled={!valid || saving}
+          onClick={openMail}
+          disabled={!valid || saving || opening}
           className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-[12px] font-medium disabled:opacity-60 bg-brand hover:bg-brand-dark text-white"
           title={valid ? undefined : "Enter an email address first"}
         >
-          {saving ? <Loader2 size={13} className="animate-spin" /> : <MailCheck size={13} />}
+          {saving || opening ? <Loader2 size={13} className="animate-spin" /> : <MailCheck size={13} />}
           Send confirmation
         </button>
       </div>
@@ -156,9 +173,14 @@ export default function ConfirmPanel({
           mailbox={mailbox}
           fromName={fromName}
           signature={signature}
+          enquiryRef={enquiry.ref}
+          reference={enquiry.ref}
+          replyTo={replyTo ?? undefined}
+          mode="reply"
+          newThreadNote={`No earlier mail with ${address.trim()} on ${enquiry.ref} in your mailbox, so this starts a new conversation.`}
           initial={{
             to: address.trim(),
-            subject: confirmationSubject(enquiry),
+            subject: replyTo ? undefined : confirmationSubject(enquiry),
             body: confirmationHtml({
               enquiry,
               customer,
@@ -168,8 +190,14 @@ export default function ConfirmPanel({
               logoSrc: `${window.location.origin}${MAIL_LOGO_PATH}`,
             }),
           }}
-          onClose={() => setComposing(false)}
-          onSent={() => void sent()}
+          onClose={() => {
+            setComposing(false);
+            setReplyTo(null);
+          }}
+          onSent={() => {
+            setReplyTo(null);
+            void sent();
+          }}
         />
       )}
     </section>

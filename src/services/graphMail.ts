@@ -992,17 +992,70 @@ export const participantsQuery = (address: string) =>
 /** A bare phrase — subject and body, not the recipient fields. */
 export const mentionsQuery = (address: string) => `"${address.trim().replace(/"/g, "")}"`;
 
+/**
+ * The ids behind the folders a conversation is sorted by, per mailbox.
+ *
+ * A message's parentFolderId is an opaque id that differs from one mailbox to
+ * the next, so the well-known names are resolved once and compared against. A
+ * folder that cannot be resolved (no Archive yet) is simply left out; a mailbox
+ * where none could be is not remembered, so the next conversation asks again.
+ */
+type KnownFolder = "sent" | "drafts" | "archive" | "deleted" | "junk";
+const KNOWN_FOLDER: Record<KnownFolder, string> = {
+  sent: "sentitems",
+  drafts: "drafts",
+  archive: "archive",
+  deleted: "deleteditems",
+  junk: "junkemail",
+};
+const knownIds = new Map<string, Promise<Partial<Record<KnownFolder, string>>>>();
+
+function knownFolderIds(mailbox: string): Promise<Partial<Record<KnownFolder, string>>> {
+  const kept = knownIds.get(mailbox);
+  if (kept) return kept;
+  const asked = Promise.all(
+    (Object.keys(KNOWN_FOLDER) as KnownFolder[]).map((k) =>
+      graph<{ id: string }>(`/me/mailFolders/${KNOWN_FOLDER[k]}?$select=id`)
+        .then((f) => [k, f.id] as const)
+        .catch(() => [k, ""] as const)
+    )
+  ).then((pairs) => {
+    const found = Object.fromEntries(pairs.filter(([, id]) => id)) as Partial<Record<KnownFolder, string>>;
+    if (!Object.keys(found).length) knownIds.delete(mailbox);
+    return found;
+  });
+  knownIds.set(mailbox, asked);
+  return asked;
+}
+
+/**
+ * Every message in one conversation, wherever it sits — Inbox, Sent, Archive.
+ *
+ * What the Mail page's conversation view and the case file read a thread from.
+ * Deleted and junk messages are left out, as Outlook leaves them out of its own
+ * conversation view, and each message says which folder it is in, so the page
+ * can tell what was sent from here from what arrived.
+ *
+ * Unordered: Graph refuses $orderby alongside a conversationId filter, so the
+ * caller sorts. A hundred is more than any freight thread runs to.
+ */
 export async function messagesInConversation(
   mailbox: string,
   conversationId: string
 ): Promise<MailMessage[]> {
-  const data = await graph<{ value: GraphMessage[] }>(
-    `/me/messages?$select=${LIST_SELECT}` +
-      `&$filter=conversationId eq '${conversationId.replace(/'/g, "''")}'` +
-      `&$top=25`
-  );
-  // The folder is not knowable from this query and nothing here needs it.
-  return data.value.map((m) => adapt(m, mailbox, "inbox"));
+  const [data, ids] = await Promise.all([
+    graph<{ value: Array<GraphMessage & { parentFolderId?: string }> }>(
+      `/me/messages?$select=${LIST_SELECT},parentFolderId` +
+        `&$filter=conversationId eq '${conversationId.replace(/'/g, "''")}'` +
+        `&$top=100`
+    ),
+    knownFolderIds(mailbox),
+  ]);
+  const folderOf = (id?: string): FolderId =>
+    !id ? "inbox" : id === ids.sent ? "sent" : id === ids.drafts ? "drafts" : id === ids.archive ? "archive" : "inbox";
+  return data.value
+    .filter((m) => !m.parentFolderId || (m.parentFolderId !== ids.deleted && m.parentFolderId !== ids.junk))
+    .map((m) => adapt(m, mailbox, folderOf(m.parentFolderId)));
 }
 
 /**

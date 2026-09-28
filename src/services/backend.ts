@@ -298,6 +298,7 @@ export const bookSpace = (body: {
  */
 export type { MailMessage, Recipient, FolderId } from "./mockMail";
 import type { MailMessage, FolderId } from "./mockMail";
+import { allMessages } from "./mockMail";
 
 export interface MailFolder {
   id: FolderId;
@@ -408,11 +409,19 @@ export const sendTrackedMail = async (input: {
   return { conversationId };
 };
 
-/** Every message in one conversation, wherever it now sits. */
+/**
+ * Every message in one conversation, wherever it now sits. Unordered.
+ * Without Outlook, the local store's own (running the app locally only).
+ */
 export const conversationMessages = async (
   mailbox: string,
   conversationId: string
-): Promise<MailMessage[]> => (live() ? graph.messagesInConversation(mailbox, conversationId) : []);
+): Promise<MailMessage[]> =>
+  live()
+    ? graph.messagesInConversation(mailbox, conversationId)
+    : demoMail
+      ? allMessages().filter((m) => m.mailbox === mailbox && m.conversationId === conversationId)
+      : [];
 
 /**
  * Every message in the mailbox matching a KQL query, across all folders.
