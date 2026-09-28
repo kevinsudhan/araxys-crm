@@ -16,10 +16,14 @@
  * its note — and only the reports that tick nothing (loaded, transhipped,
  * delayed, gated out) are lines of their own. Offers still waiting for a
  * person, and estimates, are not history.
+ *
+ * What the customer was told (102) is on the line too, as "On the customer's
+ * page: …" — except a milestone that marks a stage, which already is, as the
+ * step it ticked.
  * ---------------------------------------------------------------------------
  */
 
-export type EntryKind = "step" | "pickup" | "delivery" | "receipt" | "leg" | "event" | "tracking";
+export type EntryKind = "step" | "pickup" | "delivery" | "receipt" | "leg" | "event" | "tracking" | "milestone";
 
 export interface Entry {
   at: string;
@@ -85,6 +89,15 @@ interface EventIn {
   kind: string;
   summary: string;
 }
+interface MilestoneIn {
+  label: string;
+  stage: string | null;
+  reached_on: string | null;
+  reached_time: string | null;
+  location: string | null;
+  note: string | null;
+  hidden: boolean;
+}
 
 /** The job's events worth a line on the shipment's timeline. */
 const EVENTS: Record<string, "warning" | undefined> = {
@@ -107,6 +120,7 @@ export function buildTimeline(input: {
   legs: Leg[];
   events: EventIn[];
   tracking?: TrackIn[];
+  milestones?: MilestoneIn[];
 }): Entry[] {
   const out: Entry[] = [];
 
@@ -186,6 +200,17 @@ export function buildTimeline(input: {
       title: t.detail,
       detail: TRACK_SOURCE[t.source] ?? t.source,
       tone: TRACK_WARNING.has(t.kind) ? "warning" : undefined,
+    });
+  }
+
+  for (const m of input.milestones ?? []) {
+    if (!m.reached_on || m.stage || m.hidden) continue;
+    out.push({
+      // The time as told, placed as a local moment like a leg's day.
+      at: `${m.reached_on}T${(m.reached_time ?? "00:00").slice(0, 5)}:00`,
+      kind: "milestone",
+      title: `On the customer's page: ${m.label}`,
+      detail: [m.location, m.note].filter(Boolean).join(" · ") || undefined,
     });
   }
 

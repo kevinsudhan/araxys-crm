@@ -123,7 +123,6 @@ export interface RefreshOutcome {
   state: TrackState;
   message: string;
   added?: number;
-  ticked?: number;
   cached?: boolean;
 }
 
@@ -138,7 +137,7 @@ export async function refreshTracking(shipmentId: string): Promise<RefreshOutcom
   return ((data as { results?: RefreshOutcome[] })?.results ?? []) as RefreshOutcome[];
 }
 
-/** 'applied', 'already' (that step was ticked before) or 'no_step'. */
+/** A person records the milestone the event is evidence for (102): 'applied', 'already' (recorded before) or 'no_step'. */
 export async function applyTrackingEvent(id: string): Promise<"applied" | "already" | "no_step" | "dismissed"> {
   const { data, error } = await supabase.rpc("apply_tracking_event", { p_id: id });
   if (error) throw new Error(error.message);

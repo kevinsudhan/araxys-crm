@@ -14,7 +14,8 @@ const RouteMap = lazy(() => import("./RouteMap"));
  *
  * Used on the Tracking tab and on the customer's page. Only the Tracking tab
  * may look a place up (`canLookUp`); the customer's page draws with what is
- * listed or already remembered.
+ * listed or already remembered, and with no positions: it shows the planned
+ * route and how far the recorded milestones have got (102).
  */
 
 export type Position = { lat: number; lon: number; at: string; source: string };

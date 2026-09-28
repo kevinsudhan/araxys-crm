@@ -5,7 +5,9 @@ import Select, { type SelectOption } from "./Select";
 import { useAuth } from "../lib/auth";
 import { failureText } from "../lib/errorText";
 import { trackingMailHtml, trackingMailSubject } from "../lib/trackingLinkMail";
-import { logEvent, stageLabel, type Customer, type Shipment } from "../services/enquiries";
+import { customerView, milestoneWhen } from "../lib/milestones";
+import { logEvent, type Customer, type Shipment } from "../services/enquiries";
+import { milestonesFor } from "../services/milestones";
 import { isReachable } from "../services/publicQuote";
 import { extraPartiesFor, type ExtraParty } from "../services/shipmentExtras";
 import { issueTrackLink, trackUrl } from "../services/tracking";
@@ -86,15 +88,15 @@ export default function SendTrackingLink({
     setBusy(true);
     setError(null);
     try {
-      const link = await issueTrackLink(s.id);
+      const [link, milestones] = await Promise.all([issueTrackLink(s.id), milestonesFor(s.id)]);
       const chosen = options.find((o) => o.value === to);
+      const latest = customerView(milestones).latest;
       const input = {
         ref: s.enquiry_ref,
-        shipmentId: s.id,
         url: trackUrl(link.token),
         customerName: chosen?.name ?? null,
         mode,
-        stage: stageLabel(s.stage, mode),
+        status: s.stage === "cancelled" ? "Cancelled" : latest ? `${latest.label} — ${milestoneWhen(latest.reached_on, null, false)}` : null,
         origin: s.origin,
         destination: s.destination,
         carrier: s.carrier,

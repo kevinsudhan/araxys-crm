@@ -72,6 +72,25 @@ is("only reports that tick nothing, newest first", tr.map((e) => e.title), ["Rol
 is("says who reported it", tr.map((e) => e.detail), ["from mail", "Hapag-Lloyd"]);
 is("a rollover is a warning", tr[0].tone, "warning");
 
+console.log("\nwhat the customer was told");
+const told = buildTimeline({
+  steps: [],
+  moves: [],
+  receipts: [],
+  legs: [],
+  events: [],
+  milestones: [
+    { label: "Cargo picked up", stage: null, reached_on: "2026-09-24", reached_time: "11:30:00", location: "Ambattur", note: "12 pieces collected.", hidden: false },
+    { label: "Vessel sailed", stage: "sailed", reached_on: "2026-09-27", reached_time: null, location: "Chennai", note: null, hidden: false },
+    { label: "Transhipped at Colombo", stage: null, reached_on: "2026-09-30", reached_time: null, location: "", note: "", hidden: false },
+    { label: "Import customs cleared", stage: null, reached_on: "2026-10-06", reached_time: null, location: "", note: "", hidden: true },
+    { label: "Out for delivery", stage: null, reached_on: null, reached_time: null, location: "", note: "", hidden: false },
+  ],
+});
+is("recorded, visible, not a stage — newest first", told.map((e) => e.title), ["On the customer's page: Transhipped at Colombo", "On the customer's page: Cargo picked up"]);
+is("where and the note", told[1].detail, "Ambattur · 12 pieces collected.");
+is("at the time as told", told[1].at, "2026-09-24T11:30:00");
+
 console.log("\nwhat comes next");
 is(
   "open dated steps, soonest first",

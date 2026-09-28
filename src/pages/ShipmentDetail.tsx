@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useOutletContext, useParams } from "react-router-dom";
 import ShipmentCheckpoints from "../components/ShipmentCheckpoints";
 import EnquiryLink from "../components/EnquiryLink";
-import { AlertCircle, ChevronLeft, FileText, Loader2, PackageSearch } from "lucide-react";
+import { AlertCircle, ChevronLeft, FileText, PackageSearch } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
 import StatusPill from "../components/StatusPill";
@@ -22,7 +22,6 @@ import { marginPct, shipmentMargin, type Margin } from "../services/bills";
 import {
   getEnquiry,
   getShipment,
-  setShipmentStage,
   stageLabel,
   stagesFor,
   type Customer,
@@ -156,7 +155,6 @@ export default function ShipmentDetail() {
   const [enquiry, setEnquiry] = useState<(Enquiry & { customer: Customer | null }) | null>(null);
   const [lines, setLines] = useState<DimensionLine[]>([]);
   const [boxes, setBoxes] = useState<ShipmentContainer[]>([]);
-  const [moving, setMoving] = useState(false);
   const [billing, setBilling] = useState<BillingSummary | null>(null);
   const [margin, setMargin] = useState<Margin | null>(null);
   const [loading, setLoading] = useState(true);
@@ -257,25 +255,14 @@ export default function ShipmentDetail() {
   /*
     The next stage, beside the current one.
 
-    It used to be a card of its own on the overview. It is one button, and the
-    question "where is the cargo" is answered in the header on every tab.
+    It used to be a card of its own on the overview. It is one link, and the
+    question "where is the cargo" is answered in the header on every tab. The
+    stage is a customer milestone (102), so the link opens it on the Tracking
+    tab to be recorded with its date and place, rather than moving it blind.
   */
   const order = stagesFor(mode);
   const at = order.indexOf(s.stage);
   const next = at >= 0 ? order[at + 1] : undefined;
-  async function advance() {
-    if (!next) return;
-    setMoving(true);
-    setError(null);
-    try {
-      await setShipmentStage(s.id, next);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not move the stage.");
-    } finally {
-      setMoving(false);
-    }
-  }
   const billed = billing?.billed_inr ?? 0;
   const agreed = s.agreed_inr;
 
@@ -340,18 +327,15 @@ export default function ShipmentDetail() {
             about {freeTime.currency} {freeTime.accrued!.toLocaleString("en-IN")} in D&amp;D
           </span>
         )}
-        {/* A signed-off job's progress is locked (070); the button would only
+        {/* A signed-off job's progress is locked (070); the link would only
             meet the refusal. */}
         {next && s.stage !== "cancelled" && !s.signed_off_at && (
-          <button
-            type="button"
-            onClick={() => void advance()}
-            disabled={moving}
-            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-2.5 text-[11.5px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary disabled:opacity-60"
+          <Link
+            to={`tracking?record=${next}`}
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-2.5 text-[11.5px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
           >
-            {moving && <Loader2 size={11} className="animate-spin" />}
-            Move to {stageLabel(next, mode).toLowerCase()}
-          </button>
+            Mark {stageLabel(next, mode).toLowerCase()}…
+          </Link>
         )}
         {/* The pre-alert goes out on exports; on an import the agent sends it to us. */}
         {s.trade_direction !== "import" && s.stage !== "cancelled" && (
@@ -481,14 +465,9 @@ export default function ShipmentDetail() {
         reason the enquiry's workflow bar sits above its tab strip.
       */}
       <div className="mb-4">
-        {/* Keyed on the stage, so "Move to …" in the header — which ticks a
-            step — redraws the line with it ticked. */}
-        <ShipmentCheckpoints
-          key={s.stage}
-          shipmentId={s.id}
-          mode={mode}
-          onChanged={() => void load()}
-        />
+        {/* Keyed on the stage, so a milestone recorded on the Tracking tab —
+            which ticks a step — redraws the line with it ticked. */}
+        <ShipmentCheckpoints key={s.stage} shipmentId={s.id} mode={mode} />
       </div>
 
       {/* A tab still downloading waits in the tab, under the shipment's header. */}

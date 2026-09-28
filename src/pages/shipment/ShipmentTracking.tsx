@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   AlertTriangle,
@@ -13,6 +14,7 @@ import {
   Radar,
 } from "lucide-react";
 import Collapsible from "../../components/Collapsible";
+import CustomerMilestones from "../../components/CustomerMilestones";
 import LiveTracking from "../../components/LiveTracking";
 import ShipmentRouteMap from "../../components/ShipmentRouteMap";
 import SendTrackingLink from "../../components/SendTrackingLink";
@@ -21,7 +23,10 @@ import { failureText } from "../../lib/errorText";
 import { DUE_TONE, dueState, dueText, todayIST } from "../../lib/progress";
 import { when } from "../../lib/shipmentUpdateMail";
 import { buildTimeline, upcoming, type Entry } from "../../lib/trackingTimeline";
+import { customerView, milestoneWhen, type Evidence } from "../../lib/milestones";
 import { checkpointsFor, type Checkpoint } from "../../services/checkpoints";
+import { customsFor } from "../../services/customs";
+import { milestonesFor, type ShipmentMilestone } from "../../services/milestones";
 import { eventsFor, stageLabel } from "../../services/enquiries";
 import { movementsFor } from "../../services/movements";
 import { isReachable } from "../../services/publicQuote";
@@ -36,27 +41,28 @@ import { useLiveVersion } from "../../lib/liveVersions";
  * Where the cargo is, and everything that has happened to it.
  *
  * ---------------------------------------------------------------------------
+ * THE CUSTOMER'S MILESTONES COME FIRST (102)
+ *
+ * What the customer's tracking page shows is recorded here, one milestone at
+ * a time, by a person — and nothing else reaches that page. The link to it
+ * (069) sits under them: copied into a mail or a chat, withdrawn from here.
+ *
+ * THEN THE DESK'S OWN VIEW
+ *
  * One line, newest first, from every record that says something happened —
  * the steps, the pickup and delivery, the warehouse receipts, the legs — and
- * what the desk did about it. The steps still open and dated follow it, so the
- * page answers both "what happened" and "what next".
- *
- * THE CUSTOMER'S LINK
- *
- * The same answer, without the internals, on a page the customer can open
- * without an account (069). Copied from here and pasted into a mail or a chat;
- * withdrawn from here when it should stop working.
- *
- * LIVE TRACKING (072)
- *
+ * what the desk did about it; the steps still open and dated follow it.
  * What the airline, the carrier and the ship say, and what the job's mail
- * says, sit between the two: their news ticks steps (a carrier's container
- * events on their own, the rest on a click) and so arrives on the line.
+ * says (072), are for the desk: each is offered, and reaches the customer
+ * only when somebody records the milestone.
  * ---------------------------------------------------------------------------
  */
 export default function ShipmentTracking() {
   const { shipment: s, enquiry, reload } = useShipment();
+  const [params, setParams] = useSearchParams();
   const [steps, setSteps] = useState<Checkpoint[]>([]);
+  const [milestones, setMilestones] = useState<ShipmentMilestone[]>([]);
+  const [evidence, setEvidence] = useState<Evidence>({ moves: [], receipts: [], customs: [], events: [] });
   const [snaps, setSnaps] = useState<Snapshot[]>([]);
   const [reports, setReports] = useState<TrackingEvent[]>([]);
   const [legs, setLegs] = useState<Array<{ move: string; from: string | null; to: string | null; status: string }>>([]);
@@ -71,7 +77,9 @@ export default function ShipmentTracking() {
 
   const load = useCallback(async () => {
     try {
-      const [cp, mv, rc, lg, ev, ln, sn, tr] = await Promise.all([
+      const [ms, cs, cp, mv, rc, lg, ev, ln, sn, tr] = await Promise.all([
+        milestonesFor(s.id),
+        customsFor(s.id).catch(() => []),
         checkpointsFor(s.id),
         movementsFor(s.id).catch(() => []),
         receiptsFor(s.id).catch(() => []),
@@ -81,11 +89,13 @@ export default function ShipmentTracking() {
         snapshotsFor(s.id).catch(() => []),
         trackingEventsFor(s.id).catch(() => []),
       ]);
+      setMilestones(ms);
+      setEvidence({ moves: mv, receipts: rc, customs: cs, events: tr });
       setSteps(cp);
       setSnaps(sn);
       setReports(tr);
       setLegs(lg.map((l) => ({ move: l.move, from: l.from_place, to: l.to_place, status: l.status })));
-      setLine(buildTimeline({ steps: cp, moves: mv, receipts: rc, legs: lg, events: ev, tracking: tr }));
+      setLine(buildTimeline({ steps: cp, moves: mv, receipts: rc, legs: lg, events: ev, tracking: tr, milestones: ms }));
       setLink(ln);
       const sent = ev.filter((e) => e.kind === "tracking_link_sent").sort((a, b) => (a.at < b.at ? 1 : -1))[0];
       setLastSent(sent ? { at: sent.at, summary: sent.summary } : null);
@@ -95,7 +105,18 @@ export default function ShipmentTracking() {
   }, [s.id, s.enquiry_ref]);
 
   // Changed by anybody, read again (the page's subscription, 084).
-  const live = useLiveVersion("tracking_events", "tracking_positions", "tracking_snapshots", "shipment_checkpoints", "shipment_movements", "warehouse_receipts", "shipment_routings", "shipment_track_links");
+  const live = useLiveVersion(
+    "shipment_milestones",
+    "tracking_events",
+    "tracking_positions",
+    "tracking_snapshots",
+    "shipment_checkpoints",
+    "shipment_movements",
+    "warehouse_receipts",
+    "shipment_customs",
+    "shipment_routings",
+    "shipment_track_links"
+  );
   useEffect(() => {
     void load();
   }, [load, live]);
@@ -113,7 +134,7 @@ export default function ShipmentTracking() {
     }
   }
 
-  const lastMilestone = [...steps].filter((c) => c.done_at && c.stage).sort((a, b) => (a.done_at! < b.done_at! ? 1 : -1))[0];
+  const seen = customerView(milestones).latest;
   const next = steps.find((c) => !c.done_at);
   const soon = upcoming(steps);
   const url = link ? trackUrl(link.token) : null;
@@ -128,60 +149,24 @@ export default function ShipmentTracking() {
         </div>
       )}
 
-      {/* ---- where it is now ---- */}
-      <section className="card p-5">
-        <h2 className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
-          <Radar size={12} /> Where it is now
-        </h2>
-        <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Fact label="Status" value={stageLabel(s.stage, mode)} strong />
-          <Fact
-            label="Last milestone"
-            value={lastMilestone ? `${lastMilestone.label} — ${when(lastMilestone.done_at!.slice(0, 10))}` : null}
-          />
-          <Fact
-            label="Next"
-            value={next ? `${next.label}${next.due_on ? ` · ${dueText(next.due_on, false, today)}` : ""}` : "Nothing left open"}
-            tone={next ? DUE_TONE[dueState(next.due_on, false, today)] : undefined}
-          />
-          <Fact label={air ? "Flight" : "Vessel"} value={[s.carrier, air ? s.flight_number : [s.vessel, s.voyage].filter(Boolean).join(" / ")].filter(Boolean).join(" · ") || null} />
-          <Fact label="ETD" value={when(s.etd ?? s.sailing_date, s.etd_time)} />
-          <Fact label="ETA" value={when(s.eta, s.eta_time)} />
-          <Fact label={air ? "HAWB" : "House B/L"} value={s.bl_number} mono />
-          <Fact label="Container" value={s.container_number} mono />
-        </div>
-      </section>
-
-      {/* ---- the route map ---- */}
-      <section className="card mt-3 p-5">
-        <h2 className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
-          <MapIcon size={12} /> Tracking events
-        </h2>
-        <ShipmentRouteMap
-          input={{
-            mode,
-            stage: s.stage,
-            pol: s.port_of_loading ?? s.origin,
-            pod: s.port_of_discharge ?? s.destination,
-            finalDestination: s.destination,
-            legs,
-          }}
-          loadPositions={() => positionsFor(s.id)}
-          canLookUp
-          refreshKey={snaps.reduce((a, x) => (x.fetched_at > a ? x.fetched_at : a), "")}
-        />
-        <p className="mt-1.5 text-[11px] text-text-muted">
-          The expected route follows the main shipping lanes (or the great circle for a flight); the actual service may call elsewhere.
-        </p>
-      </section>
-
-      <LiveTracking
+      {/* ---- what the customer is told ---- */}
+      <CustomerMilestones
         shipment={s}
-        steps={steps}
-        snapshots={snaps}
-        events={reports}
+        milestones={milestones}
+        evidence={evidence}
+        open={params.get("record")}
+        onOpened={() =>
+          setParams(
+            (p) => {
+              p.delete("record");
+              return p;
+            },
+            { replace: true }
+          )
+        }
+        pageUrl={url}
         onChanged={async () => {
-          // A tick moves the stage and a date move the ETA: the header reads both.
+          // A milestone that marks a stage moves it: the header reads it.
           await Promise.all([load(), reload()]);
         }}
       />
@@ -194,8 +179,8 @@ export default function ShipmentTracking() {
         badge={link ? (link.opened_at ? "Opened" : "Issued") : undefined}
       >
         <p className="mb-3 max-w-prose text-[12px] text-text-secondary">
-          A page the customer opens without an account: the route, where the cargo is, the steps
-          and the dates. No prices, notes or names from the office.
+          A page the customer opens without an account: the booking's details and the milestones
+          recorded above. Nothing reaches it on its own, and no prices, notes or names from the office.
         </p>
         {url ? (
           <>
@@ -262,6 +247,61 @@ export default function ShipmentTracking() {
         )}
         <SendTrackingLink shipment={s} customer={s.customer} onSent={() => void load()} />
       </Collapsible>
+
+      {/* ---- where it is now ---- */}
+      <section className="card mt-3 p-5">
+        <h2 className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
+          <Radar size={12} /> Where it is now
+        </h2>
+        <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Fact label="Status" value={stageLabel(s.stage, mode)} strong />
+          <Fact label="The customer sees" value={seen ? `${seen.label} — ${milestoneWhen(seen.reached_on, seen.reached_time, false)}` : null} />
+          <Fact
+            label="Next"
+            value={next ? `${next.label}${next.due_on ? ` · ${dueText(next.due_on, false, today)}` : ""}` : "Nothing left open"}
+            tone={next ? DUE_TONE[dueState(next.due_on, false, today)] : undefined}
+          />
+          <Fact label={air ? "Flight" : "Vessel"} value={[s.carrier, air ? s.flight_number : [s.vessel, s.voyage].filter(Boolean).join(" / ")].filter(Boolean).join(" · ") || null} />
+          <Fact label="ETD" value={when(s.etd ?? s.sailing_date, s.etd_time)} />
+          <Fact label="ETA" value={when(s.eta, s.eta_time)} />
+          <Fact label={air ? "HAWB" : "House B/L"} value={s.bl_number} mono />
+          <Fact label="Container" value={s.container_number} mono />
+        </div>
+      </section>
+
+      {/* ---- the route map ---- */}
+      <section className="card mt-3 p-5">
+        <h2 className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
+          <MapIcon size={12} /> Route
+        </h2>
+        <ShipmentRouteMap
+          input={{
+            mode,
+            stage: s.stage,
+            pol: s.port_of_loading ?? s.origin,
+            pod: s.port_of_discharge ?? s.destination,
+            finalDestination: s.destination,
+            legs,
+          }}
+          loadPositions={() => positionsFor(s.id)}
+          canLookUp
+          refreshKey={snaps.reduce((a, x) => (x.fetched_at > a ? x.fetched_at : a), "")}
+        />
+        <p className="mt-1.5 text-[11px] text-text-muted">
+          The expected route follows the main shipping lanes (or the great circle for a flight); the actual service may call elsewhere.
+        </p>
+      </section>
+
+      <LiveTracking
+        shipment={s}
+        milestones={milestones}
+        snapshots={snaps}
+        events={reports}
+        onChanged={async () => {
+          // A milestone recorded moves the stage and a date moved the ETA: the header reads both.
+          await Promise.all([load(), reload()]);
+        }}
+      />
 
       {/* ---- what comes next ---- */}
       {soon.length > 0 && (

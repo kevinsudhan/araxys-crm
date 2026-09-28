@@ -33,8 +33,8 @@
  * With the service key, because provider events are written nowhere else:
  * the latest answer per source (tracking_snapshots) and each thing that
  * happened (tracking_events, once — the source's own event id is the key).
- * Events about our cargo are applied at once through apply_tracking_event,
- * the same function a person's click uses; the rest wait for a person.
+ * Nothing is applied from here: every event waits for a person on the
+ * Tracking tab, because recording it is what the customer's page shows (102).
  * ---------------------------------------------------------------------------
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -76,9 +76,8 @@ interface Outcome {
   state: State;
   message: string;
   summary?: Record<string, unknown>;
-  /** Events filed this time, and how many ticked a step. */
+  /** Events filed this time. */
   added?: number;
-  ticked?: number;
   /** Answered from the last reading because the source was asked moments ago. */
   cached?: boolean;
 }
@@ -369,15 +368,6 @@ async function file(ship: ShipmentRow, source: Source, reading: Reading | { stat
     return out;
   }
   out.added = added?.length ?? 0;
-  out.ticked = 0;
-  // A job signed off is closed: its record is not changed by a feed.
-  if (ship.signed_off_at) return out;
-  const auto = new Set(r.events.filter((e) => e.auto).map((e) => e.external_id));
-  for (const row of added ?? []) {
-    if (!auto.has(row.external_id) || row.status !== "new") continue;
-    const { data: result } = await db.rpc("apply_tracking_event", { p_id: row.id });
-    if (result === "applied") out.ticked++;
-  }
   return out;
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AlertCircle, Check, Flag, Loader2, Plane, Ship, Truck } from "lucide-react";
 import {
   checkpointsFor,
@@ -31,6 +32,12 @@ import { formatDate } from "../lib/dates";
  * that point: the shipment's stage is the furthest milestone ticked. There is
  * no second control that can disagree with the line.
  *
+ * A FLAGGED STEP IS RECORDED ON THE TRACKING TAB (102)
+ *
+ * Because it is what the customer is told. Pressing one opens its milestone
+ * there, with the date, the place and a note for the customer; recording it
+ * ticks the step. The database refuses a flagged step ticked any other way.
+ *
  * EVERY STEP HAS A DATE
  *
  * Worked out from the booking's own dates — ready date, cut-offs, ETD, ETA —
@@ -46,12 +53,9 @@ import { formatDate } from "../lib/dates";
 export default function ShipmentCheckpoints({
   shipmentId,
   mode,
-  onChanged,
 }: {
   shipmentId: string;
   mode?: Shipment["transport_mode"];
-  /** Ticking a milestone changes the shipment's stage; the page re-reads it. */
-  onChanged?: () => void;
 }) {
   const [list, setList] = useState<Checkpoint[]>([]);
   const [open, setOpen] = useState<string | null>(null);
@@ -59,6 +63,7 @@ export default function ShipmentCheckpoints({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const today = todayIST();
+  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,12 +84,13 @@ export default function ShipmentCheckpoints({
   }, [load, live]);
 
   async function toggle(c: Checkpoint) {
+    // Relative to the job's own route (this bar sits in its shell), like the header's link.
+    if (c.stage) return navigate(`tracking?record=${c.stage}`);
     setBusy(c.id);
     setError(null);
     try {
       await setCheckpoint(c.id, !c.done_at);
       await load();
-      if (c.stage) onChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That did not save.");
     } finally {
@@ -156,7 +162,13 @@ export default function ShipmentCheckpoints({
                   onClick={() => void toggle(c)}
                   disabled={busy !== null}
                   aria-pressed={done}
-                  title={done ? `Done — press to undo` : `Mark "${c.label}" done`}
+                  title={
+                    c.stage
+                      ? `A tracking milestone: ${done ? "change" : "record"} it on the Tracking tab, where the customer sees it`
+                      : done
+                        ? `Done — press to undo`
+                        : `Mark "${c.label}" done`
+                  }
                   className={`grid h-7 w-7 shrink-0 place-items-center rounded-full border text-[10px] transition-colors disabled:opacity-60 ${
                     done
                       ? "border-text-success bg-text-success text-white"
@@ -192,7 +204,7 @@ export default function ShipmentCheckpoints({
                 } hover:underline`}
                 title={
                   c.stage
-                    ? `Milestone: ticking it marks the shipment ${stageLabel(c.stage as ShipmentStage, mode)}`
+                    ? `Milestone: recording it on the Tracking tab marks the shipment ${stageLabel(c.stage as ShipmentStage, mode)}`
                     : undefined
                 }
               >
@@ -271,7 +283,7 @@ function StepDetail({
         <p className="text-[12px] font-medium text-text-primary">{checkpoint.label}</p>
         {checkpoint.stage && (
           <p className="inline-flex items-center gap-1 text-[11px] text-text-accent">
-            <Flag size={10} /> Marks the shipment {stageLabel(checkpoint.stage as ShipmentStage, mode)}
+            <Flag size={10} /> Marks the shipment {stageLabel(checkpoint.stage as ShipmentStage, mode)}; recorded on the Tracking tab
           </p>
         )}
       </div>

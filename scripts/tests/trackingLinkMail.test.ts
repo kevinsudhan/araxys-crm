@@ -22,11 +22,10 @@ const is = (label: string, got: unknown, want: unknown) => {
 
 const base: TrackingMailInput = {
   ref: "ALG09004-26",
-  shipmentId: "ARX-SHP-0004",
   url: "https://logisticsdemosif.netlify.app/t/abc123",
   customerName: "Meera",
   mode: "air",
-  stage: "departed",
+  status: "Flight departed — 2 Oct",
   origin: "Chennai",
   destination: "Frankfurt",
   carrier: "Emirates",
@@ -52,7 +51,9 @@ is("a flight, not a vessel", [html.includes("EK 543"), html.includes("Vessel")],
 is("date and time together", html.includes("2 Oct 2026, 09:35"), true);
 is("a field the booking lacks is not a line", html.includes("HAWB"), false);
 is("greets by name", html.startsWith("<p>Dear Meera,</p>"), true);
-is("the status reads as a word", html.includes(">Departed<"), true);
+is("the status is the page's", html.includes(">Flight departed — 2 Oct<"), true);
+is("our reference, not the row id", [html.includes(">ALG09004-26<"), html.includes("ARX-")], [true, false]);
+is("no status recorded, no line", trackingMailHtml({ ...base, status: null }).includes("Status"), false);
 
 const sea = trackingMailHtml({ ...base, mode: "sea_fcl", vessel: "MSC AURORA", voyage: "FA412E", houseBill: "ALG/BL/1" });
 is("a vessel and its voyage", sea.includes("MSC AURORA / FA412E"), true);

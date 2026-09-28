@@ -33,7 +33,7 @@
     "test:schedules": "tsx scripts/tests/schedules.test.ts",
     "test:trackread": "tsx scripts/tests/trackRead.test.ts",
     "test:trackmail": "tsx scripts/tests/trackingLinkMail.test.ts",
-    "test:milestones": "tsx scripts/tests/milestoneBar.test.ts",
+    "test:milestones": "tsx scripts/tests/milestones.test.ts",
     "test:hawb": "tsx scripts/tests/hawb.test.ts",
     "test:searoute": "tsx scripts/tests/seaRoute.test.ts",
     "test:routemodel": "tsx scripts/tests/routeModel.test.ts",

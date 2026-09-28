@@ -9,14 +9,14 @@
  * edge function does the fetching and the writing; this decides what an
  * answer means.
  *
- * THE ONE RULE: EVIDENCE ABOUT THIS CARGO TICKS, EVIDENCE ABOUT A VEHICLE ASKS
+ * NOTHING HERE TICKS ANYTHING: A PERSON DECIDES (102)
  *
- * A container event from the carrier is about our box: "loaded on MSC AURORA
- * at Chennai" is the cargo sailing. Those tick their step without asking
- * (`auto`). A flight taking off is about an aircraft — cargo is offloaded
- * often enough that "EK 543 departed" does not prove ours was on it — so a
- * flight event is offered for one click instead. A vessel's position is about
- * a ship and ticks nothing at all.
+ * An event that could mark a milestone ("new") is offered on the Tracking
+ * tab, and a person recording it is what reaches the customer's page. That
+ * holds even for a container event from the carrier, which is about our box:
+ * the customer is told what the desk has checked, not what a feed said. The
+ * rest ("info") is a line on the desk's timeline. A vessel's position is
+ * about a ship and offers nothing at all.
  *
  * WHICH DAY'S FLIGHT
  *
@@ -56,8 +56,6 @@ export interface TrackEvent {
   detail: string;
   /** The source's own identity for this event, so a refresh never adds it twice. */
   external_id: string;
-  /** Ticks its step without asking. Only for evidence about this cargo. */
-  auto: boolean;
   /** "new" asks a person; "info" is a line on the timeline and nothing more. */
   status: "new" | "info";
 }
@@ -244,7 +242,6 @@ export function readAeroDataBox(body: unknown, booking: Booking): Reading {
       location: from,
       detail: `${summary.flight} took off from ${from ?? "origin"}`,
       external_id: `adb:departed:${key}`,
-      auto: false,
       status: "new",
     });
   }
@@ -256,7 +253,6 @@ export function readAeroDataBox(body: unknown, booking: Booking): Reading {
       location: to,
       detail: `${summary.flight} landed at ${to ?? "destination"}${endsHere ? "" : " (connection)"}`,
       external_id: `adb:arrived:${key}`,
-      auto: false,
       status: endsHere ? "new" : "info",
     });
   }
@@ -268,7 +264,6 @@ export function readAeroDataBox(body: unknown, booking: Booking): Reading {
       location: to,
       detail: `${summary.flight} was diverted`,
       external_id: `adb:diverted:${key}`,
-      auto: false,
       status: "new",
     });
   }
@@ -280,7 +275,6 @@ export function readAeroDataBox(body: unknown, booking: Booking): Reading {
       location: from,
       detail: `${summary.flight} on ${booking.etd} is ${status === "Canceled" ? "cancelled" : "possibly cancelled"}`,
       external_id: `adb:cancelled:${key}`,
-      auto: false,
       status: "new",
     });
   }
@@ -294,7 +288,6 @@ export function readAeroDataBox(body: unknown, booking: Booking): Reading {
       // The airport's own clock, as the airline announces it.
       detail: `${summary.flight} is delayed${f.departure?.revisedTime?.local ? ` — now leaving ${f.departure.revisedTime.local.slice(11, 16)} local time` : ""}`,
       external_id: `adb:delayed:${key}:${rev ?? ""}`,
-      auto: false,
       status: "info",
     });
   }
@@ -389,7 +382,6 @@ export function readAdsb(body: unknown, callsign: string, guessed: boolean, book
       location: null,
       detail: `${callsign} seen in the air`,
       external_id: `adsb:airborne:${callsign}:${booking.etd}`,
-      auto: false,
       status: "new",
     });
   }
@@ -512,16 +504,16 @@ export function readDcsa(body: unknown, booking: Booking, carrier = "Hapag-Lloyd
     const code = e.equipmentEventTypeCode ?? e.transportEventTypeCode;
 
     if (e.eventType === "EQUIPMENT" && code === "GTIN" && e.emptyIndicatorCode !== "EMPTY" && !loaded) {
-      events.push({ ...base, kind: "gate_in", detail: `${ref} gated in at ${place ?? "the terminal"}`, auto: true, status: "new" });
+      events.push({ ...base, kind: "gate_in", detail: `${ref} gated in at ${place ?? "the terminal"}`, status: "new" });
     } else if (e.eventType === "EQUIPMENT" && code === "LOAD") {
-      events.push({ ...base, kind: "loaded", detail: `Loaded${on ? ` on ${on}` : ""} at ${place ?? "port"}`, auto: false, status: "info" });
+      events.push({ ...base, kind: "loaded", detail: `Loaded${on ? ` on ${on}` : ""} at ${place ?? "port"}`, status: "info" });
       loaded = true;
     } else if (e.eventType === "TRANSPORT" && code === "DEPA" && (e.transportCall?.modeOfTransport ?? "VESSEL") === "VESSEL") {
       if (!departed) {
-        events.push({ ...base, kind: "departed", detail: `Sailed from ${place ?? "port"}${on ? ` on ${on}` : ""}`, auto: true, status: "new" });
+        events.push({ ...base, kind: "departed", detail: `Sailed from ${place ?? "port"}${on ? ` on ${on}` : ""}`, status: "new" });
         departed = true;
       } else {
-        events.push({ ...base, kind: "in_transit", detail: `Sailed from ${place ?? "port"}${on ? ` on ${on}` : ""}`, auto: false, status: "info" });
+        events.push({ ...base, kind: "in_transit", detail: `Sailed from ${place ?? "port"}${on ? ` on ${on}` : ""}`, status: "info" });
       }
     } else if ((code === "DISC" && e.eventType === "EQUIPMENT") || (code === "ARRI" && e.eventType === "TRANSPORT")) {
       const ours = samePlace(pod, where(e), locode(e));
@@ -530,17 +522,16 @@ export function readDcsa(body: unknown, booking: Booking, carrier = "Hapag-Lloyd
           ...base,
           kind: code === "DISC" ? "discharged" : "arrived",
           detail: code === "DISC" ? `Discharged at ${place}` : `${on ?? "Vessel"} arrived at ${place}`,
-          auto: !arrived,
           status: arrived ? "info" : "new",
         });
         arrived = true;
       } else if (code === "DISC") {
-        events.push({ ...base, kind: "in_transit", detail: `Discharged at ${place ?? "port"} (transhipment)`, auto: false, status: "info" });
+        events.push({ ...base, kind: "in_transit", detail: `Discharged at ${place ?? "port"} (transhipment)`, status: "info" });
       }
     } else if (e.eventType === "EQUIPMENT" && code === "GTOT" && e.emptyIndicatorCode !== "EMPTY" && arrived) {
-      events.push({ ...base, kind: "gate_out", detail: `${ref} left the terminal at ${place ?? "destination"}`, auto: false, status: "info" });
+      events.push({ ...base, kind: "gate_out", detail: `${ref} left the terminal at ${place ?? "destination"}`, status: "info" });
     } else if (e.eventType === "EQUIPMENT" && code === "STRP") {
-      events.push({ ...base, kind: "other", detail: `Unpacked at ${place ?? "destination"}`, auto: false, status: "info" });
+      events.push({ ...base, kind: "other", detail: `Unpacked at ${place ?? "destination"}`, status: "info" });
     }
   }
 

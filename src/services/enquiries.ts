@@ -823,15 +823,6 @@ export async function getShipment(
   return (data as (Shipment & { customer: Customer | null }) | null) ?? null;
 }
 
-export async function setShipmentStage(id: string, stage: ShipmentStage): Promise<Shipment> {
-  const { data, error } = await supabase.rpc("set_shipment_stage", {
-    p_id: id,
-    p_stage: stage,
-  });
-  if (error) throw error;
-  return data as Shipment;
-}
-
 export async function threadsFor(ref: string): Promise<string[]> {
   const { data, error } = await supabase
     .from("enquiry_threads")

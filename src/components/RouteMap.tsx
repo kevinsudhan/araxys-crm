@@ -152,26 +152,36 @@ export default function RouteMap({ model, air, height = 420 }: { model: RouteMod
         {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
       </button>
 
-      <div className="absolute bottom-2 left-2 z-[500] rounded-md border border-border bg-white/95 px-2 py-1 text-[10.5px] leading-tight text-slate-700 shadow-sm sm:bottom-3 sm:left-3 sm:px-3 sm:py-2 sm:text-[11.5px]">
-        <p className="flex items-center gap-2.5 py-0.5">
-          <svg width="30" height="6">
-            <line x1="0" y1="3" x2="30" y2="3" stroke={LINE} strokeWidth="3" />
-          </svg>
-          Actual route
-        </p>
-        <p className="flex items-center gap-2.5 py-0.5">
-          <svg width="30" height="6">
-            <line x1="0" y1="3" x2="30" y2="3" stroke={LINE} strokeWidth="3" strokeDasharray="5 5" />
-          </svg>
-          Expected route
-        </p>
-        <p className="flex items-center gap-2.5 py-0.5">
-          <svg width="30" height="12">
-            <circle cx="15" cy="6" r="4.5" fill="#fff" stroke={LINE} strokeWidth="2.5" />
-          </svg>
-          {air ? "ADS-B positions" : "AIS pings"}
-        </p>
-      </div>
+      {/* Only what is drawn: the customer's page has no positions (102), and a
+          legend for pings that are not there would say it is tracked live. */}
+      {(model.actual.length > 0 || model.expected.length > 0 || model.pings.length > 0) && (
+        <div className="absolute bottom-2 left-2 z-[500] rounded-md border border-border bg-white/95 px-2 py-1 text-[10.5px] leading-tight text-slate-700 shadow-sm sm:bottom-3 sm:left-3 sm:px-3 sm:py-2 sm:text-[11.5px]">
+          {model.actual.length > 0 && (
+            <p className="flex items-center gap-2.5 py-0.5">
+              <svg width="30" height="6">
+                <line x1="0" y1="3" x2="30" y2="3" stroke={LINE} strokeWidth="3" />
+              </svg>
+              Actual route
+            </p>
+          )}
+          {model.expected.length > 0 && (
+            <p className="flex items-center gap-2.5 py-0.5">
+              <svg width="30" height="6">
+                <line x1="0" y1="3" x2="30" y2="3" stroke={LINE} strokeWidth="3" strokeDasharray="5 5" />
+              </svg>
+              Expected route
+            </p>
+          )}
+          {model.pings.length > 0 && (
+            <p className="flex items-center gap-2.5 py-0.5">
+              <svg width="30" height="12">
+                <circle cx="15" cy="6" r="4.5" fill="#fff" stroke={LINE} strokeWidth="2.5" />
+              </svg>
+              {air ? "ADS-B positions" : "AIS pings"}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

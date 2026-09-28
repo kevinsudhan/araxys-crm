@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import { AlertTriangle, Check, Plane, Ship, Truck, TrainFront, Warehouse } from "lucide-react";
-import { milestoneBar } from "../lib/milestoneBar";
-import { stageLabel, stagesFor, type Enquiry, type ShipmentStage } from "../services/enquiries";
+import { Check, Plane, Ship, Truck, TrainFront } from "lucide-react";
+import type { Enquiry } from "../services/enquiries";
 import ShipmentRouteMap from "../components/ShipmentRouteMap";
-import { trackingByToken, trackPointsByToken, type PublicTracking } from "../services/tracking";
-import { customsByToken, type PublicCustoms } from "../services/customs";
+import { trackingByToken, type PublicTracking } from "../services/tracking";
+import { customerView, expectedFor, milestoneWhen } from "../lib/milestones";
 import { SectionSkeleton } from "../components/Loading";
 import { COMPANY, MAIL_LOGO_PATH } from "../lib/company";
 
@@ -13,15 +12,22 @@ import { COMPANY, MAIL_LOGO_PATH } from "../lib/company";
  * The customer's tracking page: /t/:token, no account needed.
  *
  * ---------------------------------------------------------------------------
- * Read-only, and everything on it comes from `shipment_tracking` (069, 072,
- * 074), which builds the answer field by field — the route, the milestones,
- * the schedule and the legs, collection and delivery, the warehouse, the
- * containers, where the cargo is and what the airline or carrier reported.
- * Money, notes, drivers and the office's own people are not in the answer, so
- * they cannot be on the page.
+ * WHAT IT SHOWS, AND WHO DECIDED
+ *
+ * The milestones the desk recorded on the job's Tracking tab — booking
+ * confirmed, picked up, sailed, arrived, delivered, and any update of their
+ * own — each with its day, the time if known, where, and a note; then what is
+ * still to come. Beside them the booking's own details: the route, the carrier
+ * and the flight or vessel, the ETD and ETA, the house bill, the boxes.
+ *
+ * Nothing on it moves by itself (102). No carrier's feed, no ship's position,
+ * no internal step and no date a rule worked out reaches this page: a
+ * customer is told what somebody at the desk checked and wrote down. Money,
+ * notes and the office's own people are not in the answer either.
  *
  * It reads again every five minutes while it is open, and when the tab comes
- * back into view, so a customer who leaves it open sees the flight land.
+ * back into view, so a milestone recorded while the customer has it open
+ * appears without a reload.
  *
  * The same shell as the quotation page and the mails — the logo on navy, the
  * blue rule, the registered details at the foot: somebody opening it on a
@@ -35,27 +41,14 @@ const MUTED = "#6b7280";
 const FAINT = "#9ca3af";
 const BRAND = "#0F213A";
 const DONE = "#2f7a4f";
+const LINE = "#e5e7eb";
 
 const REFRESH_MS = 5 * 60_000;
 
-// Months spelled here rather than by the locale, which writes "Sept" on some systems: the
-// mails and the quotation say "Sep", and one customer reading both should see one format.
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const pad2 = (n: number) => String(n).padStart(2, "0");
 
-const day = (d: string | null | undefined, time?: string | null) => {
-  if (!d) return null;
-  const [y, m, dd] = d.slice(0, 10).split("-").map(Number);
-  return `${dd} ${MONTHS[m - 1]} ${y}${time ? `, ${time.slice(0, 5)}` : ""}`;
-};
-
-/** A moment, or only its day when no time was recorded (filed as local midnight). */
-const moment = (iso: string | null | undefined) => {
-  if (!iso) return null;
-  const d = new Date(iso);
-  const dayOnly = d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0;
-  return `${d.getDate()} ${MONTHS[d.getMonth()]}${dayOnly ? "" : `, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`}`;
-};
+/** A booking date, with its time when the booking has one. */
+const day = (d: string | null | undefined, time?: string | null) => (d ? milestoneWhen(d, time) : null);
 
 function ago(iso: string): string {
   const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
@@ -63,7 +56,8 @@ function ago(iso: string): string {
   if (m < 60) return `${m} min ago`;
   const h = Math.round(m / 60);
   if (h < 36) return `${h} hour${h === 1 ? "" : "s"} ago`;
-  return moment(iso) ?? "";
+  const d = new Date(iso);
+  return `on ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
 export default function TrackShipment() {
@@ -97,9 +91,6 @@ export default function TrackShipment() {
     };
   }, [load]);
 
-  const mode = (t?.mode ?? null) as Enquiry["transport_mode"];
-  const air = mode === "air";
-
   return (
     <div className="min-h-screen bg-[#eef2f7] px-4 py-8" style={{ color: INK }}>
       <div className="mx-auto w-full max-w-[680px] overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-[0_12px_32px_-18px_rgba(15,33,58,0.35)]">
@@ -123,7 +114,7 @@ export default function TrackShipment() {
               body="Please contact us for the latest on your shipment and we will send a new link."
             />
           ) : (
-            <Shipment t={t} mode={mode} air={air} token={token} />
+            <Shipment t={t} />
           )}
         </main>
 
@@ -136,27 +127,22 @@ export default function TrackShipment() {
         </footer>
       </div>
       <p className="mt-3 text-center text-[11px]" style={{ color: FAINT }}>
-        This page updates by itself. No login is needed.
+        Updated by our operations team as your shipment moves. No login is needed.
       </p>
     </div>
   );
 }
 
-function Shipment({ t, mode, air, token }: { t: PublicTracking; mode: Enquiry["transport_mode"]; air: boolean; token: string }) {
-  const cancelled = t.stage === "cancelled";
-  const bar = milestoneBar(stagesFor(mode), (s) => stageLabel(s as ShipmentStage, mode), t.steps ?? [], t.stage ?? "booked");
-  // A consolidation can collect from several suppliers, and a delivery can go in parts (079).
-  const pickups = (t.movements ?? []).filter((m) => m.kind === "pickup");
-  const deliveries = (t.movements ?? []).filter((m) => m.kind === "delivery");
-  const nth = (word: string, i: number, n: number) => (n > 1 ? `${word} ${i + 1} of ${n}` : word);
-  const legs = (t.legs ?? []).filter((l) => l.status !== "cancelled");
-  const [customs, setCustoms] = useState<PublicCustoms[]>([]);
-  useEffect(() => {
-    void customsByToken(token)
-      .then(setCustoms)
-      .catch(() => setCustoms([]));
-  }, [token, t.updated_at]);
-  const mapLegs = useMemo(() => (t.legs ?? []).map((l) => ({ move: l.move, from: l.from, to: l.to, status: l.status })), [t.legs]);
+function Shipment({ t }: { t: PublicTracking }) {
+  const mode = (t.mode ?? null) as Enquiry["transport_mode"];
+  const air = mode === "air";
+  const cancelled = Boolean(t.cancelled);
+  const view = useMemo(() => customerView(t.milestones ?? []), [t.milestones]);
+  const booking = { etd: t.etd ?? null, eta: t.eta ?? null };
+  const legs = t.legs ?? [];
+  // Keyed on the answer, not on `legs`, which is a new array every render.
+  const mapLegs = useMemo(() => (t.legs ?? []).map((l) => ({ move: l.move, from: l.from, to: l.to, status: "planned" })), [t.legs]);
+  const anyTime = view.done.some((m) => m.reached_time);
   const cargo = [
     t.pieces ? `${t.pieces} pcs` : null,
     t.gross_weight_kg ? `${Number(t.gross_weight_kg).toLocaleString("en-IN")} kg` : null,
@@ -168,18 +154,20 @@ function Shipment({ t, mode, air, token }: { t: PublicTracking; mode: Enquiry["t
   return (
     <>
       <p className="text-[12px]" style={{ color: MUTED }}>
-        {t.reference} · {t.shipment}
+        {t.reference}
         {t.customer ? ` · ${t.customer}` : ""}
       </p>
       <p className="mt-1 text-[19px] font-semibold leading-snug">{[t.origin, t.destination].filter(Boolean).join(" → ")}</p>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span
-          className="inline-block rounded-full px-3 py-1 text-[12.5px] font-semibold capitalize"
-          style={cancelled ? { background: "#fdecec", color: "#b42318" } : { background: "#e8f0f7", color: BRAND }}
-        >
-          {t.stage_label}
-          {t.stage === "delivered" && t.delivered_to ? ` — received by ${t.delivered_to}` : ""}
-        </span>
+        {cancelled ? (
+          <span className="inline-block rounded-full bg-[#fdecec] px-3 py-1 text-[12.5px] font-semibold text-[#b42318]">Cancelled</span>
+        ) : (
+          view.latest && (
+            <span className="inline-block rounded-full px-3 py-1 text-[12.5px] font-semibold" style={{ background: "#e8f0f7", color: BRAND }}>
+              {view.latest.label} · {milestoneWhen(view.latest.reached_on, null, false)}
+            </span>
+          )
+        )}
         {t.updated_at && (
           <span className="text-[11.5px]" style={{ color: FAINT }}>
             Last updated {ago(t.updated_at)}
@@ -192,34 +180,60 @@ function Shipment({ t, mode, air, token }: { t: PublicTracking; mode: Enquiry["t
           This shipment has been cancelled. Please contact us if you were not expecting this.
         </p>
       ) : (
-        <Milestones bar={bar} />
-      )}
-
-      {t.latest_eta && !cancelled && t.stage !== "delivered" && (
-        <p className="mt-4 flex items-start gap-2 rounded-lg bg-[#fff7e6] px-4 py-2.5 text-[12.5px] text-[#8a5a00]">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>
-            The {t.latest_eta.source} now expects arrival on <strong>{day(t.latest_eta.eta)}</strong>
-            {t.eta ? ` (originally ${day(t.eta)})` : ""}.
-          </span>
-        </p>
+        <Section title="Progress">
+          <ol aria-label="Progress">
+            {view.done.map((m, i) => (
+              <Milestone
+                key={`d${i}`}
+                label={m.label}
+                done
+                latest={m === view.latest}
+                when={milestoneWhen(m.reached_on, m.reached_time)}
+                where={m.location}
+                note={m.note}
+                lineDone={i < view.done.length - 1}
+                last={i === view.done.length - 1 && !view.ahead.length}
+              />
+            ))}
+            {view.ahead.map((m, i) => {
+              const expected = expectedFor(m, booking);
+              return (
+                <Milestone
+                  key={`a${i}`}
+                  label={m.label}
+                  done={false}
+                  latest={false}
+                  when={expected ? `Expected ${milestoneWhen(expected)}` : null}
+                  where={null}
+                  note={m.note}
+                  lineDone={false}
+                  last={i === view.ahead.length - 1}
+                />
+              );
+            })}
+          </ol>
+          {anyTime && (
+            <p className="mt-3 text-[11px]" style={{ color: FAINT }}>
+              Times are local to where each step happened.
+            </p>
+          )}
+        </Section>
       )}
 
       {!cancelled && (
-        <div className="mt-5">
+        <div className="mt-6">
           <ShipmentRouteMap
             input={{
               mode,
-              stage: t.stage ?? "booked",
+              stage: view.stage,
               pol: t.port_of_loading ?? t.origin ?? null,
               pod: t.port_of_discharge ?? t.destination ?? null,
               finalDestination: t.destination ?? null,
               legs: mapLegs,
             }}
-            loadPositions={() => trackPointsByToken(token)}
+            loadPositions={async () => []}
             canLookUp={false}
-            refreshKey={t.updated_at}
-            height={320}
+            height={300}
           />
         </div>
       )}
@@ -253,7 +267,7 @@ function Shipment({ t, mode, air, token }: { t: PublicTracking; mode: Enquiry["t
       </Section>
 
       {legs.length > 0 && (
-        <Section title="Journey">
+        <Section title="Route">
           <ol className="space-y-2.5">
             {legs.map((l, i) => {
               const Icon = l.move === "air" ? Plane : l.move === "sea" ? Ship : l.move === "rail" ? TrainFront : Truck;
@@ -268,132 +282,12 @@ function Shipment({ t, mode, air, token }: { t: PublicTracking; mode: Enquiry["t
                       {[l.carrier, l.voyage_flight, [day(l.etd), day(l.eta)].filter(Boolean).join(" → ")].filter(Boolean).join(" · ")}
                     </p>
                   </div>
-                  <span
-                    className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                    style={
-                      l.status === "completed"
-                        ? { background: "#e8f5ee", color: DONE }
-                        : l.status === "in_transit"
-                          ? { background: "#e8f0f7", color: BRAND }
-                          : { background: "#f3f4f6", color: MUTED }
-                    }
-                  >
-                    {l.status === "completed" ? "Completed" : l.status === "in_transit" ? "Under way" : "Planned"}
-                  </span>
                 </li>
               );
             })}
           </ol>
         </Section>
       )}
-
-      {(pickups.length > 0 || t.received || deliveries.length > 0) && (
-        <Section title="Collection and delivery">
-          <div className="grid gap-2.5 sm:grid-cols-3">
-            {pickups.map((pickup, i) => (
-              <Card key={`p${i}`} icon={<Truck size={13} />} title={nth("Collection", i, pickups.length)} done={Boolean(pickup.actual_at)}>
-                {pickup.actual_at
-                  ? `Collected ${moment(pickup.actual_at)}`
-                  : pickup.planned_date
-                    ? `Planned ${day(pickup.planned_date, pickup.planned_time)}`
-                    : "To be arranged"}
-                {pickup.pieces ? <span className="block">{pickup.pieces} pcs</span> : null}
-              </Card>
-            ))}
-            {t.received && (
-              <Card icon={<Warehouse size={13} />} title="At the warehouse" done>
-                Received {moment(t.received.first_at)}
-                <span className="block">
-                  {[
-                    t.received.pieces ? `${t.received.pieces} pcs` : null,
-                    t.received.gross_weight_kg ? `${Number(t.received.gross_weight_kg).toLocaleString("en-IN")} kg` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </Card>
-            )}
-            {deliveries.map((delivery, i) => (
-              <Card key={`d${i}`} icon={<Truck size={13} />} title={nth("Delivery", i, deliveries.length)} done={Boolean(delivery.actual_at)}>
-                {delivery.actual_at
-                  ? `Delivered ${moment(delivery.actual_at)}`
-                  : delivery.planned_date
-                    ? `Planned ${day(delivery.planned_date, delivery.planned_time)}`
-                    : "To be arranged"}
-                {delivery.pieces && deliveries.length > 1 ? <span className="block">{delivery.pieces} pcs</span> : null}
-                {delivery.received_by ? <span className="block">Received by {delivery.received_by}</span> : null}
-              </Card>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {customs.length > 0 && (
-        <Section title="Customs">
-          <ul className="space-y-2">
-            {customs.map((c) => {
-              const exp = c.side === "export";
-              const num = exp ? c.sb_number : c.be_number;
-              const on = exp ? c.sb_date : c.be_date;
-              const cleared = exp ? c.leo_date : c.ooc_date;
-              return (
-                <li key={c.side} className="flex items-start justify-between gap-3 rounded-lg border border-[#e5e7eb] px-3 py-2.5 text-[13px]">
-                  <div className="min-w-0">
-                    <p className="font-medium">{exp ? "Export customs" : "Import customs"}</p>
-                    <p className="text-[11.5px]" style={{ color: MUTED }}>
-                      {[num ? `${exp ? "Shipping bill" : "Bill of entry"} ${num}${on ? ` dated ${day(on)}` : ""}` : null, c.port_code].filter(Boolean).join(" · ") || "Being prepared"}
-                    </p>
-                  </div>
-                  <span
-                    className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                    style={c.status === "cleared" ? { background: "#e8f5ee", color: DONE } : { background: "#f3f4f6", color: MUTED }}
-                  >
-                    {c.status === "cleared" ? `Cleared ${day(cleared)}` : c.status === "filed" ? "Filed" : "In progress"}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </Section>
-      )}
-
-      {(t.updates ?? []).length > 0 && (
-        <Section title={`From the ${air ? "airline" : "carrier"}`}>
-          <ul className="space-y-1.5">
-            {t.updates!.map((u, i) => (
-              <li key={i} className="flex items-baseline justify-between gap-3 text-[13px]">
-                <span>{u.what}</span>
-                <span className="shrink-0 text-[11.5px]" style={{ color: FAINT }}>
-                  {moment(u.at)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      <Section title="All steps">
-        <ol>
-          {(t.steps ?? []).map((s, i) => (
-            <li key={i} className="flex items-start gap-3 pb-3 last:pb-0">
-              <span
-                className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border text-white"
-                style={s.done_at ? { borderColor: DONE, background: DONE } : { borderColor: "#d1d5db", background: "#fff" }}
-              >
-                {s.done_at && <Check size={11} />}
-              </span>
-              <div className="min-w-0">
-                <p className={`text-[13px] ${s.milestone ? "font-semibold" : ""}`} style={{ color: s.done_at ? INK : MUTED }}>
-                  {s.label}
-                </p>
-                <p className="text-[11.5px]" style={{ color: FAINT }}>
-                  {s.done_at ? moment(s.done_at) : s.due_on && !cancelled ? `Expected ${day(s.due_on)}` : ""}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </Section>
 
       <p className="mt-6 border-t border-[#e5e7eb] pt-4 text-[12px]" style={{ color: MUTED }}>
         Questions about this shipment? Reply to our last email and keep <strong>{t.reference}</strong> in the subject.
@@ -402,43 +296,58 @@ function Shipment({ t, mode, air, token }: { t: PublicTracking; mode: Enquiry["t
   );
 }
 
-/** Booked → … → Delivered, with the date each was reached. */
-function Milestones({ bar }: { bar: ReturnType<typeof milestoneBar> }) {
+/** One milestone on the line: a dot, the line down to the next, what and when. */
+function Milestone({
+  label,
+  done,
+  latest,
+  when,
+  where,
+  note,
+  lineDone,
+  last,
+}: {
+  label: string;
+  done: boolean;
+  latest: boolean;
+  when: string | null;
+  where: string | null;
+  note: string | null;
+  /** The line down to the next milestone is green: that one is done too. */
+  lineDone: boolean;
+  last: boolean;
+}) {
   return (
-    <ol className="mt-6 flex items-start" aria-label="Progress">
-      {bar.map((m, i) => (
-        <li key={m.stage} className="relative flex min-w-0 flex-1 flex-col items-center text-center">
-          {/* The line from the previous milestone, drawn behind this one's dot. */}
-          {i > 0 && (
-            <span
-              aria-hidden
-              className="absolute right-1/2 top-[11px] h-[3px] w-full"
-              style={{ background: m.done ? DONE : "#e5e7eb" }}
-            />
-          )}
-          <span
-            className="relative z-10 grid h-6 w-6 place-items-center rounded-full border-2 text-white"
-            style={
-              m.current
-                ? { borderColor: DONE, background: DONE, boxShadow: "0 0 0 4px #e8f5ee" }
-                : m.done
-                  ? { borderColor: DONE, background: DONE }
-                  : { borderColor: "#d1d5db", background: "#fff" }
-            }
-          >
-            {m.done && <Check size={12} strokeWidth={3} />}
-          </span>
-          <span className={`mt-1.5 px-0.5 text-[11px] leading-tight ${m.current ? "font-semibold" : ""}`} style={{ color: m.done ? INK : FAINT }}>
-            {m.label}
-          </span>
-          {m.at && (
-            <span className="mt-0.5 text-[10.5px] leading-tight" style={{ color: FAINT }}>
-              {moment(m.at)}
-            </span>
-          )}
-        </li>
-      ))}
-    </ol>
+    <li className="relative flex gap-3 pb-4 last:pb-0">
+      {!last && <span aria-hidden className="absolute bottom-0 left-[11px] top-6 w-[2px]" style={{ background: lineDone ? DONE : LINE }} />}
+      <span
+        className="relative z-10 grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 text-white"
+        style={
+          latest
+            ? { borderColor: DONE, background: DONE, boxShadow: "0 0 0 4px #e8f5ee" }
+            : done
+              ? { borderColor: DONE, background: DONE }
+              : { borderColor: "#d1d5db", background: "#fff" }
+        }
+      >
+        {done && <Check size={12} strokeWidth={3} />}
+      </span>
+      <div className="min-w-0 pt-0.5">
+        <p className={`text-[13.5px] leading-snug ${latest ? "font-semibold" : done ? "font-medium" : ""}`} style={{ color: done ? INK : MUTED }}>
+          {label}
+        </p>
+        {(when || where) && (
+          <p className="mt-0.5 text-[12px]" style={{ color: done ? MUTED : FAINT }}>
+            {[when, where].filter(Boolean).join(" · ")}
+          </p>
+        )}
+        {note && (
+          <p className="mt-1 whitespace-pre-line text-[12.5px] leading-snug" style={{ color: done ? INK : MUTED }}>
+            {note}
+          </p>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -450,19 +359,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </h2>
       {children}
     </section>
-  );
-}
-
-function Card({ icon, title, done, children }: { icon: ReactNode; title: string; done: boolean; children: ReactNode }) {
-  return (
-    <div className="rounded-lg border border-[#e5e7eb] px-3 py-2.5 text-[12.5px]">
-      <p className="mb-1 flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: done ? DONE : MUTED }}>
-        {icon}
-        {title}
-        {done && <Check size={12} />}
-      </p>
-      <div style={{ color: INK }}>{children}</div>
-    </div>
   );
 }
 

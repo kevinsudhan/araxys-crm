@@ -83,7 +83,7 @@ is("in the air", enroute.message, "EK 543 is in the air.");
 is("take-off from the runway time", enroute.summary.dep_actual, "2026-10-02T04:31:00.000Z");
 is("the expected landing", enroute.summary.arr_expected, "2026-10-02T08:22:00.000Z");
 is("the arrival day is the destination's", enroute.summary.eta_local, "2026-10-02");
-is("offers departed, does not tick it", enroute.events.map((e) => [e.kind, e.auto, e.status]), [["departed", false, "new"]]);
+is("offers departed", enroute.events.map((e) => [e.kind, e.status]), [["departed", "new"]]);
 is("keyed to the day", enroute.events[0].external_id, "adb:departed:EK543:2026-10-02");
 
 const landed = readAeroDataBox([leg("MAA", "Arrived")], air);
@@ -111,7 +111,7 @@ const sky = {
 const inAir = readAdsb(sky, "UAE543", false, air, new Date("2026-10-02T06:00:00Z"));
 is("found by callsign", [inAir.summary.lat, inAir.summary.lon, inAir.summary.speed_kmh, inAir.summary.altitude_m], [25.2, 55.1, 900, 10973]);
 is("when it was heard", inAir.summary.position_at, "2026-10-02T06:00:00.000Z");
-is("offered as a sighting", inAir.events.map((e) => [e.kind, e.auto]), [["departed", false]]);
+is("offered as a sighting", inAir.events.map((e) => [e.kind, e.status]), [["departed", "new"]]);
 const nextWeek = readAdsb(sky, "UAE543", false, air, new Date("2026-10-09T06:00:00Z"));
 is("another day's flight offers nothing", nextWeek.events.length, 0);
 is("and says so", nextWeek.message.includes("another day's flight"), true);
@@ -174,13 +174,13 @@ const events = [
 const hl = readDcsa(events, sea);
 is(
   "what each event becomes",
-  hl.events.map((e) => [e.kind, e.auto, e.status]),
+  hl.events.map((e) => [e.kind, e.status]),
   [
-    ["gate_in", true, "new"],
-    ["loaded", false, "info"],
-    ["departed", true, "new"],
-    ["in_transit", false, "info"],
-    ["in_transit", false, "info"],
+    ["gate_in", "new"],
+    ["loaded", "info"],
+    ["departed", "new"],
+    ["in_transit", "info"],
+    ["in_transit", "info"],
   ]
 );
 is("the first departure is the sailing", hl.events[2].detail, "Sailed from Chennai on MSC AURORA FA412E");
@@ -191,7 +191,7 @@ is("the last thing that happened", hl.summary.last_event, "vessel departed at Co
 
 const home = readDcsa([...events, ev("8", "EQUIPMENT", "DISC", "2026-10-16T14:00:00+04:00", JEA), ev("9", "TRANSPORT", "ARRI", "2026-10-16T08:00:00+04:00", JEA)], sea);
 const at = home.events.filter((e) => e.kind === "arrived" || e.kind === "discharged");
-is("arrival at our port ticks once", at.map((e) => [e.kind, e.auto]), [["arrived", true], ["discharged", false]]);
+is("arrival at our port is offered once", at.map((e) => [e.kind, e.status]), [["arrived", "new"], ["discharged", "info"]]);
 is("an empty answer", readDcsa([], sea).state, "not_found");
 is("not a list", readDcsa({ message: "Unauthorized" }, sea).state, "error");
 

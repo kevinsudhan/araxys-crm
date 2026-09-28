@@ -9,7 +9,8 @@ import { when } from "./shipmentUpdateMail";
  * The link, as a button and as plain text beneath it (some mail clients strip
  * buttons, and some people copy links), and enough of the shipment that the
  * mail is useful on its own: route, status, what it is on, the dates. Only
- * what the booking holds — a line with nothing to say is left out.
+ * what the booking holds — a line with nothing to say is left out. The status
+ * is the page's own: the last milestone the desk recorded (102).
  *
  * It opens as a draft in the compose window like every other outgoing mail,
  * so the desk reads it and adds what the moment needs. The reference goes in
@@ -26,11 +27,11 @@ import { when } from "./shipmentUpdateMail";
 
 export interface TrackingMailInput {
   ref: string;
-  shipmentId: string;
   url: string;
   customerName: string | null;
   mode: string | null;
-  stage: string;
+  /** The last milestone recorded, as the customer's page shows it: "Vessel sailed — 27 Sep". */
+  status: string | null;
   origin: string | null;
   destination: string | null;
   carrier: string | null;
@@ -61,9 +62,9 @@ export function trackingMailHtml(i: TrackingMailInput): string {
   const add = (label: string, value: string | null | undefined) => {
     if (value && value.trim()) rows.push([label, value]);
   };
-  add("Our reference", `${i.ref} · ${i.shipmentId}`);
+  add("Our reference", i.ref);
   add("Route", [i.origin, i.destination].filter(Boolean).join(" → "));
-  add("Status", i.stage.charAt(0).toUpperCase() + i.stage.slice(1));
+  add("Status", i.status);
   add(air ? "Airline" : "Carrier", i.carrier);
   if (air) add("Flight", i.flightNumber);
   else add("Vessel", [i.vessel, i.voyage].filter(Boolean).join(" / "));

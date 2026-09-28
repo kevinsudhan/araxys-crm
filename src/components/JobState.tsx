@@ -1,11 +1,8 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import {
-  promoteToShipment,
-  setShipmentStage,
-  type Enquiry,
-  type Shipment,
-} from "../services/enquiries";
+import { promoteToShipment, type Enquiry, type Shipment } from "../services/enquiries";
+import { clearStage } from "../services/milestones";
 
 /**
  * Moving a job between inbound, in process and completed.
@@ -29,6 +26,12 @@ import {
  * So there is nothing to keep in step. The global boards read the same two
  * facts, which is why a move made here shows up there without anything being
  * copied between them.
+ *
+ * COMPLETED IS "DELIVERED", WHICH THE CUSTOMER IS TOLD (102)
+ *
+ * So "Completed" opens the Delivered milestone on the job's Tracking tab, to be
+ * recorded with its date and who received it, and "In process" from completed
+ * takes that milestone back to still to come.
  *
  * WHY GOING BACK TO INBOUND IS REFUSED
  *
@@ -66,6 +69,7 @@ export default function JobState({
 }) {
   const [busy, setBusy] = useState<JobStateKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
   const current = stateOf(shipment);
 
   /**
@@ -100,11 +104,11 @@ export default function JobState({
     try {
       if (to === "in_process") {
         if (!shipment) await promoteToShipment(enquiry.ref);
-        // Coming back from completed: `arrived` is the stage before delivery,
-        // so reopening puts it where it was rather than at the beginning.
-        else await setShipmentStage(shipment.id, "arrived");
+        // Coming back from completed: not delivered after all. The stage falls
+        // back to the furthest milestone still recorded.
+        else await clearStage(shipment.id, "delivered");
       } else if (to === "completed" && shipment) {
-        await setShipmentStage(shipment.id, "delivered");
+        return navigate(`/shipments/${shipment.id}/tracking?record=delivered`);
       }
       onChanged();
     } catch (e) {

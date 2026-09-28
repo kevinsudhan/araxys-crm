@@ -16,7 +16,7 @@ import { useAuth } from "../lib/auth";
 import { failureText } from "../lib/errorText";
 import { when } from "../lib/shipmentUpdateMail";
 import { mailIsLive, type MailMessage } from "../services/backend";
-import type { Checkpoint } from "../services/checkpoints";
+import type { ShipmentMilestone } from "../services/milestones";
 import { correspondenceFor, updateShipment, type Shipment } from "../services/enquiries";
 import {
   EVENT_STAGE,
@@ -41,15 +41,17 @@ import { formatDate } from "../lib/dates";
  * THREE THINGS ON ONE PANEL
  *
  * Where it is: each source's latest answer, and a map when one of them gave a
- * position. What they reported: offers to tick a step or move a date, each
- * with where it came from, for one click — or "not ours". And the mail: the
- * job's messages since the booking, read once each for the same kind of news.
+ * position. What they reported: offers to record a milestone or move a date,
+ * each with where it came from, for one click — or "not ours". And the mail:
+ * the job's messages since the booking, read once each for the same kind of news.
  *
- * WHAT TICKS ON ITS OWN
+ * WHAT HAPPENS ON ITS OWN
  *
- * Only a carrier's container event (it is about our box). Everything else is
- * offered here, because a flight taking off does not prove our cargo was on
- * it and a line a model read from a mail is a reading, not a record.
+ * Nothing (102). This panel is for the desk; the customer's page shows only
+ * the milestones somebody records. A flight taking off does not prove our
+ * cargo was on it, a line a model read from a mail is a reading, and even a
+ * carrier's container event is checked by a person before the customer is
+ * told. Recording one here is the same as recording it above.
  * ---------------------------------------------------------------------------
  */
 
@@ -96,16 +98,16 @@ function ago(iso: string): string {
 
 export default function LiveTracking({
   shipment: s,
-  steps,
+  milestones,
   snapshots,
   events,
   onChanged,
 }: {
   shipment: Shipment;
-  steps: Checkpoint[];
+  milestones: ShipmentMilestone[];
   snapshots: Snapshot[];
   events: TrackingEvent[];
-  /** Reload the tab: a tick or a date move changes the steps and the header. */
+  /** Reload the tab: a milestone or a date move changes the steps and the header. */
   onChanged: () => Promise<void> | void;
 }) {
   const { session } = useAuth();
@@ -123,15 +125,15 @@ export default function LiveTracking({
   const bySource = useMemo(() => new Map(snapshots.map((x) => [x.source, x])), [snapshots]);
   const lastChecked = snapshots.reduce<string | null>((a, x) => (!a || x.fetched_at > a ? x.fetched_at : a), null);
 
-  const stepFor = useCallback(
+  const milestoneFor = useCallback(
     (kind: TrackingEvent["kind"]) => {
       const stage = EVENT_STAGE[kind];
-      return stage ? steps.find((c) => c.stage === stage) : undefined;
+      return stage ? milestones.find((m) => m.stage === stage) : undefined;
     },
-    [steps]
+    [milestones]
   );
-  // An offer for a step somebody has since ticked by hand asks nothing.
-  const offers = events.filter((e) => e.status === "new" && !(stepFor(e.kind)?.done_at));
+  // An offer for a milestone somebody has since recorded asks nothing.
+  const offers = events.filter((e) => e.status === "new" && !milestoneFor(e.kind)?.reached_on);
 
   const { id, enquiry_ref: ref, created_at: booked } = s;
   const loadMail = useCallback(async () => {
@@ -168,8 +170,6 @@ export default function LiveTracking({
     run("refresh", async () => {
       const out = await refreshTracking(s.id);
       const added = out.reduce((n, o) => n + (o.added ?? 0), 0);
-      const ticked = out.reduce((n, o) => n + (o.ticked ?? 0), 0);
-      if (ticked) return `${ticked} step${ticked === 1 ? "" : "s"} ticked from the carrier's events.`;
       if (added) return `${added} new update${added === 1 ? "" : "s"} below.`;
     });
 
@@ -200,9 +200,12 @@ export default function LiveTracking({
   return (
     <section className="card mt-3 p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
-          <Satellite size={12} /> Live tracking
-        </h2>
+        <div>
+          <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
+            <Satellite size={12} /> Live tracking
+          </h2>
+          <p className="mt-0.5 text-[11.5px] text-text-muted">For the desk. Nothing here reaches the customer until somebody records it.</p>
+        </div>
         {sources.length > 0 && (
           <div className="flex items-center gap-2">
             {lastChecked && <span className="text-[11px] text-text-muted">Checked {ago(lastChecked)}</span>}
@@ -276,7 +279,7 @@ export default function LiveTracking({
           </p>
           <ul className="space-y-2">
             {offers.map((e) => {
-              const step = stepFor(e.kind);
+              const milestone = milestoneFor(e.kind);
               const moves = ["schedule_changed", "rolled_over", "delayed"].includes(e.kind) && (e.data?.etd || e.data?.eta);
               return (
                 <li key={e.id} className="rounded-lg border border-border p-3">
@@ -306,7 +309,7 @@ export default function LiveTracking({
                         >
                           Use {[e.data.etd && `ETD ${when(e.data.etd)}`, e.data.eta && `ETA ${when(e.data.eta)}`].filter(Boolean).join(", ")}
                         </ActButton>
-                      ) : step && !e.estimated ? (
+                      ) : milestone && !milestone.hidden && !e.estimated ? (
                         <ActButton
                           busy={busy === e.id}
                           disabled={busy !== null}
@@ -314,11 +317,15 @@ export default function LiveTracking({
                           onClick={() =>
                             void run(e.id, async () => {
                               const r = await applyTrackingEvent(e.id);
-                              return r === "applied" ? `Ticked “${step.label}”.` : r === "already" ? "That step was already ticked." : undefined;
+                              return r === "applied"
+                                ? `Recorded “${milestone.label}”: the customer's page shows it.`
+                                : r === "already"
+                                  ? "That milestone was already recorded."
+                                  : undefined;
                             })
                           }
                         >
-                          Tick “{step.label}”
+                          Record “{milestone.label}”
                         </ActButton>
                       ) : (
                         <ActButton busy={busy === e.id} disabled={busy !== null} onClick={() => void run(e.id, () => dismissTrackingEvent(e.id, true))}>

@@ -61,6 +61,7 @@ export function useLiveVersion(...tables: string[]): number {
 /** Every table keyed to one job, filtered to it. */
 export const SHIPMENT_TABLES = [
   "shipment_checkpoints",
+  "shipment_milestones",
   "shipment_containers",
   "shipment_customs",
   "shipment_movements",

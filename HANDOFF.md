@@ -4,8 +4,9 @@ The freight desk for **Aashish Logistics Global**. This file covers `araxys-crm-
 v1 (`../araxys-crm`) is a separate, older codebase on a different Supabase project and a
 different branch; it is not to be touched from here.
 
-Written 14 September 2026, revised 21 September, **revised again 24 September 2026**. A
-new session should read this whole file before changing anything. §0 is the short version.
+Written 14 September 2026, revised 21 and 24 September, **last revised 28 September 2026**
+(customer milestones, migration 102). A new session should read this whole file before
+changing anything. §0 is the short version.
 
 ---
 
@@ -18,8 +19,8 @@ new session should read this whole file before changing anything. §0 is the sho
 - **Before every push:** `npm test` (46 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **101**, so the next one is `102-….sql`.
-- **Where things stand:** the tree is clean at the head in §11, everything is pushed, and
+  migration filename (§6). The last migration is **102**, so the next one is `103-….sql`.
+- **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
   Verify on the running system (preview screenshots, then grep the deployed chunks) before
@@ -95,7 +96,7 @@ v2 has its own Supabase project, `izgbrdeybhbepftloxgk`. v1's project is
 | Function | What it does | Secrets |
 |---|---|---|
 | `classify-enquiry` | Gemini reads a mail and extracts enquiry fields; mode `hbl` reads a B/L PDF or scan into boxes (088, high media resolution) | `GEMINI_API_KEY`, `GEMINI_FALLBACK_MODELS` |
-| `track-shipment` | Flight, vessel and container positions; hourly cron sweep (073) | `AISSTREAM_API_KEY`, `AERODATABOX_KEY`, `AERODATABOX_VIA=direct`, `TRACK_CRON_SECRET` |
+| `track-shipment` | Flight, vessel and container positions; hourly cron sweep (073). Files what it hears for the desk; **applies nothing** since 102 (a person records the milestone) | `AISSTREAM_API_KEY`, `AERODATABOX_KEY`, `AERODATABOX_VIA=direct`, `TRACK_CRON_SECRET` |
 | `staff-accounts` | The admin console's Staff accounts: list, add (email confirmed, role in app_metadata), role, may-approve and may-assign flags, password, disable and enable. Admin callers only; refuses to disable or demote yourself or the last admin | none beyond the defaults |
 | `db-backup` | The nightly backup into the `backups` bucket, 30 days kept, each run in `backup_runs`; for an admin, the run list with download links and "Back up now" | `BACKUP_SECRET` (`set-backup-secret.mjs`) |
 | `outlook-token` | Keeps Outlook connected past Microsoft's hour (094). `link`: the browser hands over the Microsoft refresh token once after the Microsoft sign-in; it is redeemed and the rotated one kept, sealed, against that Supabase sign-in. `token`: a fresh access token from it. 409 `{reconnect}` when Microsoft has ended the connection | `OUTLOOK_TOKEN_KEY` (`set-outlook-key.mjs`), and the three `MS_*` below |
@@ -151,7 +152,8 @@ Functions → Secrets. Nothing in the repo reads them.
 ### Public pages (no sign-in)
 
 - `/q/:token`: the customer accepts a quotation.
-- `/t/:token`: the customer tracking page.
+- `/t/:token`: the customer tracking page. Since 102 it shows only the booking's details and
+  the milestones the desk recorded on the job's Tracking tab (§9, "Customer milestones").
 
 ### The shipment job file
 
@@ -161,9 +163,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 93 migrations
+## 4. Data model — 94 migrations
 
-`supabase-v2/001…101`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…102`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -189,6 +191,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `102` | **Customer milestones.** `milestone_templates` (per mode; customs per direction) and `shipment_milestones` (per job: day, time as told, where, a note for the customer, hidden, `added` for the desk's own updates). Staff read; written only by `save_shipment_milestone`, `add_shipment_update`, `delete_shipment_update`. A milestone that marks a stage ticks that workflow step (`milestone_to_step`), and **a stage step can be ticked no other way** (`guard_milestone_step`, flag `app.milestone_write`). The warehouse-receipt trigger is dropped; movements no longer tick stage steps; `set_shipment_stage` only cancels and reopens; `apply_tracking_event` needs a person and records the milestone. `shipment_tracking` rebuilt to the booking plus visible milestones; `shipment_track_points` and `shipment_customs_public` dropped, so the anonymous key reaches three functions. Seeded on every new booking (booked reached on creation) and backfilled from the ticked stage steps |
 | `101` | Live rates: `live_rate_requests` (service, what to quote, mailbox, running), `live_rate_recipients` (partners), `live_rate_sends` (every mail, sent or refused; the function writes it, staff read it). A partner is claimed once per Sunday (unique index). Trigger: the mailbox must be a CRM login and only an admin changes it. Cron `araxys-v2-live-rates` `0,10,20,30,40,50 17 * * 0` (22:30–23:20 IST) with the scheduler's Vault secrets |
 | `100` | ICEGATE's replies: `csn_files.reply_status` (accepted / rejected / failed), `reply` (as read), `replied_at/by`; `csn_file_reply(job, status, reply)` writes them (staff; the table stays read-only); `shipment_customs.cin_type/cin_no` for each house's CIN |
 | `099` | CSN amendments: `csn_files.draft` keeps the form each file was made from; `csn_file_new` takes it as a fifth argument (the four-argument version is dropped) and accepts the event SCA |
@@ -327,6 +330,11 @@ The UI has no automated tests. It is verified by hand in the way described below
    and grep it for a string that only the new code contains. Grep each chunk on its own,
    because a short pattern can match another component.
 
+**Customer milestones (102) were verified** by a dry run of the migration against live data,
+rolled back: the guard, recording and clearing, the stage following, every refusal, movements,
+a carrier event applied by a person, the customer RPC as `anon` and the privileges; then the
+Tracking tab and the customer page in a preview harness, desktop and 375 px.
+
 ### Not verified yet
 
 - **Signing in.** It needs a password, which the assistant does not type, so no signed-in
@@ -378,6 +386,12 @@ The UI has no automated tests. It is verified by hand in the way described below
 - **`supabase-v2/functions/mail-sync/mailLog.ts` is a copy of `src/lib/mailLog.ts`**, since
   the deploy uploads only the function's folder. `test:maillog` fails when they differ.
   After editing one, copy it over the other and redeploy the function.
+
+**A workflow step that marks a stage is ticked only through its milestone (102).** The guard
+on `shipment_checkpoints` refuses any other change to its `done_at`, so a new trigger or function
+that ticks steps must skip `stage is not null` (as `movements_to_checkpoint` does), or it will
+fail whatever wrote the row that fired it. Record the milestone instead, or offer it on the
+Tracking tab (`suggestionFor` in `lib/milestones.ts`).
 
 **A new function is callable by anyone until PUBLIC is revoked.** Postgres grants EXECUTE to
 PUBLIC by default, so `grant … to authenticated` alone leaves the anonymous key in the bundle
@@ -458,6 +472,12 @@ screen.
   - Mail.Send (application) can send as any mailbox in the tenant. The CRM only ever sends from
     a CRM login's mailbox (the table's trigger), and only an admin changes which. The
     `ApplicationAccessPolicy` above would narrow Microsoft's side too.
+- **Microsoft licences (answered 28 Sep):** Exchange Online Plan 1 per mailbox is enough;
+  no separate Entra licence is needed. Entra ID Free comes with the tenant and covers the app
+  registration, its secret, delegated sign-in (Connect Outlook), application permissions and
+  admin consent. Every mailbox that signs in to the CRM needs its own Plan 1; Live rates only
+  sends from a CRM login's mailbox, so that one is licensed anyway. Entra ID P1 is only for
+  extras like Conditional Access, which the CRM does not use.
 - The voice-era secrets above: remove them in the dashboard.
 - (Done 26 Sep: `server/`, the first version's Express backend with the voice-agent import
   code, was removed with `scripts/seed-space.ts` and the packages only it used: express, cors,
@@ -471,16 +491,41 @@ screen.
 - (Done 26 Sep: the unused 3D planner, `ContainerPlanView`, `ContainerScene`, `lib/scene3d`,
   was removed. It is in git history if it is ever wanted again.)
 
-### Live data worth knowing (24 September)
+### Live data worth knowing (28 September)
 
-- Totals: 9 enquiries, 2 shipments (both `booked`, one created today by the desk), 4 quotes
-  (3 accepted), 0 invoices, 0 bills.
-- **ALG09004-26 has an accepted quote with test values:** ₹3 sell against ₹24.6L cost. It
-  shows as a large loss on Job closing. Ask the user before changing it.
+- Totals: 10 enquiries, 2 shipments (both at stage `booked`), 3 quotes, 0 invoices, 0 bills.
+- The ₹3 test quote on ALG09004-26 was deleted on 26 Sep (see above); the rest of that test
+  chain is still there.
 - Older intake mails are still waiting on the Enquiries page. Clearing them is the desk's
   job, not a code change.
 
 ### Product gaps
+
+- **Customer milestones (102, user's instruction 28 Sep: "the tracking page the customer
+  receives should not be automatic; all milestones updated by an employee within the
+  shipment").**
+  - The job's **Tracking tab** opens with *Customer milestones* (`components/CustomerMilestones.tsx`,
+    logic in `lib/milestones.ts`): Record / Edit each with the day, the time if known (the
+    place's local time, as told), where, and a note for the customer; "Not reached after all";
+    "Not part of this job" (hidden, e.g. delivery on an FOB export); "Add an update" for the
+    desk's own line ("Transhipped at Colombo"), whose wording can be corrected and which can be
+    deleted.
+  - **What the job already knows is offered, never applied:** "Use this" beside a milestone
+    fills the form from the delivery or pickup on Pickup & delivery, the first warehouse receipt,
+    the LEO / out-of-charge date, or a carrier's, airline's or mail's report.
+  - **The customer's page** (`pages/TrackShipment.tsx`): what was recorded, oldest first, then
+    what is still to come; a milestone overtaken without a record is left out; "Expected" only
+    against the booking's own ETD / ETA; the planned route on the map (no positions); the
+    booking's details; no ARX id. The tracking-link mail's status is the last milestone.
+  - **The stage follows the milestones.** "Mark sailed…" in the job header, a flagged step on the
+    workflow bar and the case file's "Completed" all open the milestone on the Tracking tab;
+    "In process" from completed clears the Delivered milestone.
+  - The live-tracking panel is labelled for the desk; its "Record …" button records the
+    milestone (a person's click). The hourly sweep only files what it hears.
+  - Existing jobs were backfilled from their ticked stage steps (both live jobs: booking
+    confirmed only).
+- The customer is not mailed when a milestone is recorded; they see it when they open the
+  link. A "tell the customer" mail per milestone would be the next step if the desk wants it.
 
 - **Free time (083)** is counted in `lib/freeTime.ts` from dates the desk types per box. Nothing fills those dates yet: tracking's `discharged`/`gate_out` events (072) and the pickup/delivery moves (079) could suggest them. The tariff is one rate per day; slab tariffs and holiday rules are not modelled. LCL (CFS storage) is not counted.
 - **Sea bills (082).** The master B/L is entered once on the console and the database copies it
@@ -857,9 +902,10 @@ screen.
 - Branch **`v2`**. There are two remotes:
   - `logistics-v3` (`github.com/kevinsudhan/logistics-v3`): **the deploy.** Push with
     `git push logistics-v3 v2:main`.
-  - `origin` (`github.com/kevinsudhan/araxys-crm`): v1's repo. `origin/v2` is 63 commits
+  - `origin` (`github.com/kevinsudhan/araxys-crm`): v1's repo. `origin/v2` is 100 commits
     behind and nothing reads it. **Do not push v2 to `origin/main`,** which is v1's branch.
-- The working tree is clean and everything is pushed to `logistics-v3/main`.
+- The code is at the commit that adds customer milestones (102), pushed to
+  `logistics-v3/main` and live, with 102 applied and `track-shipment` redeployed.
 - Commit style: a sentence-case subject that describes what the user can now do, a body
   explaining why, and the `Co-Authored-By` trailer.
 
@@ -894,6 +940,7 @@ There are 63 commits. Grouped:
 | Free time (083) | see `git log` | Free days and D&D rates per job; each box's clocks on the Containers tab; an alert on the job file header and the worklist (badge, "Free time running out" filter, urgency sort, Excel column); the terms on the arrival notice |
 | Team oversight (086, 087) | see `git log` | A live view of the desk: every mail each mailbox sent and to whom (from Outlook too), enquiries taken on, quoted and booked, job steps ticked, per person and per period. A server copy of every mailbox every 5 minutes |
 | Sign-ups closed, staff accounts, backups (093) | see `git log` | Only an admin adds staff (Staff accounts); the leaked starter password is dead; a tested nightly backup with a status card, downloads and a restore script |
+| Customer milestones (102) | see `git log` | The customer's tracking page shows only what the desk records on the job's Tracking tab: each milestone with its day, time, place and a note, the desk's own updates, nothing from feeds or internal steps. The job's records are offered as "Use this"; the stage follows the milestones |
 | Live rates (101) | see `git log` | Name a service, pick the partners: every Sunday 10:30 pm IST each gets their own mail asking for the coming week's rates, from info@, replies under Partner mail. Send now, a test to yourself, preview, pause; every send and Microsoft's reason for any refusal on the page |
 | ICEGATE replies (100) | see `git log` | "Read a reply" takes ICEGATE's ACK or SFL, finds the file by job number, shows each error on its house and container in the desk's words, and on an accepted live file records the CSN number and date and the MCIN/PCINs; a rejected file stops being the amendment baseline |
 | CSN amendments (SCA, 099) | see `git log` | Once the CSN number is recorded, the panel lists what changed since the last live file and makes the amendment with only that, flagged U/S/D, pointing back at the CSN; houses keep their sub-lines across amendments; checked against CBIC's SCA schema |
