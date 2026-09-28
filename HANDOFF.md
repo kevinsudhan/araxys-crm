@@ -58,7 +58,14 @@ Aashish Logistics is the data fiduciary for the transfer.
 
 **Enabling billing on the Google Cloud project changes those terms with no code change.** It
 costs a few hundred rupees a month at this volume, and it also removes the free-tier 503s.
-Until then the function retries and falls back to `GEMINI_FALLBACK_MODELS`.
+Until then the function falls back to `GEMINI_FALLBACK_MODELS` and then its built-in list.
+
+On 28 Sep 2026 the free tier stopped the mail autofill altogether: every Gemini model answered
+503 "high demand" (Gemma timed out), and the old last resort, `gemini-2.5-flash`, now answers
+404 "no longer available to new users". The function now tries each model once with a 20-second
+timeout inside a 60-second budget, and answers 200 with `error` saying which it was (overloaded,
+out of quota, refused); the case file shows that on the fill strip instead of swallowing it. The
+fix that makes it dependable is billing.
 
 ---
 

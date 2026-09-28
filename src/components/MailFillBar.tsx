@@ -46,6 +46,7 @@ export default function MailFillBar({
   enquiry,
   mail,
   autoFilled,
+  autoFillError,
   keys,
   lines,
   onSaved,
@@ -53,6 +54,8 @@ export default function MailFillBar({
   enquiry: Enquiry;
   mail: FiledMessage[];
   autoFilled?: AutoFilled | null;
+  /** Why the automatic reading on opening failed, if it did. */
+  autoFillError?: string | null;
   /** What the reading may write. The same list the automatic fill uses. */
   keys: string[];
   /** The dimension table as it stands. */
@@ -67,6 +70,8 @@ export default function MailFillBar({
   const [error, setError] = useState<FailureText | null>(null);
   // The automatic pass's proposed sizes, once dismissed or added.
   const [autoSizesDone, setAutoSizesDone] = useState(false);
+  // A manual reading since, successful or not, replaces the automatic one's failure.
+  const [tried, setTried] = useState(false);
 
   const record = enquiry as unknown as Record<string, unknown>;
   const unit = enquiry.dimension_unit ?? "cm_kg";
@@ -75,6 +80,7 @@ export default function MailFillBar({
   async function extract() {
     setReading(true);
     setError(null);
+    setTried(true);
     try {
       // Full bodies, not previews: the same text the automatic fill reads, so
       // pressing this cannot find less than it would have.
@@ -171,7 +177,11 @@ export default function MailFillBar({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="flex min-w-0 items-start gap-2 text-[12px] text-text-secondary">
           <Wand2 size={13} className="mt-px shrink-0 text-text-muted" />
-          {filledNames.length ? (
+          {autoFillError && !tried && !filledNames.length ? (
+            <span className="text-text-warning">
+              The mail has not been read into the details yet: {autoFillError}
+            </span>
+          ) : filledNames.length ? (
             <span>
               Filled from new mail:{" "}
               <strong className="font-medium text-text-primary">{filledNames.join(", ")}</strong>
@@ -189,7 +199,7 @@ export default function MailFillBar({
           className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-3 text-[12px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary disabled:opacity-60"
         >
           {reading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-          Read the mail again
+          {autoFillError && !tried ? "Read the mail" : "Read the mail again"}
         </button>
       </div>
 

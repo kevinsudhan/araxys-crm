@@ -46,12 +46,34 @@ const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
  * 2.5 Flash-Lite retires on 16 October 2026; do not pin to it.
  */
 const MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
-/** Tried in order when MODEL is busy or out of free quota. Comma-separated to override. */
-const FALLBACK_MODELS = (Deno.env.get("GEMINI_FALLBACK_MODELS") ?? "gemini-3.5-flash-lite,gemini-2.5-flash")
-  .split(",")
-  .map((m) => m.trim())
-  .filter(Boolean);
+/**
+ * Tried in order when MODEL is busy, out of free quota, or retired. The
+ * secret's list (comma-separated) goes first; the built-in list always follows
+ * it, so a secret naming a model Google has since withdrawn cannot leave the
+ * reader with nothing to fall back to.
+ *
+ * 28 Sep 2026: every mail reading failed. The two models before 2.5 Flash were
+ * refusing, and 2.5 Flash, the last resort, now answers 404 "no longer
+ * available to new users" — so the one error anybody saw was the 404, and the
+ * automatic fill on the case file swallowed even that.
+ */
+const BUILT_IN_FALLBACKS = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
+const FALLBACK_MODELS = [
+  ...(Deno.env.get("GEMINI_FALLBACK_MODELS") ?? "").split(",").map((m) => m.trim()),
+  ...BUILT_IN_FALLBACKS,
+].filter(Boolean);
 const BASE = "https://generativelanguage.googleapis.com/v1beta";
+
+/** Google's own sentence out of an error body, short enough to show a person. */
+function googleMessage(raw: string): string {
+  try {
+    const m = JSON.parse(raw)?.error?.message;
+    if (typeof m === "string") return m.slice(0, 200);
+  } catch {
+    /* not JSON */
+  }
+  return raw.slice(0, 200);
+}
 
 /**
  * CORS, and the headers it is easy to forget.
@@ -850,23 +872,22 @@ Deno.serve(async (req) => {
     .filter(Boolean)
     .join("\n");
 
+  const systemText = drafting
+    ? DRAFT_SYSTEM
+    : quoting
+      ? QUOTE_SYSTEM
+      : writingRfq
+        ? RFQ_SYSTEM
+        : tracking
+          ? TRACK_SYSTEM
+          : readingBill
+            ? HBL_SYSTEM
+            : SYSTEM;
+  const schema = quoting ? QUOTE_SCHEMA : tracking ? TRACK_SCHEMA : readingBill ? HBL_SCHEMA : SCHEMA;
+
   const body = JSON.stringify({
     systemInstruction: {
-      parts: [
-        {
-          text: drafting
-            ? DRAFT_SYSTEM
-            : quoting
-              ? QUOTE_SYSTEM
-              : writingRfq
-                ? RFQ_SYSTEM
-                : tracking
-                  ? TRACK_SYSTEM
-                  : readingBill
-                    ? HBL_SYSTEM
-                    : SYSTEM,
-        },
-      ],
+      parts: [{ text: systemText }],
     },
     contents: [
       {
@@ -882,7 +903,7 @@ Deno.serve(async (req) => {
       ? { temperature: 0.4 }
       : {
           responseMimeType: "application/json",
-          responseSchema: quoting ? QUOTE_SCHEMA : tracking ? TRACK_SCHEMA : readingBill ? HBL_SCHEMA : SCHEMA,
+          responseSchema: schema,
           temperature: 0,
           // A scanned B/L read at the default resolution misread "SEP 28, 2026"
           // as 2028 and dropped a letter from QDMAA260901055 (25 Sep 2026).
@@ -905,34 +926,72 @@ Deno.serve(async (req) => {
   let r: Response | null = null;
   let raw = "";
   let used = MODEL;
+  /** What each model said, so a failure names every refusal and not only the last. */
+  const tried: Array<{ model: string; status: number | string; said: string }> = [];
   // Then the next model, when this one stays busy: measured on 23 Sep 2026, the
   // configured model answered 503 "high demand" to twelve requests in a row
   // across three minutes. Free-tier limits are per model, so a 429 on one is
   // not a 429 on the next.
-  const models = [MODEL, ...FALLBACK_MODELS.filter((m) => m !== MODEL)];
+  //
+  // One try per model: on 28 Sep 2026 a busy model answered 503 to the second
+  // try as reliably as the first, and trying each twice ran past the platform's
+  // 150-second limit, which killed the function before it could say why. Each
+  // call has its own timeout (a busy model sometimes hangs rather than refusing)
+  // and the whole round stops at a budget, so the caller always gets an answer
+  // it can show. A quota refusal (429), a withdrawn model (404) and a busy one
+  // (5xx) all move on to the next model.
+  const models = [...new Set([MODEL, ...FALLBACK_MODELS])];
+  const started = Date.now();
+  const BUDGET_MS = 60_000;
   tries: for (const model of models) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt) await new Promise((ok) => setTimeout(ok, 600));
-      try {
-        r = await fetch(`${BASE}/models/${model}:generateContent?key=${GEMINI_KEY}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        });
-      } catch {
-        // A dropped connection is worth another go for the same reason a 503 is.
-        continue;
-      }
-      raw = await r.text();
-      used = model;
-      if (r.ok || (r.status !== 429 && r.status < 500)) break tries;
+    const left = BUDGET_MS - (Date.now() - started);
+    if (left < 5_000) {
+      tried.push({ model, status: "skipped", said: "out of time" });
+      break;
     }
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/models/${model}:generateContent?key=${GEMINI_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        signal: AbortSignal.timeout(Math.min(20_000, left)),
+      });
+    } catch (e) {
+      tried.push({ model, status: e instanceof DOMException && e.name === "TimeoutError" ? "timeout" : "network", said: String(e).slice(0, 160) });
+      continue;
+    }
+    r = res;
+    raw = await res.text();
+    used = model;
+    if (res.ok) break;
+    tried.push({ model, status: res.status, said: googleMessage(raw) });
+    if (res.status === 429 || res.status === 404 || res.status >= 500) continue tries;
+    // Anything else (400 a request this code got wrong, 403 a key problem) is
+    // the same on every model.
+    break;
   }
-  if (!r) return json({ error: "Could not reach Gemini." }, 502);
-  if (!r.ok) {
-    // Google's message is kept: it distinguishes a bad key from a retired model
+  /*
+    A failure on Google's side answers 200 with an `error` key, as every caller
+    reads it (services/classify.ts and the rest). A non-2xx reaches the browser
+    as supabase-js's "Edge Function returned a non-2xx status code", and the
+    reason — busy, out of quota, a withdrawn model — was lost on the way.
+  */
+  if (!r || !r.ok) {
+    const statuses = tried.map((t) => t.status);
+    const busy = statuses.some((s) => s === "timeout" || (typeof s === "number" && s >= 500));
+    const quota = statuses.includes(429);
+    // Google's messages are kept: they distinguish a bad key from a retired model
     // from a quota refusal, and those need three different fixes.
-    return json({ error: "Gemini refused the request.", status: r.status, detail: raw.slice(0, 800) }, 502);
+    const why = tried.map((t) => `${t.model}: ${t.status} ${t.said}`).join(" | ").slice(0, 1200);
+    const said = !r && !busy
+      ? "Could not reach Gemini."
+      : quota && !busy
+        ? "Gemini's free quota is used up for now, so this could not be read. It resets daily; enabling billing on the Google project removes the limit."
+        : busy && statuses.every((s) => s === "timeout" || s === "skipped" || s === 404 || s === 429 || (typeof s === "number" && s >= 500))
+          ? "Google's AI models are overloaded right now (free tier), so this could not be read. Try again in a few minutes."
+          : "Gemini refused the request.";
+    return json({ error: said, status: r?.status ?? null, detail: said === "Gemini refused the request." ? why : undefined, tried }, 200);
   }
 
   try {
@@ -942,7 +1001,7 @@ Deno.serve(async (req) => {
       // A blocked or empty candidate is not a crash. Say what came back.
       return json(
         { error: "Gemini returned no content.", detail: JSON.stringify(parsed).slice(0, 800) },
-        502
+        200
       );
     }
     // What it cost, so the bill is never a surprise nobody can explain.
@@ -975,6 +1034,6 @@ Deno.serve(async (req) => {
 
     return json({ ...answer, model: used, usage });
   } catch (e) {
-    return json({ error: "Could not read Gemini's answer.", detail: String(e) }, 502);
+    return json({ error: "Could not read Gemini's answer.", detail: String(e) }, 200);
   }
 });

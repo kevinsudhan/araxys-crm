@@ -112,6 +112,12 @@ export default function CaseFile() {
   // nothing that was still blank.
   const [autoFilled, setAutoFilled] = useState<AutoFilled | null>(null);
   /**
+   * Why the automatic reading did not happen, when it did not. It used to be
+   * swallowed: a model that was busy or withdrawn left the details blank with
+   * nothing on screen to say the mail had not been read.
+   */
+  const [autoFillError, setAutoFillError] = useState<string | null>(null);
+  /**
    * Enquiries already read on this mount.
    *
    * StrictMode runs effects twice in development, and a second `load()` racing
@@ -197,6 +203,7 @@ export default function CaseFile() {
       */
       if (!MAIL_ONLY_CASE_FILE && m.length && !readOnce.current.has(ref)) {
         readOnce.current.add(ref);
+        setAutoFillError(null);
         void fillFromNewMail(e, m, fillKeysFor(d), mailbox, d)
           .then((filled) => {
             if (!filled) return;
@@ -208,7 +215,8 @@ export default function CaseFile() {
             // A size read out of the mail becomes the first dimension line.
             void listDimensions(ref).then(setDims).catch(() => {});
           })
-          .catch(() => {});
+          // The enquiry still opens; the strip says the mail was not read, and why.
+          .catch((err: unknown) => setAutoFillError(err instanceof Error ? err.message : "The mail could not be read."));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load this enquiry.");
@@ -440,6 +448,7 @@ export default function CaseFile() {
             enquiry={enquiry}
             mail={mail}
             autoFilled={autoFilled}
+            autoFillError={autoFillError}
             keys={fillKeysFor(dims)}
             lines={dims}
             onSaved={load}
