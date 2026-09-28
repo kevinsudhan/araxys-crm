@@ -466,6 +466,11 @@ export interface Shipment {
   dnd_currency: string;
   vessel_imo: string | null;
 
+  /* Called off (103). Set and cleared only by cancel_shipment and reopen_shipment. */
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancel_reason?: string | null;
+
   /* Closed by operations (070). Set and cleared only by the sign-off functions. */
   signed_off_at: string | null;
   signed_off_by: string | null;
@@ -728,15 +733,6 @@ export async function recentEvents(limit = 8): Promise<EnquiryEvent[]> {
   return (data ?? []) as EnquiryEvent[];
 }
 
-/** How many calls are on record, counted by the database rather than by us. */
-export async function countCalls(): Promise<number> {
-  const { count, error } = await supabase
-    .from("calls")
-    .select("call_id", { count: "exact", head: true });
-  if (error) throw error;
-  return count ?? 0;
-}
-
 /**
  * Turns an accepted enquiry into a shipment.
  *
@@ -747,6 +743,24 @@ export async function countCalls(): Promise<number> {
  */
 export async function promoteToShipment(ref: string): Promise<Shipment> {
   const { data, error } = await supabase.rpc("promote_enquiry", { p_ref: ref.toUpperCase() });
+  if (error) throw error;
+  return data as Shipment;
+}
+
+/**
+ * Called off, with the reason (103). The job keeps its records — invoices take
+ * credit notes, not a cancellation — and its customer page says it is cancelled.
+ * Refused on a signed-off job.
+ */
+export async function cancelShipment(id: string, reason: string): Promise<Shipment> {
+  const { data, error } = await supabase.rpc("cancel_shipment", { p_id: id, p_reason: reason });
+  if (error) throw error;
+  return data as Shipment;
+}
+
+/** Back on, at whatever stage its customer milestones say (103). */
+export async function reopenShipment(id: string, reason: string): Promise<Shipment> {
+  const { data, error } = await supabase.rpc("reopen_shipment", { p_id: id, p_reason: reason });
   if (error) throw error;
   return data as Shipment;
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle, CalendarClock, ClipboardList, Loader2, Plus, Route, Trash2 } from "lucide-react";
 import RevertShipment from "../../components/RevertShipment";
+import CancelShipment from "../../components/CancelShipment";
 import Collapsible from "../../components/Collapsible";
 import CustomerDetailsPanel from "../../components/CustomerDetailsPanel";
 import ServiceDetailsPanel from "../../components/ServiceDetailsPanel";
@@ -216,6 +217,16 @@ export default function ShipmentOverview() {
         It deletes the booking, so it should take a decision to reach rather
         than sit beside the things somebody presses all day.
       */}
+      {s.stage !== "cancelled" && (
+        <section className="card mt-4 p-5">
+          <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Called off?</h2>
+          <p className="mb-3 max-w-prose text-[12px] text-text-secondary">
+            Cancel it with the reason. The job and its records stay, marked cancelled, and it can be reopened.
+          </p>
+          <CancelShipment shipment={s} onChanged={reload} />
+        </section>
+      )}
+
       <section className="card mt-4 p-5">
         <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
           Not ready to be a booking?

@@ -72,6 +72,16 @@ export async function addLine(
   if (error) throw new Error(error.message);
 }
 
+/** Several lines in one request, in the order given. */
+export async function addLines(
+  quoteId: string,
+  lines: Array<Partial<Omit<QuoteLine, "id" | "quote_id" | "amount" | "amount_inr" | "created_at">>>
+): Promise<void> {
+  if (!lines.length) return;
+  const { error } = await supabase.from("quote_lines").insert(lines.map((line) => ({ quote_id: quoteId, ...line })));
+  if (error) throw new Error(error.message);
+}
+
 export async function updateLine(
   id: string,
   patch: Partial<Omit<QuoteLine, "id" | "quote_id" | "amount" | "amount_inr" | "created_at">>

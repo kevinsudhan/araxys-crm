@@ -207,6 +207,49 @@ begin
     steps := steps || jsonb_build_object('step', 'customer tracking page', 'ok', false, 'error', sqlerrm);
   end;
 
+  -- ------------------------------------------------- cancelled, and reopened
+  begin
+    perform public.cancel_shipment(v_ship, 'no');
+    steps := steps || jsonb_build_object('step', 'cancelling needs a reason', 'ok', false, 'error', 'NOT REFUSED');
+  exception when others then
+    steps := steps || jsonb_build_object('step', 'cancelling needs a reason', 'ok', true, 'said', sqlerrm);
+  end;
+  t0 := clock_timestamp();
+  begin
+    perform public.cancel_shipment(v_ship, 'Customer postponed the order');
+    steps := steps || jsonb_build_object('step', 'shipment cancelled with a reason', 'ok', (select stage from public.shipments where id = v_ship) = 'cancelled',
+      'ms', round(extract(epoch from clock_timestamp() - t0) * 1000), 'reason', (select cancel_reason from public.shipments where id = v_ship));
+  exception when others then
+    steps := steps || jsonb_build_object('step', 'shipment cancelled with a reason', 'ok', false, 'error', sqlerrm);
+  end;
+  begin
+    perform public.save_shipment_milestone((select id from public.shipment_milestones where shipment_id = v_ship and code = 'arrived'), today, null, '', '', false);
+    steps := steps || jsonb_build_object('step', 'a cancelled job takes no milestones', 'ok', false, 'error', 'NOT REFUSED');
+  exception when others then
+    steps := steps || jsonb_build_object('step', 'a cancelled job takes no milestones', 'ok', true, 'said', sqlerrm);
+  end;
+  begin
+    reset role;
+    perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
+    set local role anon;
+    v_pub := public.shipment_tracking(v_trk);
+    steps := steps || jsonb_build_object('step', 'the customer sees it cancelled', 'ok', coalesce((v_pub->>'cancelled')::boolean, false));
+    reset role;
+    perform set_config('request.jwt.claims', json_build_object('sub', emp::text, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+  exception when others then
+    steps := steps || jsonb_build_object('step', 'the customer sees it cancelled', 'ok', false, 'error', sqlerrm);
+  end;
+  t0 := clock_timestamp();
+  begin
+    perform public.reopen_shipment(v_ship, 'Customer confirmed the order again');
+    steps := steps || jsonb_build_object('step', 'reopened where its milestones say', 'ok', (select stage from public.shipments where id = v_ship) = 'sailed',
+      'ms', round(extract(epoch from clock_timestamp() - t0) * 1000), 'stage', (select stage from public.shipments where id = v_ship),
+      'cleared', (select cancel_reason is null and cancelled_at is null from public.shipments where id = v_ship));
+  exception when others then
+    steps := steps || jsonb_build_object('step', 'reopened where its milestones say', 'ok', false, 'error', sqlerrm);
+  end;
+
   -- ---------------------------------------------------------------- accounts
   t0 := clock_timestamp();
   begin
@@ -308,6 +351,13 @@ begin
     steps := steps || jsonb_build_object('step', 'signed-off job is locked', 'ok', false, 'error', 'NOT REFUSED');
   exception when others then
     steps := steps || jsonb_build_object('step', 'signed-off job is locked', 'ok', true, 'said', sqlerrm);
+  end;
+
+  begin
+    perform public.cancel_shipment(v_ship, 'After sign-off');
+    steps := steps || jsonb_build_object('step', 'a signed-off job cannot be cancelled', 'ok', false, 'error', 'NOT REFUSED');
+  exception when others then
+    steps := steps || jsonb_build_object('step', 'a signed-off job cannot be cancelled', 'ok', true, 'said', sqlerrm);
   end;
 
   -- ---------------------------------------------------------- who sees what

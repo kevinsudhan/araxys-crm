@@ -5,8 +5,8 @@ v1 (`../araxys-crm`) is a separate, older codebase on a different Supabase proje
 different branch; it is not to be touched from here.
 
 Written 14 September 2026, revised 21 and 24 September, **last revised 28 September 2026**
-(customer milestones, migration 102). A new session should read this whole file before
-changing anything. §0 is the short version.
+(customer milestones, 102; the audit and its fixes, 103). A new session should read this
+whole file before changing anything. §0 is the short version.
 
 ---
 
@@ -19,7 +19,7 @@ changing anything. §0 is the short version.
 - **Before every push:** `npm test` (46 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **102**, so the next one is `103-….sql`.
+  migration filename (§6). The last migration is **103**, so the next one is `104-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -163,9 +163,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 94 migrations
+## 4. Data model — 95 migrations
 
-`supabase-v2/001…102`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…103`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -191,7 +191,8 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
-| `102` | **Customer milestones.** `milestone_templates` (per mode; customs per direction) and `shipment_milestones` (per job: day, time as told, where, a note for the customer, hidden, `added` for the desk's own updates). Staff read; written only by `save_shipment_milestone`, `add_shipment_update`, `delete_shipment_update`. A milestone that marks a stage ticks that workflow step (`milestone_to_step`), and **a stage step can be ticked no other way** (`guard_milestone_step`, flag `app.milestone_write`). The warehouse-receipt trigger is dropped; movements no longer tick stage steps; `set_shipment_stage` only cancels and reopens; `apply_tracking_event` needs a person and records the milestone. `shipment_tracking` rebuilt to the booking plus visible milestones; `shipment_track_points` and `shipment_customs_public` dropped, so the anonymous key reaches three functions. Seeded on every new booking (booked reached on creation) and backfilled from the ticked stage steps |
+| `103` | **The audit's fixes.** `shipment_margin` and `console_margin` count **before GST**, as Job closing does (`invoice_net_inr`, `bill_net_inr`: lines in rupees, else the taxable value; credit notes negative). **Cancel and reopen a shipment:** `cancel_shipment(id, reason)` / `reopen_shipment(id, reason)`, with `shipments.cancelled_at/by`, `cancel_reason`; refused on a signed-off job; reopening goes back to where the milestones say; both on the timeline. `set_shipment_stage` dropped. Voice-era `capture_call_as_intake` and `forget_call` dropped, and `promote_intake`'s `public.calls` branch removed. Ten policies read `(select auth.uid())` once per query; every foreign key in `public` has an index (`…_fkx`) |
+| `102` | **Customer milestones.** `milestone_templates` (per mode; customs per direction) and `shipment_milestones` (per job: day, time as told, where, a note for the customer, hidden, `added` for the desk's own updates). Staff read; written only by `save_shipment_milestone`, `add_shipment_update`, `delete_shipment_update`. A milestone that marks a stage ticks that workflow step (`milestone_to_step`), and **a stage step can be ticked no other way** (`guard_milestone_step`, flag `app.milestone_write`). The warehouse-receipt trigger is dropped; movements no longer tick stage steps; `apply_tracking_event` needs a person and records the milestone (`set_shipment_stage` went in 103). `shipment_tracking` rebuilt to the booking plus visible milestones; `shipment_track_points` and `shipment_customs_public` dropped, so the anonymous key reaches three functions. Seeded on every new booking (booked reached on creation) and backfilled from the ticked stage steps |
 | `101` | Live rates: `live_rate_requests` (service, what to quote, mailbox, running), `live_rate_recipients` (partners), `live_rate_sends` (every mail, sent or refused; the function writes it, staff read it). A partner is claimed once per Sunday (unique index). Trigger: the mailbox must be a CRM login and only an admin changes it. Cron `araxys-v2-live-rates` `0,10,20,30,40,50 17 * * 0` (22:30–23:20 IST) with the scheduler's Vault secrets |
 | `100` | ICEGATE's replies: `csn_files.reply_status` (accepted / rejected / failed), `reply` (as read), `replied_at/by`; `csn_file_reply(job, status, reply)` writes them (staff; the table stays read-only); `shipment_customs.cin_type/cin_no` for each house's CIN |
 | `099` | CSN amendments: `csn_files.draft` keeps the form each file was made from; `csn_file_new` takes it as a fifth argument (the four-argument version is dropped) and accepts the event SCA |
@@ -516,27 +517,20 @@ screen.
 - (Done 26 Sep: the unused 3D planner, `ContainerPlanView`, `ContainerScene`, `lib/scene3d`,
   was removed. It is in git history if it is ever wanted again.)
 
-### Audit findings (28 Sep, `npm run audit` and the UI harness), not yet fixed
+### Audit findings (28 Sep, `npm run audit` and the UI harness)
+
+Fixed in 103 the same day: the margin counting GST, the missing cancel, the voice-era functions
+and `countCalls()`, the per-row `auth.uid()` policies, the unindexed foreign keys, and the rate
+card's one-request-per-line insert. What is left:
 
 - **Three mailboxes stopped copying at 07:45 IST on 28 Sep:** aarathy@, imports@ and parasu@
   answer "No Exchange Online mailbox at this address" to the server's copy (087) every five
   minutes. Most likely their Microsoft 365 licences (Exchange Online) changed that morning. Until
   it is put back, Team oversight misses their mail, and sending from the CRM as them will fail.
   The user's action in the Microsoft 365 admin centre.
-- **The job header's margin counts GST** (`shipment_margin` sums `total_inr` on invoices and
-  bills), while Job closing (`lib/jobPnl.ts`) is before GST. The same job shows two profits (test
-  job: ₹1,39,600 against ₹1,09,000). The business flow checks for it and fails until fixed.
-- **No way to cancel a shipment.** Every screen handles a cancelled stage and the case file tells
-  the desk to cancel "on its own page", but no control sets it; `set_shipment_stage` can.
-- **Voice-era leftovers that fail if called:** `promote_intake` still has a branch that updates
-  `public.calls` for an intake with a `call_id` (none exist, so dormant), `capture_call_as_intake`
-  and `forget_call` are callable by staff and always fail, and `countCalls()` in
-  `services/enquiries.ts` (unused) queries the dropped `calls` table.
-- **Performance, for when the data grows:** 10 RLS policies call `auth.uid()` per row (wrap it as
-  `(select auth.uid())`; `mail_log` grows by the server copy every five minutes); 84 foreign keys
-  have no index; `QuoteCharges` adds a rate card's lines one request each.
-- Smaller: `btree_gist` and `pg_net` live in `public`; no Content-Security-Policy header on the
-  site; `classify-enquiry` and `track-shipment` take 1–2 s to cold-start.
+- Smaller, not done: `btree_gist` and `pg_net` live in `public`; no Content-Security-Policy
+  header on the site; `classify-enquiry` and `track-shipment` take 1–2 s to cold-start; five
+  tables have two permissive SELECT policies.
 - ALG09004-26 is `accepted` with no accepted quote: the test chain whose ₹3 quote was deleted.
 
 ### Live data worth knowing (28 September)
@@ -572,6 +566,13 @@ screen.
     milestone (a person's click). The hourly sweep only files what it hears.
   - Existing jobs were backfilled from their ticked stage steps (both live jobs: booking
     confirmed only).
+- **Cancelling a shipment (103).** Shipment details → *Called off?* → Cancel the shipment, with
+  a reason (`components/CancelShipment.tsx`). The job and its records stay; it leaves the
+  in-process board, its customer page says cancelled, and milestones are refused. Issued
+  invoices are not touched: the form counts them and says to raise credit notes. A red banner on
+  the job file says when, by whom and why, with **Reopen** (a reason again), which puts it back at
+  the stage its milestones say. The case file's state switch shows "Cancelled" and links to the
+  job. "Send back to the enquiry" is still the way to undo a booking made too early.
 - The customer is not mailed when a milestone is recorded; they see it when they open the
   link. A "tell the customer" mail per milestone would be the next step if the desk wants it.
 
@@ -952,8 +953,8 @@ screen.
     `git push logistics-v3 v2:main`.
   - `origin` (`github.com/kevinsudhan/araxys-crm`): v1's repo. `origin/v2` is 100 commits
     behind and nothing reads it. **Do not push v2 to `origin/main`,** which is v1's branch.
-- The code is at the commit that adds customer milestones (102), pushed to
-  `logistics-v3/main` and live, with 102 applied and `track-shipment` redeployed.
+- The code is at the commit that fixes the audit's findings (103), pushed to
+  `logistics-v3/main` and live, with 103 applied.
 - Commit style: a sentence-case subject that describes what the user can now do, a body
   explaining why, and the `Co-Authored-By` trailer.
 

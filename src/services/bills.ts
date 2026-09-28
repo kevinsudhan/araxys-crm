@@ -219,6 +219,11 @@ export async function removeBillLine(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * A job's revenue and cost before GST, as Job closing counts them (103):
+ * issued invoices' lines less credit notes, every bill not cancelled less agent
+ * credit notes. GST collected is owed and GST paid is claimed back.
+ */
 export interface Margin {
   shipment_id: string;
   console_id: string | null;

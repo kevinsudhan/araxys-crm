@@ -18,6 +18,7 @@ import { listShipmentContainers, type ShipmentContainer } from "../services/ship
 import { money } from "../services/billing";
 import { ACCOUNTS_DESK } from "../lib/features";
 import SendPreAlert from "../components/SendPreAlert";
+import { CancelledBanner } from "../components/CancelShipment";
 import { marginPct, shipmentMargin, type Margin } from "../services/bills";
 import {
   getEnquiry,
@@ -273,9 +274,9 @@ export default function ShipmentDetail() {
     ? summarise(boxes.map((b) => clocksFor(sideOf(s.trade_direction ?? enquiry?.trade_direction), s, b, today)), today)
     : NO_FREE_TIME;
 
-  // Revenue counts issued invoices net of credit notes, which the view already
-  // does; `billed` from the billing summary counts tax invoices only and is
-  // kept for the draft badge.
+  // Revenue and cost before GST, net of credit notes, as Job closing counts
+  // them (shipment_margin, 103); `billed` from the billing summary counts tax
+  // invoices only and is kept for the draft badge.
   const revenue = Number(margin?.revenue_inr ?? billed);
   const cost = Number(margin?.cost_inr ?? 0);
   const pct = marginPct(revenue, cost);
@@ -347,6 +348,8 @@ export default function ShipmentDetail() {
           </StatusPill>
         )}
       </div>
+
+      {s.stage === "cancelled" && <CancelledBanner shipment={s} onChanged={load} />}
 
       {/* ---- the money, on every section ---- */}
       {/*

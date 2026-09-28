@@ -4,6 +4,7 @@ import Select from "./Select";
 import { CHARGE_HEADS, LINE_CURRENCIES, UNITS, money } from "../services/charges";
 import {
   addLine,
+  addLines,
   linesFor,
   removeLine,
   summarise,
@@ -232,13 +233,11 @@ export default function QuoteCharges({
         used.push(r);
       }
 
-      // Sequentially, so `position` comes out in the order the rates resolved
-      // rather than in whatever order a batch of promises happened to settle.
-      let position = lines.length;
-      for (const r of used) {
-        position += 1;
-        await addLine(quoteId, {
-          position,
+      // One request, positioned in the order the rates resolved.
+      await addLines(
+        quoteId,
+        used.map((r, i) => ({
+          position: lines.length + i + 1,
           description: r.charge_head,
           sac_code: r.sac_code,
           unit: r.unit,
@@ -246,8 +245,8 @@ export default function QuoteCharges({
           rate: r.sell_rate,
           currency: r.currency,
           cost_inr: r.cost_rate,
-        });
-      }
+        }))
+      );
 
       await load();
       onChanged?.();

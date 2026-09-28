@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { promoteToShipment, type Enquiry, type Shipment } from "../services/enquiries";
 import { clearStage } from "../services/milestones";
@@ -32,6 +32,10 @@ import { clearStage } from "../services/milestones";
  * So "Completed" opens the Delivered milestone on the job's Tracking tab, to be
  * recorded with its date and who received it, and "In process" from completed
  * takes that milestone back to still to come.
+ *
+ * A CANCELLED JOB IS NONE OF THE THREE (103)
+ *
+ * It says so, and points at the job file, where it is reopened with a reason.
  *
  * WHY GOING BACK TO INBOUND IS REFUSED
  *
@@ -82,7 +86,7 @@ export default function JobState({
     if (to === current) return null;
 
     if (to === "inbound") {
-      return "A booking has been made. Cancel the shipment on its own page if it is genuinely off.";
+      return "A booking has been made. If it is genuinely off, cancel it on the job file: Shipment details → Cancel the shipment.";
     }
     if (to === "in_process" && !shipment) {
       return enquiry.status === "accepted"
@@ -116,6 +120,18 @@ export default function JobState({
     } finally {
       setBusy(null);
     }
+  }
+
+  if (shipment?.stage === "cancelled") {
+    return (
+      <p className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary">
+        <span className="rounded-full bg-bg-danger px-2 py-0.5 font-medium text-text-danger">Cancelled</span>
+        {shipment.cancel_reason ?? ""}
+        <Link to={`/shipments/${shipment.id}`} className="text-text-accent hover:underline">
+          Reopen it on the job file
+        </Link>
+      </p>
+    );
   }
 
   return (
