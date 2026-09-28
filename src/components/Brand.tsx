@@ -95,10 +95,13 @@ export function CompanyBrand({
   size = "md",
   descriptor,
   tone = "light",
+  markOnlyOnDesk,
 }: {
   size?: "sm" | "md" | "lg";
   descriptor?: string;
   tone?: "light" | "dark";
+  /** The collapsed sidebar: the mark alone from `lg`, the whole lockup in the phone drawer. */
+  markOnlyOnDesk?: boolean;
 }) {
   const box = size === "lg" ? "w-10 h-10" : size === "sm" ? "w-8 h-8" : "w-9 h-9";
   const name = size === "lg" ? "text-[16px]" : size === "sm" ? "text-[13px]" : "text-[14px]";
@@ -120,7 +123,7 @@ export function CompanyBrand({
         className={`${box} shrink-0 rounded-[24%] object-cover shadow-sm`}
         draggable={false}
       />
-      <div className="min-w-0">
+      <div className={`min-w-0 ${markOnlyOnDesk ? "lg:hidden" : ""}`}>
         <p className={`${name} ${nameColor} font-semibold tracking-tight leading-tight truncate`}>
           Aashish Logistics Global
         </p>

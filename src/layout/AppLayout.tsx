@@ -19,13 +19,43 @@ import { syncSentMail } from "../services/mailLog";
  * The drawer closes on navigation. Leaving it open over the page somebody just
  * asked for is the single most irritating thing a mobile nav can do, and it is
  * not obvious from a desktop browser that it is happening.
+ *
+ * THE RAIL
+ *
+ * On a small laptop (1366 px, and 1093 of them at Windows' 125%) the 240-px
+ * sidebar took a fifth of the width from every page. It folds to a 64-px rail of
+ * icons, by default below 1440 px, and the person's own choice is remembered in
+ * this browser. The margins around the page tighten below `xl` as well.
  * ---------------------------------------------------------------------------
  */
+const RAIL_KEY = "araxys:nav-rail";
+
+function initialRail(): boolean {
+  try {
+    const kept = localStorage.getItem(RAIL_KEY);
+    if (kept === "1" || kept === "0") return kept === "1";
+  } catch {
+    /* storage refused: fall back to the width */
+  }
+  return typeof window !== "undefined" && window.innerWidth < 1440;
+}
+
 export default function AppLayout() {
   const [navOpen, setNavOpen] = useState(false);
+  const [rail, setRail] = useState(initialRail);
   const { pathname } = useLocation();
 
   const closeNav = useCallback(() => setNavOpen(false), []);
+  const toggleRail = useCallback(() => {
+    setRail((r) => {
+      try {
+        localStorage.setItem(RAIL_KEY, r ? "0" : "1");
+      } catch {
+        /* remembered for this visit only */
+      }
+      return !r;
+    });
+  }, []);
 
   // A tap on a nav link is a navigation, so the drawer's work is done.
   useEffect(() => {
@@ -71,7 +101,7 @@ export default function AppLayout() {
 
   return (
     <div className="flex min-h-screen bg-surface-0">
-      <Sidebar open={navOpen} onClose={closeNav} />
+      <Sidebar open={navOpen} onClose={closeNav} rail={rail} onToggleRail={toggleRail} />
 
       {/*
         min-w-0 is load-bearing. Without it a flex child refuses to shrink
@@ -80,7 +110,9 @@ export default function AppLayout() {
       */}
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar onOpenNav={() => setNavOpen(true)} />
-        <main className="flex-1 w-full max-w-[1400px] px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
+        {/* Below xl the margins give 32 px of height and width back to the page (Mail's
+            height sums them: 56 + 32 at lg, 56 + 48 from xl). */}
+        <main className="flex-1 w-full max-w-[1400px] px-4 py-5 sm:px-6 sm:py-6 lg:px-5 lg:py-4 xl:px-8 xl:py-6">
           {/* A page still downloading waits here, under the sidebar and top bar,
               rather than taking the whole window with it. */}
           <Suspense fallback={<PageSkeleton />}>

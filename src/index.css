@@ -609,9 +609,11 @@ pre {
   height: auto;
 }
 
+/* No max-width: a table keeps the width it was written at, and MailBody's
+ * FitToWidth scales the whole message down to the pane instead. Squeezing the
+ * table's columns to the pane wrapped every cell of a rate card. */
 .mail-body table {
   border-collapse: collapse;
-  max-width: 100%;
 }
 
 /* Only where the sender did not say otherwise: an email that draws its own

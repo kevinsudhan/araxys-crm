@@ -19,6 +19,8 @@ import {
   Loader2,
   Package,
   X,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import ComposeMail from "../components/ComposeMail";
@@ -146,6 +148,28 @@ export default function Mail() {
   const [replyRef, setReplyRef] = useState<string | null>(null);
   const [editingSignature, setEditingSignature] = useState(false);
   const live = mailIsLive();
+
+  /*
+    "Read at full width": the list folds away while a message is open, for a
+    small laptop or a wide mail. Remembered in this browser.
+  */
+  const [wide, setWide] = useState(() => {
+    try {
+      return localStorage.getItem("araxys:mail-wide") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleWide = useCallback(() => {
+    setWide((w) => {
+      try {
+        localStorage.setItem("araxys:mail-wide", w ? "0" : "1");
+      } catch {
+        /* for this visit only */
+      }
+      return !w;
+    });
+  }, []);
 
   /**
    * Connecting Outlook (095): how the last attempt went, shown once, and the
@@ -397,6 +421,10 @@ export default function Mail() {
 
   if (!mailbox) return null;
 
+  // Reading at full width only applies while a message is open; the list comes back without one.
+  const wideOpen = wide && Boolean(selected);
+  const roomy = wideOpen;
+
   return (
     /*
       On a wide screen the page is exactly the window's height and does not
@@ -404,12 +432,19 @@ export default function Mail() {
       way Outlook does. It used to be a normal page with the list and the Reply
       bar pinned by `sticky`, which only takes hold once the page has scrolled
       past the header — so both rode up with the page first, and it read as the
-      whole screen moving. 104px is the top bar (56) and main's padding (48).
-      Below `lg` it is one column and scrolls as a page.
+      whole screen moving. The height is the window less the top bar (56) and
+      main's padding (32 below xl, 48 from it). Below `lg` it is one column and
+      scrolls as a page.
+
+      Its floor is 360px, not the 560 it was: on a 768-px laptop the browser
+      shows about 650 px (525 at 125% scaling, 470 on a 720-px one), and a floor
+      taller than the window made the whole page scroll and cut the message off
+      at the bottom.
     */
-    <div className="lg:flex lg:h-[calc(100dvh-104px)] lg:min-h-[560px] lg:flex-col">
+    <div className="lg:flex lg:h-[calc(100dvh-88px)] lg:min-h-[360px] lg:flex-col xl:h-[calc(100dvh-104px)]">
       <div className="lg:shrink-0">
       <PageHeader
+        dense
         title="Mail"
         subtitle={
           live && graphMailbox
@@ -489,7 +524,16 @@ export default function Mail() {
         </div>
       )}
 
-      <div className="flex items-center gap-2 mb-3">
+      {/*
+        One row: compose, the folders, search, and the two quieter buttons.
+        ------------------------------------------------------------------
+        The folders ran across a card of their own under this row. As a column
+        they had cost 168px of width; as a row of their own they still cost a
+        row of height — and on a 768-px laptop every row above the message is a
+        line of the message not shown. So they sit in the toolbar, and Refresh
+        and Signature keep their words only where there is room (xl).
+      */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <button
           onClick={() => setComposing({})}
           className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand hover:bg-brand-dark text-white text-[12px] font-medium"
@@ -498,7 +542,32 @@ export default function Mail() {
           New message
         </button>
 
-        <div className="relative flex-1 max-w-sm">
+        <nav aria-label="Folders" className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-1 p-0.5">
+          {folders.map((f) => {
+            const Icon = FOLDER_ICON[f.id];
+            const active = f.id === folder;
+            return (
+              <button
+                key={f.id}
+                onClick={() => setFolder(f.id)}
+                aria-current={active ? "page" : undefined}
+                className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px] transition-colors ${
+                  active ? "bg-surface-2 font-medium text-text-primary" : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+                }`}
+              >
+                <Icon size={13} />
+                {f.label}
+                {f.unread > 0 && (
+                  <span className="flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-brand px-1 text-[10px] font-medium text-white">
+                    {f.unread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="relative min-w-[160px] flex-1 max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             value={query}
@@ -510,18 +579,22 @@ export default function Mail() {
 
         <button
           onClick={() => void load()}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-surface-1 text-[12px] text-text-secondary hover:text-text-primary"
+          title="Refresh"
+          aria-label="Refresh"
+          className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border bg-surface-1 text-[12px] text-text-secondary hover:text-text-primary xl:px-3"
         >
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-          Refresh
+          <span className="hidden xl:inline">Refresh</span>
         </button>
 
         <button
           onClick={() => setEditingSignature(true)}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-surface-1 text-[12px] text-text-secondary hover:text-text-primary"
+          title="Signature"
+          aria-label="Signature"
+          className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border bg-surface-1 text-[12px] text-text-secondary hover:text-text-primary xl:px-3"
         >
           <PenLine size={13} />
-          Signature
+          <span className="hidden xl:inline">Signature</span>
         </button>
       </div>
 
@@ -532,48 +605,20 @@ export default function Mail() {
         </div>
       )}
 
-      {/*
-        Folders run across the top rather than down the side.
-        ------------------------------------------------------------------
-        As a column they cost 168px of width permanently, to show four items
-        that never change and are read once a session. Horizontally they cost a
-        row of height and give that width back to the two panes that actually
-        hold content — the list and the message. On a wide screen that is the
-        difference between a rate card fitting and a rate card scrolling.
-      */}
-      <nav className="card mb-3 flex flex-wrap items-center gap-1 p-1.5">
-          {folders.map((f) => {
-            const Icon = FOLDER_ICON[f.id];
-            const active = f.id === folder;
-            return (
-              <button
-                key={f.id}
-                onClick={() => setFolder(f.id)}
-                className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] transition-colors ${
-                  active
-                    ? "bg-surface-2 text-text-primary font-medium"
-                    : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
-                }`}
-              >
-                <Icon size={14} />
-                {f.label}
-                {f.unread > 0 && (
-                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-brand text-white text-[10px] font-medium flex items-center justify-center">
-                    {f.unread}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-      </nav>
       </div>
 
-      {/* Two panes now, not three. The list keeps a readable column and the
-          message takes everything else. On a wide screen they fill what is left
-          of the window and scroll separately. */}
-      <div className="grid grid-cols-1 items-start gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-stretch">
+      {/* Two panes now, not three. The list keeps a readable column — a third
+          of the width, between 240 and 360px, so a small laptop's message is
+          not left with what a fixed 360 did not take — and the message takes
+          the rest. "Wider" hides the list while a message is open. On a wide
+          screen they fill what is left of the window and scroll separately. */}
+      <div
+        className={`grid grid-cols-1 items-start gap-3 lg:min-h-0 lg:flex-1 lg:items-stretch ${
+          wideOpen ? "lg:grid-cols-[minmax(0,1fr)]" : "lg:grid-cols-[minmax(240px,min(360px,32%))_minmax(0,1fr)]"
+        }`}
+      >
         {/* ---- message list ---- */}
-        <div className="card flex flex-col overflow-hidden lg:min-h-0">
+        <div className={`card flex flex-col overflow-hidden lg:min-h-0 ${wideOpen ? "lg:hidden" : ""}`}>
           {loading && messages.length === 0 ? (
             <ListSkeleton bare rows={7} />
           ) : messages.length === 0 ? (
@@ -638,16 +683,29 @@ export default function Mail() {
               */}
               {/* `contents` below lg: a sticky bar only sticks within its parent,
                   and on a phone that has to be the whole message, not this. */}
-              <div className="contents lg:block lg:shrink-0 lg:border-b lg:border-border lg:px-5 lg:pb-3 lg:pt-5">
-              <h2 className="text-[17px] font-semibold tracking-tight text-text-primary">
-                {selected.subject}
-              </h2>
+              <div className="contents lg:block lg:shrink-0 lg:border-b lg:border-border lg:px-5 lg:pb-3 lg:pt-4 short:lg:pb-2.5 short:lg:pt-3">
+              <div className="flex items-start gap-2">
+                {/* Two lines at most above the message on a desk; the whole subject is its title. */}
+                <h2 title={selected.subject} className="min-w-0 flex-1 text-[16px] font-semibold tracking-tight text-text-primary lg:line-clamp-2 short:lg:line-clamp-1 xl:text-[17px]">
+                  {selected.subject}
+                </h2>
+                <button
+                  type="button"
+                  onClick={toggleWide}
+                  title={wide ? "Show the list beside the message" : "Hide the list: read the message at full width"}
+                  aria-label={wide ? "Show the message list" : "Read at full width"}
+                  aria-pressed={wide}
+                  className="hidden shrink-0 rounded-lg border border-border p-1.5 text-text-secondary hover:border-border-strong hover:text-text-primary lg:block"
+                >
+                  {wide ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>
+              </div>
 
               {/*
                 On a phone the page scrolls, so the bar pins under the top bar
                 instead once it reaches it.
               */}
-              <div className="sticky top-14 z-10 -mx-5 mt-3 flex flex-wrap items-start gap-2 border-b border-transparent bg-surface-1/95 px-5 py-2 backdrop-blur supports-[backdrop-filter]:bg-surface-1/85 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:pb-0 lg:backdrop-blur-none">
+              <div className="sticky top-14 z-10 -mx-5 mt-2.5 flex flex-wrap items-start gap-2 border-b border-transparent bg-surface-1/95 px-5 py-2 backdrop-blur supports-[backdrop-filter]:bg-surface-1/85 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:pb-0 lg:backdrop-blur-none">
                 <button
                   onClick={() => setComposing({ replyTo: selected, mode: "reply" })}
                   className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand hover:bg-brand-dark text-white text-[12px] font-medium transition-colors"
@@ -655,19 +713,24 @@ export default function Mail() {
                   <Reply size={13} />
                   Reply
                 </button>
+                {/* Their words only where there is room (xl, or reading at full width). */}
                 <button
                   onClick={() => setComposing({ replyTo: selected, mode: "replyAll" })}
-                  className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors"
+                  title="Reply all"
+                  aria-label="Reply all"
+                  className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
                 >
                   <ReplyAll size={13} />
-                  Reply all
+                  <span className={roomy ? "" : "lg:hidden xl:inline"}>Reply all</span>
                 </button>
                 <button
                   onClick={() => setComposing({ replyTo: selected, mode: "forward" })}
-                  className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors"
+                  title="Forward"
+                  aria-label="Forward"
+                  className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
                 >
                   <Forward size={13} />
-                  Forward
+                  <span className={roomy ? "" : "lg:hidden xl:inline"}>Forward</span>
                 </button>
 
                 {/*
@@ -696,10 +759,12 @@ export default function Mail() {
                 {selected.folder !== "archive" && (
                   <button
                     onClick={() => void archive(selected)}
-                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors"
+                    title="Archive"
+                    aria-label="Archive"
+                    className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
                   >
                     <Archive size={13} />
-                    Archive
+                    <span className={roomy ? "" : "lg:hidden xl:inline"}>Archive</span>
                   </button>
                 )}
               </div>

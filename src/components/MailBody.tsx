@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import DOMPurify from "dompurify";
 import { ChevronDown, MessagesSquare } from "lucide-react";
 import type { MailMessage } from "../services/backend";
@@ -293,17 +293,17 @@ export default function MailBody({ message }: { message: MailMessage }) {
     <div>
       {/* overflow-x-auto is load-bearing: a rate card is a wide table, and
           without its own scroller it would push the whole page sideways. */}
-      <div className="mail-body overflow-x-auto text-[13px] leading-relaxed text-text-primary">
+      <FitToWidth revision={clean?.latest} className="mail-body overflow-x-auto text-[13px] leading-relaxed text-text-primary">
         <div ref={ref} dangerouslySetInnerHTML={{ __html: clean?.latest ?? "" }} />
-      </div>
+      </FitToWidth>
 
       {clean?.history && (
         <>
           <HistoryToggle open={showHistory} onToggle={() => setShowHistory((v) => !v)} />
           {showHistory && (
-            <div className="mail-body mt-2 overflow-x-auto border-l-2 border-border-strong pl-3 text-[12.5px] leading-relaxed text-text-secondary">
+            <FitToWidth revision={clean.history} className="mail-body mt-2 overflow-x-auto border-l-2 border-border-strong pl-3 text-[12.5px] leading-relaxed text-text-secondary">
               <div dangerouslySetInnerHTML={{ __html: clean.history }} />
-            </div>
+            </FitToWidth>
           )}
         </>
       )}
@@ -332,3 +332,47 @@ function HistoryToggle({ open, onToggle }: { open: boolean; onToggle: () => void
   );
 }
 
+/**
+ * A mail as wide as it was written, shrunk to fit the pane.
+ *
+ * A rate card or a quotation is a table laid out at 600–800px. In a narrow
+ * reading pane (a small laptop) its columns used to be squeezed to the pane's
+ * width, which wrapped every cell and made it three times as tall. Now it keeps
+ * its own layout and is scaled down with CSS `zoom` until it fits — the way
+ * Outlook and Apple Mail shrink a wide message — but never below 60%, past
+ * which the text is too small to read; beyond that it scrolls sideways.
+ * Measured again when the pane changes width and when a picture arrives.
+ */
+const FIT_FLOOR = 0.6;
+
+function FitToWidth({ className, revision, children }: { className: string; revision: unknown; children: ReactNode }) {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const box = outer.current;
+    const content = inner.current;
+    if (!box || !content) return;
+    const measure = () => {
+      content.style.zoom = "1";
+      const natural = content.scrollWidth;
+      const room = box.clientWidth;
+      content.style.zoom = natural > room + 1 && room > 0 ? String(Math.max(FIT_FLOOR, room / natural)) : "1";
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(box);
+    const pictures = Array.from(content.querySelectorAll("img"));
+    for (const img of pictures) img.addEventListener("load", measure);
+    return () => {
+      watch.disconnect();
+      for (const img of pictures) img.removeEventListener("load", measure);
+    };
+  }, [revision]);
+
+  return (
+    <div ref={outer} className={className}>
+      <div ref={inner}>{children}</div>
+    </div>
+  );
+}

@@ -395,7 +395,25 @@ Tracking tab and the customer page in a preview harness, desktop and 375 px.
   `sendTrackedMail` now throw on the live site. The demo mailbox is only for `vite dev`
   (`import.meta.env.DEV`).
 
-- **Theme colours are plain `var(--…)`**, so Tailwind's opacity modifier
+- **Small laptops (1366×768, often at Windows' 125%, which leaves the browser about 1093×525).**
+The shell and Mail were reworked for them on 28 Sep:
+- The sidebar folds to a 64-px icon rail (`AppLayout`, `Sidebar` `rail`), by default below
+  1440 px, with names as tooltips; the chevron at its foot toggles it, remembered in this
+  browser (`araxys:nav-rail`). The phone drawer always shows names.
+- `main`'s padding is smaller below `xl`; Mail's height sums it (`100dvh - 88px` below xl,
+  `- 104px` from it). Change one and change the other.
+- Tailwind has a `short` screen (`max-height: 820px`). `PageHeader dense` (Mail) keeps its
+  heading for screen readers only there.
+- Mail: folders sit in the toolbar row; the list is a third of the width (240–360 px);
+  "Read at full width" hides the list while a message is open (`araxys:mail-wide`); the page's
+  floor is 360 px, not 560, which is what made the whole page scroll and cut the message off.
+- `MailBody`'s `FitToWidth` scales a wide mail down with CSS `zoom` to fit the pane (not below
+  60%, then it scrolls sideways). `.mail-body table` no longer has `max-width: 100%`, which
+  squeezed a rate card's columns until every cell wrapped.
+- An element made `sr-only` is absolutely positioned: inside a scrolling list, give the list
+  `relative`, or its hidden headings stretch the page (the rail did, until it had one).
+
+**Theme colours are plain `var(--…)`**, so Tailwind's opacity modifier
   (`bg-bg-danger/40`, `border-text-accent/25`) generates nothing and the style silently
   vanishes. Use the full colour; three backgrounds were fixed on 25 Sep.
 - **iPad Safari counts the toolbars in `100vh`.** A page exactly `min-h-screen` tall scrolls

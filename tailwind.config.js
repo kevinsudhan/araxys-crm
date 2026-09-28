@@ -3,6 +3,11 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      screens: {
+        // A short window: a 768-px laptop screen leaves the browser about 650 px,
+        // and 525 at Windows' 125% scaling. Used to give height back to content.
+        short: { raw: "(max-height: 820px)" },
+      },
       colors: {
         surface: {
           0: "var(--surface-0)",
