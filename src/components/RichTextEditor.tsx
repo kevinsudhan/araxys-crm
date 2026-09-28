@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { inlineForeign, sanitise } from "../lib/mailHtml";
+import { prepareMailImage, uploadErrorText } from "../lib/mailImage";
 import { MAIL_COLOR, MAIL_FONT, MAIL_IMAGE_MAX, MAIL_SIZE, MAIL_SIZE_PT, fontChoiceFor, fontName, ptFromPx, stepSize } from "../lib/mailStyle";
 import { AlignMenu, ColorMenu, Divider, FontMenu, LinkMenu, SizeMenu, TableMenu, ToolButton } from "./editor/EditorMenus";
 
@@ -316,13 +317,15 @@ export default function RichTextEditor({
    * carried inside the message (graphMail, `outgoing`), so Outlook shows it
    * without "download pictures". A data: image would look right here and be
    * missing from every copy received.
+   *
+   * Reshaped first (lib/mailImage.ts): scaled to twice the width it is shown
+   * at and sent as PNG, JPEG or GIF, so a phone photo fits the bucket's 2 MB
+   * and every mail client can show it.
    */
   async function uploadImages(files: File[]) {
     setError(null);
     const images = files.filter((f) => f.type.startsWith("image/"));
     if (!images.length) return setError("Only pictures go into the text. Attach other files with the paperclip below.");
-    const big = images.find((f) => f.size > 4 * 1024 * 1024);
-    if (big) return setError(`${big.name || "That picture"} is over 4 MB. Make it smaller first.`);
 
     setUploading(true);
     try {
@@ -331,15 +334,15 @@ export default function RichTextEditor({
       if (!uid) throw new Error("Not signed in.");
       const html: string[] = [];
       for (const file of images) {
+        const ready = await prepareMailImage(file, imageMax);
+        if ("error" in ready) throw new Error(ready.error);
         // Stored under the owner's uuid: the storage policy allows writes only there.
-        const ext = (file.name.split(".").pop() || file.type.split("/")[1] || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
-        const path = `${uid}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.${ext}`;
-        const { error: upErr } = await supabase.storage.from("signatures").upload(path, file, { cacheControl: "31536000", upsert: false, contentType: file.type });
-        if (upErr) throw upErr;
+        const path = `${uid}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.${ready.ext}`;
+        const { error: upErr } = await supabase.storage.from("signatures").upload(path, ready.blob, { cacheControl: "31536000", upsert: false, contentType: ready.type });
+        if (upErr) throw new Error(uploadErrorText(upErr.message));
         const { data } = supabase.storage.from("signatures").getPublicUrl(path);
-        const natural = await naturalWidth(file);
         // The width as an attribute: the one thing Outlook sizes a picture by.
-        const width = natural ? Math.min(natural, imageMax) : imageMax;
+        const width = Math.min(ready.width, imageMax);
         html.push(`<img src="${escapeAttr(data.publicUrl)}" alt="" width="${width}" style="max-width:${imageMax}px;height:auto">`);
       }
       restore();
@@ -695,18 +698,6 @@ const EMPTY: Fmt = {
   cell: null,
   selectedText: "",
 };
-
-/** A picture's own width in pixels, or null if it cannot be read. */
-async function naturalWidth(file: File): Promise<number | null> {
-  try {
-    const bmp = await createImageBitmap(file);
-    const w = bmp.width;
-    bmp.close();
-    return w;
-  } catch {
-    return null;
-  }
-}
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 

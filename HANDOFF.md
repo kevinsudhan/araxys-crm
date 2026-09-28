@@ -5,8 +5,8 @@ v1 (`../araxys-crm`) is a separate, older codebase on a different Supabase proje
 different branch; it is not to be touched from here.
 
 Written 14 September 2026, revised 21 and 24 September, **last revised 28 September 2026**
-(customer milestones, 102; the audit and its fixes, 103). A new session should read this
-whole file before changing anything. §0 is the short version.
+(customer milestones, 102; the audit and its fixes, 103; signatures and pictures, 104). A new
+session should read this whole file before changing anything. §0 is the short version.
 
 ---
 
@@ -16,10 +16,10 @@ whole file before changing anything. §0 is the short version.
   enquiries and shipments created by the desk. Treat the database as production.
 - **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
   `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (46 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (47 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **103**, so the next one is `104-….sql`.
+  migration filename (§6). The last migration is **104**, so the next one is `105-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -163,9 +163,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 95 migrations
+## 4. Data model — 96 migrations
 
-`supabase-v2/001…103`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…104`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -191,6 +191,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `104` | **Your own profile: the signature, and nothing else.** 103's `(select auth.uid())` in `profiles_select_own`, together with 003's self-update policy that read `profiles` to pin the role, made every signature save fail with "infinite recursion detected in policy for relation profiles" (28 Sep, about a day). The self-update policy now only says "your own row"; the trigger `profiles_guard_self_update` refuses a browser (`current_user = 'authenticated'`) changing anything but `signature`. That also closes a hole older than 103: the pin covered `role` only, so an employee could set their own `can_approve_quotes` / `can_assign` through the API. Staff accounts (service role) and migrations are not held to it |
 | `103` | **The audit's fixes.** `shipment_margin` and `console_margin` count **before GST**, as Job closing does (`invoice_net_inr`, `bill_net_inr`: lines in rupees, else the taxable value; credit notes negative). **Cancel and reopen a shipment:** `cancel_shipment(id, reason)` / `reopen_shipment(id, reason)`, with `shipments.cancelled_at/by`, `cancel_reason`; refused on a signed-off job; reopening goes back to where the milestones say; both on the timeline. `set_shipment_stage` dropped. Voice-era `capture_call_as_intake` and `forget_call` dropped, and `promote_intake`'s `public.calls` branch removed. Ten policies read `(select auth.uid())` once per query; every foreign key in `public` has an index (`…_fkx`) |
 | `102` | **Customer milestones.** `milestone_templates` (per mode; customs per direction) and `shipment_milestones` (per job: day, time as told, where, a note for the customer, hidden, `added` for the desk's own updates). Staff read; written only by `save_shipment_milestone`, `add_shipment_update`, `delete_shipment_update`. A milestone that marks a stage ticks that workflow step (`milestone_to_step`), and **a stage step can be ticked no other way** (`guard_milestone_step`, flag `app.milestone_write`). The warehouse-receipt trigger is dropped; movements no longer tick stage steps; `apply_tracking_event` needs a person and records the milestone (`set_shipment_stage` went in 103). `shipment_tracking` rebuilt to the booking plus visible milestones; `shipment_track_points` and `shipment_customs_public` dropped, so the anonymous key reaches three functions. Seeded on every new booking (booked reached on creation) and backfilled from the ticked stage steps |
 | `101` | Live rates: `live_rate_requests` (service, what to quote, mailbox, running), `live_rate_recipients` (partners), `live_rate_sends` (every mail, sent or refused; the function writes it, staff read it). A partner is claimed once per Sunday (unique index). Trigger: the mailbox must be a CRM login and only an admin changes it. Cron `araxys-v2-live-rates` `0,10,20,30,40,50 17 * * 0` (22:30–23:20 IST) with the scheduler's Vault secrets |
@@ -287,7 +288,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 46 suites, pure logic
+npm test                             # 47 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -304,7 +305,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 46 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 47 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -418,6 +419,12 @@ on `shipment_checkpoints` refuses any other change to its `done_at`, so a new tr
 that ticks steps must skip `stage is not null` (as `movements_to_checkpoint` does), or it will
 fail whatever wrote the row that fired it. Record the milestone instead, or offer it on the
 Tracking tab (`suggestionFor` in `lib/milestones.ts`).
+
+**A policy on a table must not read that table** — not directly, and not through a subquery
+whose own policies contain a subquery. Postgres answers "infinite recursion detected in policy
+for relation …" and refuses the statement outright. 103 did this to `profiles` and stopped every
+signature save for a day (104). Pin columns with a trigger instead, and check a change to any
+`profiles` policy with the audit's business flow, which saves a signature as an employee.
 
 **A new function is callable by anyone until PUBLIC is revoked.** Postgres grants EXECUTE to
 PUBLIC by default, so `grant … to authenticated` alone leaves the anonymous key in the bundle
@@ -692,7 +699,14 @@ card's one-request-per-line insert. What is left:
     cleaner writes every border as four per-side shorthands, which it keeps (`sideBorders`).
     Inserted tables draw right/bottom lines per cell (plus top/left on the edges) because
     insertHTML also strips `border-collapse`.
-  - **Pictures** (inserted, pasted or dropped) are uploaded to the public `signatures` bucket.
+  - **Pictures** (inserted, pasted or dropped) are reshaped in the browser first (104,
+    `lib/mailImage.ts`): scaled to twice the width they are shown at (440 px in a signature,
+    1280 px in a mail) and sent as PNG, JPEG or GIF, never WebP or SVG, which Outlook does not
+    show; a PNG still over the bucket's 2 MB goes as JPEG. A phone photo of 12 MB becomes about
+    20 KB. What the browser cannot read (HEIC outside Safari) is refused with "save it as a JPG or
+    PNG". Before this, anything over 2 MB failed with the bucket's own "the object exceeded the
+    maximum allowed size".
+  - Then they are uploaded to the public `signatures` bucket.
     At send, `outgoing()` carries every picture of ours (logo and bucket) as an inline `cid:`
     attachment while it fits the 3MB, and gives any picture without one a `width`: Outlook
     ignores max-width.
@@ -953,8 +967,8 @@ card's one-request-per-line insert. What is left:
     `git push logistics-v3 v2:main`.
   - `origin` (`github.com/kevinsudhan/araxys-crm`): v1's repo. `origin/v2` is 100 commits
     behind and nothing reads it. **Do not push v2 to `origin/main`,** which is v1's branch.
-- The code is at the commit that fixes the audit's findings (103), pushed to
-  `logistics-v3/main` and live, with 103 applied.
+- The code is at the commit that fixes signatures and pictures (104), pushed to
+  `logistics-v3/main` and live, with 104 applied.
 - Commit style: a sentence-case subject that describes what the user can now do, a body
   explaining why, and the `Co-Authored-By` trailer.
 

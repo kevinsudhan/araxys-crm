@@ -375,6 +375,20 @@ begin
   steps := steps || jsonb_build_object('step', 'employee sees only mail their own session recorded', 'ok', v_n = 0, 'others_rows_visible', v_n);
   select count(*) into v_n from public.backup_runs;
   steps := steps || jsonb_build_object('step', 'employee cannot see backups', 'ok', v_n = 0, 'rows_visible', v_n);
+  -- Their own signature, and nothing else on their profile (104).
+  begin
+    update public.profiles set signature = '<p>Regards</p><img src="https://example.invalid/signatures/a.png" width="220">' where id = emp;
+    get diagnostics v_n = row_count;
+    steps := steps || jsonb_build_object('step', 'employee saves their own signature', 'ok', v_n = 1, 'rows', v_n);
+  exception when others then
+    steps := steps || jsonb_build_object('step', 'employee saves their own signature', 'ok', false, 'error', sqlerrm);
+  end;
+  begin
+    update public.profiles set can_approve_quotes = true where id = emp;
+    steps := steps || jsonb_build_object('step', 'employee cannot make themselves an approver', 'ok', false, 'error', 'NOT REFUSED');
+  exception when others then
+    steps := steps || jsonb_build_object('step', 'employee cannot make themselves an approver', 'ok', true, 'said', sqlerrm);
+  end;
 
   reset role;
   -- put the one sequence back, if nobody else has drawn from it since
