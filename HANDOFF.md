@@ -308,6 +308,31 @@ own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
 
+### The whole-system audit: `npm run audit` (28 Sep)
+
+`scripts/audit/run.mjs` runs, against the live project, in about a minute:
+
+1. **Schema drift** (`schema-drift.mjs`): every table, column, RPC and its parameter names,
+   bucket, edge function and realtime table the code names, read from the TypeScript AST and
+   checked against the live catalogue. Catches a renamed column or a dropped function before a
+   screen does.
+2. **Dead links** (`routes.mjs`): every in-app link against `App.tsx`'s routes.
+3. **Function bodies** (`plpgsql-check.sql`): `plpgsql_check` over every PL/pgSQL function,
+   installed for one transaction and rolled back.
+4. **Integrity** (`integrity.sql`): sequences ahead of their data, stage / step / milestone
+   agreement, pipeline states, people, files, RLS on every table, views with security_invoker.
+5. **Business flow** (`e2e-flow.sql`): enquiry → quote → approval gate → customer accepts by
+   link → booked → milestones → HBL → invoice → receipt → cost → delivered → sign-off, as an
+   employee who needs approval, the admin and the anonymous customer; timed per step; **rolled
+   back**, and the booking sequence put back only if nobody else drew from it.
+6. **Operations**: cron failures, mailboxes the server copy cannot read, last backup.
+7. **Supabase advisors**, and 8. **latency**: the slowest app queries and the API round trip.
+
+It exits non-zero while anything is found. The UI is not in it (it needs a signed-in browser):
+on 28 Sep every route was rendered in a local harness with a stubbed client (realistic
+anonymised data, then empty data, admin and employee, 375 px), with no console errors, no blank
+page and no horizontal overflow; see the findings in §9.
+
 ### How features were verified (keep doing this)
 
 1. **Preview harness.**
@@ -490,6 +515,29 @@ screen.
   or retire it together with the agents. That is the user's call. Do not touch it until then.
 - (Done 26 Sep: the unused 3D planner, `ContainerPlanView`, `ContainerScene`, `lib/scene3d`,
   was removed. It is in git history if it is ever wanted again.)
+
+### Audit findings (28 Sep, `npm run audit` and the UI harness), not yet fixed
+
+- **Three mailboxes stopped copying at 07:45 IST on 28 Sep:** aarathy@, imports@ and parasu@
+  answer "No Exchange Online mailbox at this address" to the server's copy (087) every five
+  minutes. Most likely their Microsoft 365 licences (Exchange Online) changed that morning. Until
+  it is put back, Team oversight misses their mail, and sending from the CRM as them will fail.
+  The user's action in the Microsoft 365 admin centre.
+- **The job header's margin counts GST** (`shipment_margin` sums `total_inr` on invoices and
+  bills), while Job closing (`lib/jobPnl.ts`) is before GST. The same job shows two profits (test
+  job: ₹1,39,600 against ₹1,09,000). The business flow checks for it and fails until fixed.
+- **No way to cancel a shipment.** Every screen handles a cancelled stage and the case file tells
+  the desk to cancel "on its own page", but no control sets it; `set_shipment_stage` can.
+- **Voice-era leftovers that fail if called:** `promote_intake` still has a branch that updates
+  `public.calls` for an intake with a `call_id` (none exist, so dormant), `capture_call_as_intake`
+  and `forget_call` are callable by staff and always fail, and `countCalls()` in
+  `services/enquiries.ts` (unused) queries the dropped `calls` table.
+- **Performance, for when the data grows:** 10 RLS policies call `auth.uid()` per row (wrap it as
+  `(select auth.uid())`; `mail_log` grows by the server copy every five minutes); 84 foreign keys
+  have no index; `QuoteCharges` adds a rate card's lines one request each.
+- Smaller: `btree_gist` and `pg_net` live in `public`; no Content-Security-Policy header on the
+  site; `classify-enquiry` and `track-shipment` take 1–2 s to cold-start.
+- ALG09004-26 is `accepted` with no accepted quote: the test chain whose ₹3 quote was deleted.
 
 ### Live data worth knowing (28 September)
 
