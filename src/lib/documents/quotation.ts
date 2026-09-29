@@ -283,6 +283,18 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
   doc.text(amount(quote.amount_inr), tableRight - 2, y + 3, { align: "right" });
   y += 9;
 
+  // The rates the foreign lines were turned into rupees at. Without them the
+  // rupee column is a figure the customer cannot check.
+  const roe = new Map<string, number>();
+  for (const l of lines) if ((l.currency || "INR") !== "INR" && Number(l.fx_rate) > 0) roe.set(l.currency, Number(l.fx_rate));
+  if (roe.size) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.6);
+    set(MUTED);
+    doc.text(`Rate of exchange: ${[...roe].map(([c, r]) => `1 ${c} = INR ${amount(r)}`).join(", ")}`, tableRight - 2, y - 3, { align: "right" });
+    y += 2;
+  }
+
   // ------------------------------------------- what the rates were quoted on
   ensure(34);
   doc.setFont("helvetica", "bold");

@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { normalisePasted, quoteText, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
+import { chargesText, normalisePasted, quoteText, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
 import { addQuote, logEvent, type Enquiry, type Quote } from "./enquiries";
 import { addLines, type QuoteLine } from "./quoteLines";
 
@@ -104,14 +104,14 @@ export async function applyPastedQuote(input: {
 }
 
 /**
- * The mail text for a quotation that goes as plain text, from its charges as
- * they are now — rebuilt at sending, so an edit in the charges grid after the
- * paste is what the customer reads.
+ * A pasted quotation's charges as text for the quotation letter, from its
+ * charges as they are now — rebuilt at sending, so an edit in the charges
+ * grid after the paste is what the customer reads.
  */
-export function mailTextFor(enquiry: Enquiry, quote: Quote, lines: QuoteLine[]): string {
+export function chargesTextFor(lines: QuoteLine[]): string {
   const roe: Record<string, number> = {};
   for (const l of lines) if (l.currency !== "INR" && Number(l.fx_rate) > 0) roe[l.currency] = Number(l.fx_rate);
-  const pasted: PastedQuote = {
+  return chargesText({
     lines: lines.map(
       (l): PastedLine => ({
         section: l.section === "ex_works" ? "ex_works" : "other",
@@ -123,9 +123,8 @@ export function mailTextFor(enquiry: Enquiry, quote: Quote, lines: QuoteLine[]):
         note: null,
       })
     ),
-    terms: (quote.terms ?? []).map((t) => t.text).filter(Boolean),
-    validUntil: quote.valid_until ?? null,
+    terms: [],
+    validUntil: null,
     roe,
-  };
-  return quoteText(pasted, quoteHeading(enquiry, quote.version));
+  });
 }

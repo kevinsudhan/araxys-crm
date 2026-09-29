@@ -1,4 +1,5 @@
-import { lineText, normalisePasted, plainTextHtml, quoteMailText, quoteText, sumByCurrency, totalInInr } from "../../src/lib/pastedQuote";
+import { chargesText, isStrongLine, lineText, normalisePasted, quoteText, sumByCurrency, totalInInr } from "../../src/lib/pastedQuote";
+import { quotationHtml } from "../../src/lib/quotationMail";
 
 /** A pasted quotation, laid out for the mail with totals the app works out (29 Sep 2026). */
 
@@ -43,25 +44,41 @@ is("totals by currency, rupees first", sumByCurrency(q.lines.filter((l) => l.sec
 is("no rupee total while AED has no rate", totalInInr(q.lines, q.roe), null);
 is("with it, the whole in rupees", totalInInr(q.lines, { ...q.roe, AED: 22.9 }), 4500 + 2500 + 2300 * 84 + 1500 + 450 * 22.9);
 
-console.log("\nthe mail text");
+console.log("\nthe text laid out");
 const text = quoteText({ ...q, roe: { ...q.roe, AED: 22.9 } }, "Quotation TEST-0001");
 const lines = text.split("\n");
 is("it starts with the heading", lines[0], "Quotation TEST-0001");
-is("ex works first, under its title", lines[2], "EX WORKS CHARGES");
+is("ex works first, under its title", lines[2], "Ex Works Charges");
+is("its charges bulleted", lines[3], "• Pickup from Ambattur factory: INR 4,500 per trip");
 is("with its own total", lines.includes("Ex works total: INR 7,000"), true);
-is("then the other charges", lines.includes("OTHER CHARGES"), true);
+is("then the other charges", lines.includes("Other Charges"), true);
 is("their total by currency", lines.includes("Other charges total: INR 1,500 + USD 2,300 + AED 450"), true);
-is("the whole in rupees with its rates", lines.find((l) => l.startsWith("TOTAL:")), "TOTAL: INR 2,12,005 (USD at 84, AED at 22.90)");
+is("the whole in rupees with its rates", lines.find((l) => l.startsWith("Total:")), "Total: INR 2,12,005 (USD at 84, AED at 22.90)");
 is("validity in words", lines.includes("Valid until 14 Oct 2026."), true);
-is("terms as a list", lines.slice(-2), ["Terms", "- Rates subject to space availability."]);
-is("without every rate, the total stays by currency", quoteText(q, "Q").split("\n").find((l) => l.startsWith("TOTAL:")), "TOTAL: INR 8,500 + USD 2,300 + AED 450");
+is("terms as a list", lines.slice(-2), ["Terms", "• Rates subject to space availability."]);
+is("without every rate, the total stays by currency", quoteText(q, "Q").split("\n").find((l) => l.startsWith("Total:")), "Total: INR 8,500 + USD 2,300 + AED 450");
+is("bold: both headings, the three totals and Terms", lines.filter(isStrongLine).length, 6);
+is("not bold: the greeting, or a charge that happens to be called Total", [isStrongLine("Dear Meena,"), isStrongLine("• Total: INR 5")], [false, false]);
 
-console.log("\nthe mail around it");
-const mail = quoteMailText({ name: "Meena Rajan", text: "X", acceptUrl: null });
-is("greets by first name", mail.split("\n")[0], "Dear Meena,");
-is("no name, a polite default", quoteMailText({ name: "", text: "X" }).split("\n")[0], "Dear Sir/Madam,");
-is("says how to accept", mail.split("\n").pop(), "To accept, please reply to this mail.");
-is("plain text to a mail body, escaped", plainTextHtml("A < B\n\nC"), "<div>A &lt; B</div><div><br></div><div>C</div>");
+console.log("\nthe charges in the quotation letter");
+const charges = chargesText({ ...q, roe: { ...q.roe, AED: 22.9 } });
+is("the charges alone: no title, validity or terms (the letter has its own)", [charges.split("\n")[0], charges.includes("Valid until"), charges.includes("Rates subject")], ["Ex Works Charges", false, false]);
+is("ending on the whole", charges.split("\n").pop(), "Total: INR 2,12,005 (USD at 84, AED at 22.90)");
+const letterFor = (chargesTextIn: string | null) =>
+  quotationHtml({
+    enquiry: { ref: "TEST-0001", origin: "Chennai", destination: "Hamburg" } as never,
+    customer: { id: "c", name: "Meena Rajan", company: "Test Exports", phones: [], emails: [] },
+    quote: { id: "q", version: 1, amount_inr: 212005, created_at: "2026-09-30T10:00:00Z", valid_until: "2026-10-14" } as never,
+    lines: [{ description: "Ocean freight", unit: "Container", quantity: 2, rate: 1150, currency: "USD", amount_inr: 193200 }] as never,
+    terms: [{ scope: "general", text: "Rates subject to space availability." }],
+    chargesText: chargesTextIn,
+  });
+const pastedLetter = letterFor(charges);
+const builtLetter = letterFor(null);
+is("the same letter: its header, who it is for, its terms", ["QUOTATION", "Test Exports", "Rates subject to space availability."].map((t) => pastedLetter.includes(t)), [true, true, true]);
+is("the charges as text in it, a heading in bold", pastedLetter.includes("font-weight:700;color:") && pastedLetter.includes(">Ex Works Charges</p>"), true);
+is("a charge as a bulleted line", pastedLetter.includes(">• Ocean freight: USD 1,150 per container × 2 = USD 2,300</p>"), true);
+is("no charges table in it", [pastedLetter.includes("Qty &times; rate"), builtLetter.includes("Qty &times; rate")], [false, true]);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

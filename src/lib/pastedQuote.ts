@@ -92,7 +92,8 @@ const UNIT_WORD: Record<string, string | null> = {
 export function lineText(l: PastedLine): string {
   const per = UNIT_WORD[l.unit] ?? null;
   let s = `${l.description}: ${l.currency} ${figure(l.rate)}${per ? ` per ${per}` : ""}`;
-  if (l.quantity !== 1) s += ` × ${figure(l.quantity)} = ${l.currency} ${figure(l.rate * l.quantity)}`;
+  // A count is a count: "× 6.5", not "× 6.50" as money would be written.
+  if (l.quantity !== 1) s += ` × ${l.quantity.toLocaleString("en-IN", { maximumFractionDigits: 3 })} = ${l.currency} ${figure(l.rate * l.quantity)}`;
   if (l.note) s += ` (${l.note})`;
   return s;
 }
@@ -127,59 +128,55 @@ function longDate(iso: string): string {
 }
 
 /**
- * The quotation as plain text, for the body of the mail: a title line, the Ex
- * works charges and their total, the other charges and theirs, the whole in
- * rupees with the rates it was converted at, validity, and the terms.
+ * The charges as text — what the quotation letter carries in place of its
+ * table for a pasted quotation: the Ex works charges under their heading with
+ * their total, the other charges and theirs, then the whole in rupees with the
+ * rates it was converted at. Headings and totals are set in bold
+ * (`isStrongLine`); the charges are a bulleted list.
  */
-export function quoteText(q: PastedQuote, heading: string): string {
-  const out: string[] = [heading, ""];
+export function chargesText(q: PastedQuote): string {
+  const out: string[] = [];
   const group = (title: string, totalLabel: string, lines: PastedLine[]) => {
     if (!lines.length) return;
     out.push(title);
-    for (const l of lines) out.push(lineText(l));
+    for (const l of lines) out.push(`${BULLET}${lineText(l)}`);
     out.push(`${totalLabel}: ${sumText(sumByCurrency(lines))}`, "");
   };
-  group("EX WORKS CHARGES", "Ex works total", q.lines.filter((l) => l.section === "ex_works"));
-  group("OTHER CHARGES", "Other charges total", q.lines.filter((l) => l.section === "other"));
+  group("Ex Works Charges", "Ex works total", q.lines.filter((l) => l.section === "ex_works"));
+  group("Other Charges", "Other charges total", q.lines.filter((l) => l.section === "other"));
 
   const inr = totalInInr(q.lines, q.roe);
   const foreign = [...new Set(q.lines.map((l) => l.currency).filter((c) => c !== "INR"))];
   if (inr !== null) {
     const at = foreign.map((c) => `${c} at ${figure(q.roe[c])}`).join(", ");
-    out.push(`TOTAL: INR ${figure(inr)}${at ? ` (${at})` : ""}`);
+    out.push(`Total: INR ${figure(inr)}${at ? ` (${at})` : ""}`);
   } else {
-    out.push(`TOTAL: ${sumText(sumByCurrency(q.lines))}`);
-  }
-  if (q.validUntil) out.push("", `Valid until ${longDate(q.validUntil)}.`);
-  if (q.terms.length) {
-    out.push("", "Terms");
-    for (const t of q.terms) out.push(`- ${t}`);
+    out.push(`Total: ${sumText(sumByCurrency(q.lines))}`);
   }
   return out.join("\n").trim();
 }
 
 /**
- * The mail around it: greeting, the text, where the PDF is, and how to accept.
- * Plain text throughout, as it is sent.
+ * The whole quotation as laid out when it was pasted — title, charges,
+ * validity, terms — kept on the quotation (`quotes.mail_text`) as the record
+ * of what the paste became.
  */
-export function quoteMailText(input: { name: string | null; text: string; acceptUrl?: string | null }): string {
-  const first = (input.name ?? "").trim().split(/\s+/)[0];
-  return [
-    `Dear ${first || "Sir/Madam"},`,
-    "",
-    "Please find our quotation below. The same is attached as a PDF.",
-    "",
-    input.text,
-    "",
-    input.acceptUrl ? `To accept, reply to this mail or open: ${input.acceptUrl}` : "To accept, please reply to this mail.",
-  ].join("\n");
+export function quoteText(q: PastedQuote, heading: string): string {
+  const out: string[] = [heading, "", chargesText(q)];
+  if (q.validUntil) out.push("", `Valid until ${longDate(q.validUntil)}.`);
+  if (q.terms.length) {
+    out.push("", "Terms");
+    for (const t of q.terms) out.push(`${BULLET}${t}`);
+  }
+  return out.join("\n").trim();
 }
 
-/** Plain text as a mail body: escaped, each line its own, nothing else. */
-export function plainTextHtml(text: string): string {
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return text
-    .split(/\r?\n/)
-    .map((l) => (l.trim() ? `<div>${esc(l)}</div>` : "<div><br></div>"))
-    .join("");
+const BULLET = "• ";
+
+/**
+ * The lines of the charges text set in bold: the two headings and the totals.
+ * Charges are bulleted, so none of them can be taken for one.
+ */
+export function isStrongLine(line: string): boolean {
+  return /^(Ex Works Charges$|Other Charges$|Terms$|Ex works total:|Other charges total:|Total:)/.test(line.trim());
 }

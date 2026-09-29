@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ArrowDownUp, ClipboardPaste, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { PASTE_CURRENCIES, PASTE_UNITS, figure, quoteText, totalInInr, type PastedLine, type PastedQuote, type Section } from "../lib/pastedQuote";
-import { applyPastedQuote, quoteHeading, readPastedQuote } from "../services/pasteQuote";
+import { PASTE_CURRENCIES, PASTE_UNITS, chargesText, figure, isStrongLine, totalInInr, type PastedLine, type PastedQuote, type Section } from "../lib/pastedQuote";
+import { applyPastedQuote, readPastedQuote } from "../services/pasteQuote";
 import type { Enquiry, Quote } from "../services/enquiries";
 
 /**
@@ -68,7 +68,7 @@ export default function PasteQuoteDialog({
   );
   const foreign = useMemo(() => [...new Set((q?.lines ?? []).map((l) => l.currency).filter((c) => c !== "INR"))], [q]);
   const missingRoe = foreign.filter((c) => !(q?.roe[c] && q.roe[c] > 0));
-  const preview = current ? quoteText(current, quoteHeading(enquiry, live?.status === "draft" ? live.version : undefined)) : "";
+  const preview = current ? chargesText(current) : "";
 
   const setLine = (i: number, patch: Partial<PastedLine>) =>
     setQ((prev) => (prev ? { ...prev, lines: prev.lines.map((l, k) => (k === i ? { ...l, ...patch } : l)) } : prev));
@@ -260,11 +260,16 @@ export default function PasteQuoteDialog({
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">The mail, as plain text</p>
-                  <pre className="max-h-[22rem] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 font-sans text-[12px] leading-relaxed text-text-primary">
-                    {preview}
-                  </pre>
-                  <p className="mt-1 text-[11px] text-text-muted">Greeting, the PDF and your signature are added when you email it.</p>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">The charges, as the mail shows them</p>
+                  {/* As they go in the quotation letter: text, headings and totals in bold, no table. */}
+                  <div className="max-h-[22rem] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 text-[12px] leading-relaxed text-text-primary">
+                    {preview.split("\n").map((l, i) => (
+                      <div key={i} className={isStrongLine(l) ? "font-semibold" : undefined}>
+                        {l || "\u00a0"}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[11px] text-text-muted">In the quotation letter as usual, with the PDF attached.</p>
                 </div>
               </div>
             </>

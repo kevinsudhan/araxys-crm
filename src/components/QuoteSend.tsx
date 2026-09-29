@@ -21,8 +21,7 @@ import { quotationHtml, quotationMessage, quotationSubject } from "../lib/quotat
 import { MAIL_LOGO_PATH } from "../lib/company";
 import { acceptUrl, isReachable, issueLink } from "../services/publicQuote";
 import { threadWith } from "../services/customerThread";
-import { mailTextFor } from "../services/pasteQuote";
-import { plainTextHtml, quoteMailText } from "../lib/pastedQuote";
+import { chargesTextFor } from "../services/pasteQuote";
 import type { MailMessage } from "../services/backend";
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
 import { linesFor, type QuoteLine } from "../services/quoteLines";
@@ -574,22 +573,7 @@ export default function QuoteSend({
           initial={{
             to,
             subject: replyTo ? undefined : quotationSubject({ enquiry, quote }),
-            /*
-              A pasted quotation (106) goes as plain text, laid out from its
-              charges as they are now — the Ex works charges and their total,
-              the other charges and theirs, the whole in rupees, validity and
-              terms — with the PDF attached. Everything else goes as the
-              designed letter.
-            */
-            body: quote.mail_text
-              ? plainTextHtml(
-                  quoteMailText({
-                    name: customer?.name ?? null,
-                    text: mailTextFor(enquiry, quote, lines),
-                    acceptUrl: link && isReachable(link) ? link : null,
-                  })
-                )
-              : quotationHtml({
+            body: quotationHtml({
               enquiry,
               customer,
               quote,
@@ -600,6 +584,13 @@ export default function QuoteSend({
               acceptUrl: link && isReachable(link) ? link : null,
               // This app's own copy, which the send carries inside the message.
               logoSrc: `${window.location.origin}${MAIL_LOGO_PATH}`,
+              /*
+                A pasted quotation (106): the same letter, its charges as text —
+                Ex works and their total, the other charges and theirs, the
+                whole in rupees — from the charges as they are now. The PDF
+                keeps the tables.
+              */
+              chargesText: quote.mail_text ? chargesTextFor(lines) : null,
             }),
           }}
           /*

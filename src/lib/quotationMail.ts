@@ -1,6 +1,7 @@
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
 import type { QuoteLine } from "../services/quoteLines";
 import type { QuoteTerm } from "../services/quoteApproval";
+import { isStrongLine } from "./pastedQuote";
 import {
   ACCENT,
   ACCENT_SOFT,
@@ -74,6 +75,13 @@ export interface QuotationMailInput {
    * name in type instead.
    */
   logoSrc?: string | null;
+  /**
+   * A pasted quotation's charges as text (lib/pastedQuote `chargesText`).
+   * Given, the letter carries them as text — headings, a bulleted list, the
+   * totals — where it would otherwise draw the charges table. Everything
+   * around them is the same letter. The PDF keeps its tables.
+   */
+  chargesText?: string | null;
 }
 
 /** The subject line, carrying the reference so the reply files itself. */
@@ -162,7 +170,7 @@ export function quotationHtml(i: QuotationMailInput): string {
       )
     : "";
 
-  const table = section(
+  const table = i.chargesText ? section(chargesAsText(i.chargesText), 24) : section(
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           <thead>
             <tr>
@@ -206,6 +214,25 @@ export function quotationHtml(i: QuotationMailInput): string {
       signOff(i.fromName, i.company),
     ],
   });
+}
+
+/**
+ * A pasted quotation's charges, as text in the letter: headings in the
+ * letter's navy, each charge a line of its own, the totals in bold, the whole
+ * a size up. No table.
+ */
+function chargesAsText(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((raw) => {
+      const l = raw.trim();
+      if (!l) return `<div style="height:14px;line-height:14px;font-size:14px;">&nbsp;</div>`;
+      if (l.startsWith("Total:")) return `<p style="margin:2px 0 0;font-size:16px;font-weight:800;color:${NAVY};line-height:1.5;">${esc(l)}</p>`;
+      if (/ total:/.test(l) && isStrongLine(l)) return `<p style="margin:4px 0 0;font-size:13.5px;font-weight:700;color:${INK};line-height:1.5;">${esc(l)}</p>`;
+      if (isStrongLine(l)) return `<p style="margin:0 0 6px;font-size:14.5px;font-weight:700;color:${NAVY};line-height:1.4;">${esc(l)}</p>`;
+      return `<p style="margin:0 0 3px;font-size:13.5px;color:${INK};line-height:1.5;">${esc(l)}</p>`;
+    })
+    .join("");
 }
 
 /**
