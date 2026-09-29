@@ -1,15 +1,14 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { ArrowDownToLine, Check, Download, Loader2, Paperclip, Save } from "lucide-react";
 import { getMailAttachment, type MailMessage } from "../services/backend";
 import { base64ToBytes } from "../lib/base64";
+import { canView, downloadBytes, type ViewerFile } from "../lib/attachmentFiles";
+
+/** Loaded when an attachment is first opened: it brings PDF.js with it. */
+const AttachmentViewer = lazy(() => import("./AttachmentViewer"));
 import { fileMailAttachment, fileUrl, listFiles } from "../services/attachments";
 import { failureText } from "../lib/errorText";
 import { useLiveVersion } from "../lib/liveVersions";
-
-/** What a browser tab can show itself: PDFs, pictures and plain text. */
-const viewable = (a: { name: string; contentType?: string }) =>
-  /^(application\/pdf|image\/(png|jpe?g|gif|webp|bmp)|text\/plain)/i.test(a.contentType ?? "") ||
-  /\.(pdf|png|jpe?g|gif|webp|txt)$/i.test(a.name);
 
 /**
  * The files that arrived on a message, and what can be done with them.
@@ -49,6 +48,12 @@ export default function MessageAttachments({
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The attachment open in the viewer, inside the app (a PDF, a picture or
+   * text). It used to open a new tab, which in the installed app meant leaving
+   * it — and on an iPhone, a blank Safari page.
+   */
+  const [viewing, setViewing] = useState<{ id?: string; name: string } | null>(null);
   // A colleague saving one of these to the job shows here as saved (084).
   const filedElsewhere = useLiveVersion("enquiry_files");
 
@@ -92,39 +97,22 @@ export default function MessageAttachments({
     }
   }
 
-  /**
-   * The file itself, from the mailbox, to this computer.
-   *
-   * The Mail page listed attachments and offered no way to open one: saving to
-   * a case was the only action, and the Mail page has no case to save to.
-   */
-  async function download(a: { id?: string; name: string; contentType?: string }, view = false) {
+  /** The file's bytes, from the mailbox. */
+  async function fetchFile(a: { id?: string; name: string }): Promise<ViewerFile> {
+    if (!a.id) throw new Error(`${a.name} cannot be fetched.`);
+    const got = await getMailAttachment(message.id, a.id);
+    return { name: got.name || a.name, contentType: got.contentType || "application/octet-stream", bytes: base64ToBytes(got.contentBytes) };
+  }
+
+  /** Saves the file to this device. */
+  async function download(a: { id?: string; name: string }) {
     if (!a.id) return;
-    // A tab opened now, inside the click, is not blocked the way one opened
-    // after the download would be; it is pointed at the file once it arrives.
-    const tab = view ? window.open("", "_blank") : null;
     setBusy(a.name);
     setError(null);
     try {
-      const got = await getMailAttachment(message.id, a.id);
-      const blob = new Blob([base64ToBytes(got.contentBytes) as Uint8Array<ArrayBuffer>], {
-        type: got.contentType || "application/octet-stream",
-      });
-      const url = URL.createObjectURL(blob);
-      if (tab) {
-        tab.location.href = url;
-      } else {
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = got.name || a.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }
-      window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+      downloadBytes(await fetchFile(a));
     } catch (e) {
-      tab?.close();
-      setError(failureText(e, `Could not ${view ? "open" : "download"} ${a.name}.`).message);
+      setError(failureText(e, `Could not download ${a.name}.`).message);
     } finally {
       setBusy(null);
     }
@@ -162,13 +150,13 @@ export default function MessageAttachments({
               className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 py-1.5 pl-2.5 pr-1.5 text-[12px] text-text-secondary"
             >
               <Paperclip size={11} className="shrink-0 opacity-70" />
-              {/* The name opens it: a PDF or a picture in a new tab, as Outlook
-                  previews it; anything else downloads. */}
+              {/* The name opens it inside the app — a PDF, a picture or text, as
+                  Outlook previews it; anything else downloads. */}
               {a.id ? (
                 <button
                   type="button"
-                  onClick={() => void download(a, viewable(a))}
-                  title={viewable(a) ? `Open ${a.name}` : `Download ${a.name}`}
+                  onClick={() => (canView(a) ? setViewing(a) : void download(a))}
+                  title={canView(a) ? `Open ${a.name}` : `Download ${a.name}`}
                   className="max-w-[240px] truncate text-left text-text-primary hover:underline"
                 >
                   {a.name}
@@ -232,6 +220,18 @@ export default function MessageAttachments({
         })}
       </div>
       {error && <p className="mt-1.5 text-[12px] text-text-danger">{error}</p>}
+
+      {viewing && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-[60] grid place-items-center bg-[#1c2230]/95">
+              <Loader2 size={20} className="animate-spin text-white/70" />
+            </div>
+          }
+        >
+          <AttachmentViewer name={viewing.name} load={() => fetchFile(viewing)} onClose={() => setViewing(null)} />
+        </Suspense>
+      )}
     </div>
   );
 }

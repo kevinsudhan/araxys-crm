@@ -568,7 +568,16 @@ export const getMailAttachment = async (
   messageId: string,
   attachmentId: string
 ): Promise<{ name: string; contentType: string; size: number; contentBytes: string }> => {
-  if (!live()) throw new Error("Connect Outlook on the Mail page to open attachments.");
+  if (!live()) {
+    // Running locally: the local store's own file, when it carries one.
+    const a = demoMail
+      ? (allMessages().find((m) => m.id === messageId)?.attachments.find((x) => x.id === attachmentId) as
+          | { name: string; contentType: string; size: number; contentBytes?: string }
+          | undefined)
+      : undefined;
+    if (a?.contentBytes) return { name: a.name, contentType: a.contentType, size: a.size, contentBytes: a.contentBytes };
+    throw new Error("Connect Outlook on the Mail page to open attachments.");
+  }
   return graph.getAttachmentBytes(messageId, attachmentId);
 };
 
