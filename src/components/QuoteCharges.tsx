@@ -56,6 +56,8 @@ function Cell({
   align,
   mono,
   placeholder,
+  field,
+  label,
 }: {
   value: string;
   onCommit: (v: string) => void;
@@ -63,6 +65,9 @@ function Cell({
   align?: "right";
   mono?: boolean;
   placeholder?: string;
+  /** Names the cell, so a charge just added can be put in front of the cursor. */
+  field?: string;
+  label?: string;
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -83,8 +88,14 @@ function Cell({
     <input
       value={draft}
       placeholder={placeholder}
+      data-field={field}
+      aria-label={label}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft !== value && onCommit(draft)}
+      onKeyDown={(e) => {
+        // Enter keeps the figure, as moving off the cell does.
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
       className={`h-8 w-full rounded-lg border border-border bg-surface-1 px-2.5 text-[12.5px] text-text-primary transition-colors placeholder:text-text-muted hover:border-border-strong focus:border-text-accent focus:outline-none ${
         align === "right" ? "text-right tabular-nums" : ""
       } ${mono ? "font-mono" : ""}`}
@@ -142,7 +153,20 @@ export default function QuoteCharges({
   const [lines, setLines] = useState<QuoteLine[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [pick, setPick] = useState("");
   const addRef = useRef<HTMLDivElement>(null);
+  /** The charge just added: brought into view with its rate ready to type. */
+  const [fresh, setFresh] = useState<string | null>(null);
+  /**
+   * How wide the panel is. The grid used to be a fixed 74–86rem table in a
+   * sideways scroller, so on a laptop it was a thin strip that scrolled both
+   * ways — and the currency and unit menus opened inside that strip, clipped
+   * to one option. The layout now follows the room: one row per charge where
+   * it fits, the sell line over the buy line where it does not, and a card per
+   * charge on a phone. Nothing scrolls inside the panel; it grows.
+   */
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
   const [filling, setFilling] = useState(false);
   /** What the rate master offered, and what was done with it. */
   const [filled, setFilled] = useState<{ used: ResolvedRate[]; skipped: string[] } | null>(null);
@@ -160,6 +184,30 @@ export default function QuoteCharges({
   }, [load]);
 
   useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = () => setWidth(el.clientWidth);
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+
+  // The charge just added, in view and ready: its rate if it has a name, its
+  // name if it is a blank "other" charge.
+  useEffect(() => {
+    if (!fresh) return;
+    const row = gridRef.current?.querySelector<HTMLElement>(`[data-line="${fresh}"]`);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const name = row.querySelector<HTMLInputElement>('[data-field="name"]');
+    const target = name && !name.value ? name : row.querySelector<HTMLInputElement>('[data-field="rate"]');
+    target?.focus();
+    target?.select();
+    setFresh(null);
+  }, [fresh, lines]);
+
+  useEffect(() => {
     if (!adding) return;
     const away = (e: MouseEvent) => {
       if (addRef.current && !addRef.current.contains(e.target as Node)) setAdding(false);
@@ -167,6 +215,23 @@ export default function QuoteCharges({
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
   }, [adding]);
+
+  /** Adds a charge, and puts it in front of the person who added it. */
+  async function addCharge(line: { description: string; sac_code?: string; unit?: string }) {
+    setAdding(false);
+    setPick("");
+    setError(null);
+    const before = new Set(lines.map((l) => l.id));
+    try {
+      await addLine(quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...line });
+      const next = await linesFor(quoteId);
+      setLines(next);
+      setFresh(next.find((l) => !before.has(l.id))?.id ?? null);
+      onChanged?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not save.");
+    }
+  }
 
   const run = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -258,6 +323,164 @@ export default function QuoteCharges({
     }
   }
 
+  /** Every cell of one charge, for whichever arrangement the width allows. */
+  function cells(l: QuoteLine) {
+    return {
+      name: (
+        <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void run(() => updateLine(l.id, { description: v }))} />
+      ),
+      code: (
+        <Cell
+          label="Charge code"
+          value={l.charge_code ?? ""}
+          locked={locked}
+          mono
+          placeholder="—"
+          onCommit={(v) => void run(() => updateLine(l.id, { charge_code: v || null }))}
+        />
+      ),
+      currency: locked ? (
+        <span className="font-mono text-text-secondary">{l.currency}</span>
+      ) : (
+        <Select
+          label="Currency"
+          className="w-full"
+          value={l.currency}
+          options={LINE_CURRENCIES.map((c) => ({ value: c, label: c }))}
+          onChange={(v) => void run(() => updateLine(l.id, { currency: v, ...(v === "INR" ? { fx_rate: 1 } : {}) }))}
+        />
+      ),
+      roe: (
+        <Cell
+          label="Rate of exchange"
+          value={String(l.fx_rate)}
+          // A rupee line's rate is always 1 and is not editable, even while the
+          // column is up for the sake of a foreign line beside it.
+          locked={locked || l.currency === "INR"}
+          align="right"
+          onCommit={(v) => Number(v) > 0 && void run(() => updateLine(l.id, { fx_rate: Number(v) }))}
+        />
+      ),
+      unit: locked ? (
+        <span className="text-text-secondary">{l.unit || "—"}</span>
+      ) : (
+        <Select
+          label="Unit"
+          className="w-full"
+          value={l.unit}
+          options={UNITS.map((u) => ({ value: u, label: u }))}
+          onChange={(v) => void run(() => updateLine(l.id, { unit: v }))}
+        />
+      ),
+      units: (
+        <Cell
+          label="Units"
+          value={String(l.quantity)}
+          locked={locked}
+          align="right"
+          onCommit={(v) => void run(() => updateLine(l.id, { quantity: Number(v) || 0 }))}
+        />
+      ),
+      rate: (
+        <Cell
+          field="rate"
+          label="Sell per unit"
+          value={String(l.rate)}
+          locked={locked}
+          align="right"
+          onCommit={(v) => void run(() => updateLine(l.id, { rate: Number(v) || 0 }))}
+        />
+      ),
+      amount: <Computed value={money(l.amount_inr)} />,
+      min: (
+        <Cell
+          label="Minimum amount"
+          value={l.min_amount == null ? "" : String(l.min_amount)}
+          locked={locked}
+          align="right"
+          placeholder="—"
+          onCommit={(v) => void run(() => updateLine(l.id, { min_amount: v.trim() === "" ? null : Number(v) || 0 }))}
+        />
+      ),
+      costCurrency: locked ? (
+        <span className="font-mono text-text-secondary">{l.cost_currency}</span>
+      ) : (
+        <Select
+          label="Cost currency"
+          className="w-full"
+          value={l.cost_currency}
+          options={LINE_CURRENCIES.map((c) => ({ value: c, label: c }))}
+          onChange={(v) => void run(() => updateLine(l.id, { cost_currency: v, ...(v === "INR" ? { cost_fx_rate: 1 } : {}) }))}
+        />
+      ),
+      costRoe: (
+        <Cell
+          label="Cost rate of exchange"
+          value={String(l.cost_fx_rate)}
+          locked={locked || l.cost_currency === "INR"}
+          align="right"
+          onCommit={(v) => Number(v) > 0 && void run(() => updateLine(l.id, { cost_fx_rate: Number(v) }))}
+        />
+      ),
+      costRate: (
+        <Cell
+          label="Cost per unit"
+          value={l.cost_rate == null ? "" : String(l.cost_rate)}
+          locked={locked}
+          align="right"
+          placeholder="—"
+          onCommit={(v) => void run(() => updateLine(l.id, { cost_rate: v.trim() === "" ? null : Number(v) || 0 }))}
+        />
+      ),
+      // Derived by the database from the cells before it, so the margin cannot
+      // drift from the figures it is a margin on. Never typed.
+      costAmount: <Computed value={l.cost_inr === null ? "—" : money(l.cost_inr)} />,
+      vendor: locked ? (
+        <span className="text-text-secondary">{l.vendor || "—"}</span>
+      ) : quoted.length > 0 && !l.vendor ? (
+        <Select
+          label="Vendor"
+          className="w-full"
+          value=""
+          options={[
+            { value: "", label: "—" },
+            ...quoted.map((p) => ({ value: p.id, label: p.partner_label || p.partner_email, hint: money(Number(p.amount)) })),
+          ]}
+          onChange={(v) => {
+            const pq = quoted.find((p) => p.id === v);
+            if (!pq) return;
+            /*
+              Taking a partner reply fills the vendor AND the cost, in the
+              currency they quoted. It never touches the sell rate: their figure
+              is a buying price, and putting one in front of the shipper sends
+              them the agent's own cost.
+            */
+            void run(() =>
+              updateLine(l.id, {
+                vendor: pq.partner_label || pq.partner_email,
+                cost_rate: Number(pq.amount),
+                cost_currency: pq.currency || "INR",
+                partner_quote_id: pq.id,
+              })
+            );
+          }}
+        />
+      ) : (
+        <Cell label="Vendor" value={l.vendor ?? ""} locked={locked} placeholder="—" onCommit={(v) => void run(() => updateLine(l.id, { vendor: v || null }))} />
+      ),
+      remove: locked ? null : (
+        <button
+          onClick={() => void run(() => removeLine(l.id))}
+          aria-label={`Remove ${l.description || "this charge"}`}
+          title="Remove this charge"
+          className="grid size-7 place-items-center rounded-lg text-text-muted transition-colors hover:bg-bg-danger hover:text-text-danger"
+        >
+          <Trash2 size={13} />
+        </button>
+      ),
+    };
+  }
+
   const s = summarise(lines);
   const cur = quoteCurrency || "INR";
   // Guarded: a zero or missing rate would divide the totals into infinity.
@@ -320,23 +543,30 @@ export default function QuoteCharges({
               Add a charge
             </button>
             {adding && (
-              <ul className="absolute right-0 z-30 mt-1 max-h-72 w-72 overflow-y-auto rounded-lg border border-border-strong bg-surface-1 py-1 shadow-lg">
-                {CHARGE_HEADS.map((h) => (
+              <div className="absolute right-0 z-30 mt-1 w-80 rounded-lg border border-border-strong bg-surface-1 shadow-lg">
+                <div className="border-b border-border p-1.5">
+                  <input
+                    autoFocus
+                    value={pick}
+                    onChange={(e) => setPick(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setAdding(false);
+                      if (e.key === "Enter") {
+                        const first = CHARGE_HEADS.find((h) => h.label.toLowerCase().includes(pick.trim().toLowerCase()));
+                        void addCharge(first ? { description: first.label, sac_code: first.sac, unit: first.unit } : { description: pick.trim() });
+                      }
+                    }}
+                    placeholder="Find a charge, or type a new one"
+                    aria-label="Find a charge"
+                    className="h-8 w-full text-[12.5px]"
+                  />
+                </div>
+                {/* Tall enough for the whole list: a charge head is one of fifteen, not a search result. */}
+                <ul className="max-h-[min(30rem,65vh)] overflow-y-auto py-1">
+                {CHARGE_HEADS.filter((h) => h.label.toLowerCase().includes(pick.trim().toLowerCase())).map((h) => (
                   <li key={h.label}>
                     <button
-                      onClick={() => {
-                        setAdding(false);
-                        void run(() =>
-                          addLine(quoteId, {
-                            position: lines.length + 1,
-                            description: h.label,
-                            sac_code: h.sac,
-                            unit: h.unit,
-                            quantity: 1,
-                            rate: 0,
-                          })
-                        );
-                      }}
+                      onClick={() => void addCharge({ description: h.label, sac_code: h.sac, unit: h.unit })}
                       className="flex w-full items-baseline justify-between gap-2 px-2.5 py-1.5 text-left text-[12px] hover:bg-surface-2"
                     >
                       <span className="text-text-primary">{h.label}</span>
@@ -344,7 +574,16 @@ export default function QuoteCharges({
                     </button>
                   </li>
                 ))}
-              </ul>
+                  <li className="border-t border-border">
+                    <button
+                      onClick={() => void addCharge({ description: pick.trim() })}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-text-accent hover:bg-surface-2"
+                    >
+                      <Plus size={12} /> {pick.trim() ? `Add "${pick.trim()}"` : "Another charge — name it in the grid"}
+                    </button>
+                  </li>
+                </ul>
+              </div>
             )}
           </div>
         )}
@@ -386,277 +625,183 @@ export default function QuoteCharges({
         </div>
       )}
 
+      <div ref={gridRef}>
       {lines.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-[12px] text-text-muted">
           No charges yet. Add the heads this rate is made of — they become the invoice when the
           customer accepts.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          {/*
-            The charge grid: what we sell on the left, what it costs us on the
-            right, and the vendor it is bought from at the end.
+        (() => {
+          /*
+            The same cells in three arrangements (see `width` above). What we
+            sell comes first, what it costs us after it, tinted, and the vendor
+            it is bought from last.
+          */
+          const layout = width >= 1240 + (anyFx ? 70 : 0) + (anyCostFx ? 70 : 0) ? "row" : width >= 820 ? "two" : "card";
+          const sellCols = [
+            "24px",
+            "minmax(120px,2fr)",
+            "minmax(56px,0.8fr)",
+            "minmax(76px,1fr)",
+            anyFx ? "minmax(56px,0.8fr)" : "",
+            "minmax(84px,1.1fr)",
+            "minmax(52px,0.7fr)",
+            "minmax(76px,1fr)",
+            "minmax(84px,1fr)",
+            "minmax(64px,0.8fr)",
+          ].filter(Boolean);
+          const costCols = [
+            "minmax(76px,1fr)",
+            anyCostFx ? "minmax(56px,0.8fr)" : "",
+            "minmax(76px,1fr)",
+            "minmax(84px,1fr)",
+            "minmax(130px,2.4fr)",
+          ].filter(Boolean);
+          const end = locked ? [] : ["28px"];
+          // "Code", not "Charge": headed "Charge", the column was being read as the
+          // charge's amount, and prices were typed into it.
+          const sellHead = ["#", "Charge name", "Code", "Currency", ...(anyFx ? ["ROE"] : []), "Unit", "Units", "Sell / unit", "Local amt.", "Min amt."];
+          const costHead = ["Cost cur.", ...(anyCostFx ? ["ROE"] : []), "Cost / unit", "Local amt.", "Vendor"];
+          const right = new Set(["#", "ROE", "Units", "Sell / unit", "Local amt.", "Min amt.", "Cost / unit"]);
 
-            Wide on purpose. A forwarder prices a job by reading across one row
-            — sell 4,500, cost 3,000, A2C Forwarders — and splitting that across
-            two screens is what makes people keep the real working in a
-            spreadsheet. It scrolls sideways rather than wrapping, because a row
-            that wraps stops being a row.
-          */}
-          <table className={`w-full border-separate border-spacing-y-1 text-[12.5px] ${
-              anyFx && anyCostFx ? "min-w-[86rem]" : anyFx || anyCostFx ? "min-w-[80rem]" : "min-w-[74rem]"
-            }`}>
-            <thead>
-              <tr className="border-b border-border text-left text-[10.5px] uppercase tracking-wide text-text-secondary">
-                <th className="w-9 py-2 pr-1 text-right font-medium">#</th>
-                <th className="w-52 whitespace-nowrap py-2 pr-2 font-medium">Charge name</th>
-                <th className="w-24 whitespace-nowrap py-2 pr-2 font-medium">Charge</th>
-                <th className="w-24 py-2 pr-2 whitespace-nowrap font-medium">Currency</th>
-                {anyFx && (
-                  <th className="w-24 whitespace-nowrap py-2 pr-2 text-right font-medium">ROE</th>
-                )}
-                <th className="w-32 py-2 pr-2 whitespace-nowrap font-medium">Unit</th>
-                <th className="w-24 py-2 pr-2 text-right whitespace-nowrap font-medium">Units</th>
-                <th className="w-28 py-2 pr-2 text-right whitespace-nowrap font-medium">Sell / unit</th>
-                <th className="w-28 py-2 pr-2 text-right whitespace-nowrap font-medium">Local amt.</th>
-                <th className="w-24 py-2 pr-2 text-right whitespace-nowrap font-medium">Min amt.</th>
-                {/* The buying half, tinted so the eye can tell at a glance which
-                    side of the row it is on. */}
-                <th className="w-24 bg-surface-2 py-2 pl-3 pr-2 whitespace-nowrap font-medium">Cost cur.</th>
-                {anyCostFx && (
-                  <th className="w-24 whitespace-nowrap bg-surface-2 py-2 pr-2 text-right font-medium">
-                    ROE
-                  </th>
-                )}
-                <th className="w-28 bg-surface-2 py-2 pr-2 text-right whitespace-nowrap font-medium">Cost / unit</th>
-                <th className="w-28 bg-surface-2 py-2 pr-2 text-right whitespace-nowrap font-medium">Local amt.</th>
-                <th className="w-40 bg-surface-2 py-2 pr-2 whitespace-nowrap font-medium">Vendor</th>
-                {!locked && <th className="w-8" />}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {lines.map((l) => (
-                <tr key={l.id}>
-                  <td className="py-1.5 pr-1 text-right text-[11.5px] tabular-nums text-text-muted">
-                    {lines.indexOf(l) + 1}
-                  </td>
-                  {/*
-                    The name first, the code after it.
+          if (layout === "card") {
+            return (
+              <div className="space-y-2">
+                {lines.map((l, i) => {
+                  const c = cells(l);
+                  return (
+                    <div key={l.id} data-line={l.id} className="rounded-lg border border-border bg-surface-1 p-2.5">
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="text-[11.5px] tabular-nums text-text-muted">{i + 1}</span>
+                        <div className="min-w-0 flex-1">{c.name}</div>
+                        {c.remove}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        <CardField label="Code">{c.code}</CardField>
+                        <CardField label="Currency">{c.currency}</CardField>
+                        {anyFx && <CardField label="ROE">{c.roe}</CardField>}
+                        <CardField label="Unit">{c.unit}</CardField>
+                        <CardField label="Units">{c.units}</CardField>
+                        <CardField label="Sell / unit">{c.rate}</CardField>
+                        <CardField label="Local amt.">{c.amount}</CardField>
+                        <CardField label="Min amt.">{c.min}</CardField>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 rounded-md bg-surface-2 p-2 sm:grid-cols-3">
+                        <CardField label="Cost cur.">{c.costCurrency}</CardField>
+                        {anyCostFx && <CardField label="ROE">{c.costRoe}</CardField>}
+                        <CardField label="Cost / unit">{c.costRate}</CardField>
+                        <CardField label="Local amt.">{c.costAmount}</CardField>
+                        <CardField label="Vendor" wide>
+                          {c.vendor}
+                        </CardField>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          }
 
-                    The name is what the line IS and is how anybody reading the
-                    quotation identifies it; the code is a filing reference that
-                    matters at invoicing. Leading with the code made the eye land
-                    on ADO and CDO and have to read one column further to find
-                    out what either of them was.
-                  */}
-                  <td className="py-1.5 pr-2">
-                    <Cell
-                      value={l.description}
-                      locked={locked}
-                      onCommit={(v) => void run(() => updateLine(l.id, { description: v }))}
-                    />
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    <Cell
-                      value={l.charge_code ?? ""}
-                      locked={locked}
-                      mono
-                      placeholder="—"
-                      onCommit={(v) => void run(() => updateLine(l.id, { charge_code: v || null }))}
-                    />
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {locked ? (
-                      <span className="font-mono text-text-secondary">{l.currency}</span>
-                    ) : (
-                      <Select
-                        label="Currency"
-                        className="w-full"
-                        value={l.currency}
-                        options={LINE_CURRENCIES.map((c) => ({ value: c, label: c }))}
-                        onChange={(v) =>
-                          void run(() =>
-                            updateLine(l.id, { currency: v, ...(v === "INR" ? { fx_rate: 1 } : {}) })
-                          )
-                        }
-                      />
-                    )}
-                  </td>
-                  {anyFx && (
-                    <td className="py-1.5 pr-2 text-right">
-                      <Cell
-                        value={String(l.fx_rate)}
-                        /* A rupee line's rate is always 1 and is not editable,
-                           even while the column is up for the sake of a foreign
-                           line beside it. */
-                        locked={locked || l.currency === "INR"}
-                        align="right"
-                        onCommit={(v) =>
-                          Number(v) > 0 && void run(() => updateLine(l.id, { fx_rate: Number(v) }))
-                        }
-                      />
-                    </td>
-                  )}
-                  <td className="py-1.5 pr-2">
-                    {locked ? (
-                      <span className="text-text-secondary">{l.unit || "—"}</span>
-                    ) : (
-                      <Select
-                        label="Unit"
-                        className="w-full"
-                        value={l.unit}
-                        options={UNITS.map((u) => ({ value: u, label: u }))}
-                        onChange={(v) => void run(() => updateLine(l.id, { unit: v }))}
-                      />
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2 text-right">
-                    <Cell
-                      value={String(l.quantity)}
-                      locked={locked}
-                      align="right"
-                      onCommit={(v) => void run(() => updateLine(l.id, { quantity: Number(v) || 0 }))}
-                    />
-                  </td>
-                  <td className="py-1.5 pr-2 text-right">
-                    <Cell
-                      value={String(l.rate)}
-                      locked={locked}
-                      align="right"
-                      onCommit={(v) => void run(() => updateLine(l.id, { rate: Number(v) || 0 }))}
-                    />
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    <Computed value={money(l.amount_inr)} />
-                  </td>
-                  <td className="py-1.5 pr-2 text-right">
-                    <Cell
-                      value={l.min_amount == null ? "" : String(l.min_amount)}
-                      locked={locked}
-                      align="right"
-                      placeholder="—"
-                      onCommit={(v) =>
-                        void run(() =>
-                          updateLine(l.id, { min_amount: v.trim() === "" ? null : Number(v) || 0 })
-                        )
-                      }
-                    />
-                  </td>
+          if (layout === "two") {
+            return (
+              <div>
+                <HeadRow labels={[...sellHead, ...(locked ? [] : [""])]} cols={[...sellCols, ...end]} right={right} />
+                {/* The buy line's names, under the sell line's, as its cells sit under them. */}
+                <div className="mb-1 flex items-center gap-2 px-4">
+                  <span className="w-9 shrink-0" />
+                  <div className="grid min-w-0 flex-1 gap-2 rounded bg-surface-2 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted" style={{ gridTemplateColumns: costCols.join(" ") }}>
+                    {costHead.map((h, k) => (
+                      <span key={k} className={`truncate ${right.has(h) ? "text-right" : ""}`}>
+                        {h}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {lines.map((l, i) => {
+                    const c = cells(l);
+                    return (
+                      <div key={l.id} data-line={l.id} className="rounded-lg border border-border bg-surface-1 p-2">
+                        <div className="grid items-center gap-2" style={{ gridTemplateColumns: [...sellCols, ...end].join(" ") }}>
+                          <span className="text-right text-[11.5px] tabular-nums text-text-muted">{i + 1}</span>
+                          {c.name}
+                          {c.code}
+                          {c.currency}
+                          {anyFx && c.roe}
+                          {c.unit}
+                          {c.units}
+                          {c.rate}
+                          {c.amount}
+                          {c.min}
+                          {!locked && c.remove}
+                        </div>
+                        {/* What it costs us, under what we sell it for. */}
+                        <div className="mt-1.5 flex items-center gap-2 rounded-md bg-surface-2 py-1.5 pl-2 pr-2">
+                          <span className="w-9 shrink-0 text-[10.5px] font-medium uppercase tracking-wide text-text-muted">Buy</span>
+                          <div className="grid min-w-0 flex-1 items-center gap-2" style={{ gridTemplateColumns: costCols.join(" ") }}>
+                            {c.costCurrency}
+                            {anyCostFx && c.costRoe}
+                            {c.costRate}
+                            {c.costAmount}
+                            {c.vendor}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
 
-                  <td className="bg-surface-2 py-1.5 pl-3 pr-2">
-                    {locked ? (
-                      <span className="font-mono text-text-secondary">{l.cost_currency}</span>
-                    ) : (
-                      <Select
-                        label="Cost currency"
-                        className="w-full"
-                        value={l.cost_currency}
-                        options={LINE_CURRENCIES.map((c) => ({ value: c, label: c }))}
-                        onChange={(v) =>
-                          void run(() =>
-                            updateLine(l.id, {
-                              cost_currency: v,
-                              ...(v === "INR" ? { cost_fx_rate: 1 } : {}),
-                            })
-                          )
-                        }
-                      />
-                    )}
-                  </td>
-                  {anyCostFx && (
-                    <td className="bg-surface-2 py-1.5 pr-2 text-right">
-                      <Cell
-                        value={String(l.cost_fx_rate)}
-                        locked={locked || l.cost_currency === "INR"}
-                        align="right"
-                        onCommit={(v) =>
-                          Number(v) > 0 &&
-                          void run(() => updateLine(l.id, { cost_fx_rate: Number(v) }))
-                        }
-                      />
-                    </td>
-                  )}
-                  <td className="bg-surface-2 py-1.5 pr-2 text-right">
-                    <Cell
-                      value={l.cost_rate == null ? "" : String(l.cost_rate)}
-                      locked={locked}
-                      align="right"
-                      placeholder="—"
-                      onCommit={(v) =>
-                        void run(() =>
-                          updateLine(l.id, { cost_rate: v.trim() === "" ? null : Number(v) || 0 })
-                        )
-                      }
-                    />
-                  </td>
-                  {/* Derived by the database from the three cells to its left,
-                      so the margin cannot drift from the figures it is a margin
-                      on. Never typed. */}
-                  <td className="bg-surface-2 py-1.5 pr-2">
-                    <Computed value={l.cost_inr === null ? "—" : money(l.cost_inr)} />
-                  </td>
-                  <td className="bg-surface-2 py-1.5 pr-2">
-                    {locked ? (
-                      <span className="text-text-secondary">{l.vendor || "—"}</span>
-                    ) : quoted.length > 0 && !l.vendor ? (
-                      <Select
-                        label="Vendor"
-                        className="w-full"
-                        value=""
-                        options={[
-                          { value: "", label: "—" },
-                          ...quoted.map((p) => ({
-                            value: p.id,
-                            label: p.partner_label || p.partner_email,
-                            hint: money(Number(p.amount)),
-                          })),
-                        ]}
-                        onChange={(v) => {
-                          const pq = quoted.find((p) => p.id === v);
-                          if (!pq) return;
-                          /*
-                            Taking a partner reply fills the vendor AND the cost,
-                            in the currency they quoted. It never touches the
-                            sell rate: their figure is a buying price, and
-                            putting one in front of the shipper sends them the
-                            agent's own cost.
-                          */
-                          void run(() =>
-                            updateLine(l.id, {
-                              vendor: pq.partner_label || pq.partner_email,
-                              cost_rate: Number(pq.amount),
-                              cost_currency: pq.currency || "INR",
-                              partner_quote_id: pq.id,
-                            })
-                          );
-                        }}
-                      />
-                    ) : (
-                      <Cell
-                        value={l.vendor ?? ""}
-                        locked={locked}
-                        placeholder="—"
-                        onCommit={(v) => void run(() => updateLine(l.id, { vendor: v || null }))}
-                      />
-                    )}
-                  </td>
-                  {!locked && (
-                    <td className="py-1.5">
-                      <button
-                        onClick={() => void run(() => removeLine(l.id))}
-                        aria-label={`Remove ${l.description || "this charge"}`}
-                        className="grid size-7 place-items-center rounded-lg text-text-muted transition-colors hover:bg-bg-danger hover:text-text-danger"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          // Room for everything on one line: a charge reads straight across,
+          // sell 4,500 · cost 3,000 · A2C Forwarders.
+          const all = [...sellCols, ...costCols, ...end];
+          return (
+            <div>
+              <div className="grid gap-2 px-2 pb-1" style={{ gridTemplateColumns: all.join(" ") }}>
+                {[...sellHead, ...costHead, ...(locked ? [] : [""])].map((h, k) => (
+                  <span
+                    key={k}
+                    className={`truncate text-[10.5px] font-medium uppercase tracking-wide text-text-secondary ${right.has(h) ? "text-right" : ""} ${
+                      k >= sellHead.length && k < sellHead.length + costHead.length ? "rounded bg-surface-2 px-1" : ""
+                    }`}
+                  >
+                    {h}
+                  </span>
+                ))}
+              </div>
+              <div className="space-y-1">
+                {lines.map((l, i) => {
+                  const c = cells(l);
+                  return (
+                    <div key={l.id} data-line={l.id} className="grid items-center gap-2 rounded-lg px-2 py-1 hover:bg-surface-2/50" style={{ gridTemplateColumns: all.join(" ") }}>
+                      <span className="text-right text-[11.5px] tabular-nums text-text-muted">{i + 1}</span>
+                      {c.name}
+                      {c.code}
+                      {c.currency}
+                      {anyFx && c.roe}
+                      {c.unit}
+                      {c.units}
+                      {c.rate}
+                      {c.amount}
+                      {c.min}
+                      {c.costCurrency}
+                      {anyCostFx && c.costRoe}
+                      {c.costRate}
+                      {c.costAmount}
+                      {c.vendor}
+                      {!locked && c.remove}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()
       )}
+      </div>
 
       {lines.length > 0 && (
         <div className="mt-3 flex justify-end">
@@ -709,6 +854,29 @@ export default function QuoteCharges({
         </div>
       )}
     </div>
+  );
+}
+
+/** Column labels over a grid of charges. */
+function HeadRow({ labels, cols, right }: { labels: string[]; cols: string[]; right: Set<string> }) {
+  return (
+    <div className="grid gap-2 px-2 pb-1 text-[10.5px] font-medium uppercase tracking-wide text-text-secondary" style={{ gridTemplateColumns: cols.join(" ") }}>
+      {labels.map((h, i) => (
+        <span key={i} className={`truncate ${right.has(h) ? "text-right" : ""}`}>
+          {h}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** One labelled field of a charge on a phone. */
+function CardField({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <label className={`block min-w-0 ${wide ? "col-span-2 sm:col-span-3" : ""}`}>
+      <span className="mb-0.5 block text-[10.5px] uppercase tracking-wide text-text-muted">{label}</span>
+      {children}
+    </label>
   );
 }
 

@@ -570,6 +570,15 @@ screen.
 
 ---
 
+**The quotation's charges (29 Sep).** `QuoteCharges` was a 74–86rem table in a sideways
+scroller: on a laptop a thin strip that scrolled both ways, with the currency and unit menus
+clipped inside it (a scroll container clips its absolutely placed children). It now measures its
+width and lays the same cells out as one row per charge where it fits, the sell line over the buy
+line where it does not, or a labelled card per charge on a phone — the panel grows, nothing
+scrolls inside it. A charge just added is scrolled into view with its rate field focused; the
+picker has a filter and "another charge". The code column is headed "Code": headed "Charge", it
+had prices typed into it (ALG09011-26).
+
 ## 9. Open items
 
 ### Waiting on the user
