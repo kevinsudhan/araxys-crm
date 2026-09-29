@@ -505,6 +505,16 @@ the first. Graph: `searchMessages` asks `$search` for plain-text bodies to cut t
 each word is quoted (`kqlFor`) so "ALG09012-26" is not read as ALG09012 NOT 26. Enter
 searches at once, Escape clears, choosing a folder ends the search.
 
+**Mail, the rest of Outlook's basics (29 Sep).** The list refreshes itself every minute and on
+returning to the tab (not while searching or after "Load older mail"). All / Unread / Flagged
+above the list (a server `$filter`, with the `receivedDateTime` clause Graph needs beside
+`$orderby`). Delete moves to Deleted Items (`graphMail.deleteMessage`); flag, mark unread/read,
+and "Open in Outlook" (`webLink`) are icons beside Archive. Keyboard: arrows or j/k, R, A, F, E,
+Delete, U, N, / (the keyboard button lists them). Compose suggests recipients from customers,
+partners, the desk and recent correspondents (`services/addressBook.ts`, `lib/addressRank.ts`),
+and "Save draft" keeps it in Outlook's Drafts (`graphMail.saveDraft`; a reply is started with
+createReply so it stays threaded). An attachment's name opens a PDF or picture in a new tab.
+
 **Email HTML must be table-based with inline styles.**
 
 - The rich-text editor's sanitiser (`RichTextEditor.tsx`) allows email tables, `bgcolor`

@@ -34,6 +34,8 @@ import {
   moveMessage,
   sendMessage,
   dropMessage,
+  setFlag,
+  saveDraft,
   type FolderId,
 } from "./mockMail";
 
@@ -385,7 +387,10 @@ export function mockGet(path: string): Promise<unknown> {
 
     if (route === "/api/mail/messages") {
       const folder = (q.get("folder") ?? "inbox") as FolderId;
-      return delay({ messages: listMessages(mailbox, folder, q.get("q") ?? undefined) });
+      const only = q.get("filter");
+      return delay({
+        messages: listMessages(mailbox, folder, q.get("q") ?? undefined, only === "unread" || only === "flagged" ? only : undefined),
+      });
     }
 
     const one = route.match(/^\/api\/mail\/messages\/([^/]+)$/);
@@ -434,6 +439,19 @@ export function mockPost(path: string, body: unknown): Promise<unknown> {
         conversationId: b.conversationId,
       }),
     });
+  }
+
+  if (path === "/api/mail/draft") {
+    return delay({ message: saveDraft({ mailbox: b.mailbox, fromName: b.fromName ?? "", draftId: b.draftId, to: b.to ?? [], cc: b.cc ?? [], subject: b.subject ?? "", content: b.content ?? "" }) });
+  }
+
+  const flagMatch = path.match(/^\/api\/mail\/messages\/([^/]+)\/flag$/);
+  if (flagMatch) return delay({ message: setFlag(b.mailbox, flagMatch[1], b.flagged !== false) });
+
+  const deleteMatch = path.match(/^\/api\/mail\/messages\/([^/]+)\/delete$/);
+  if (deleteMatch) {
+    dropMessage(b.mailbox, deleteMatch[1]);
+    return delay({ ok: true });
   }
 
   const readMatch = path.match(/^\/api\/mail\/messages\/([^/]+)\/read$/);

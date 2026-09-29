@@ -21,6 +21,11 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Flag,
+  Trash2,
+  MailOpen,
+  ExternalLink,
+  Keyboard,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import ComposeMail from "../components/ComposeMail";
@@ -33,6 +38,7 @@ import MailListRow from "../components/MailListRow";
 import MailConversation from "../components/MailConversation";
 import Highlighted from "../components/Highlighted";
 import { searchTerms } from "../lib/searchHighlight";
+import { rememberAddresses } from "../services/addressBook";
 import { groupIntoThreads } from "../lib/threads";
 import { useAuth } from "../lib/auth";
 import { outcomeText } from "../lib/outlookConnect";
@@ -44,6 +50,8 @@ import {
   getMailMessages,
   getMoreMailMessages,
   searchMessages,
+  setMailFlag,
+  deleteMailMessage,
   searchMoreMessages,
   moveMailMessage,
   setMailRead,
@@ -159,6 +167,20 @@ export default function Mail() {
    * Sent — or only the folder on screen.
    */
   const [scope, setScope] = useState<"all" | "folder">("all");
+  /** Outlook's Filter: everything, unread only, or flagged only. */
+  const [filter, setFilter] = useState<"all" | "unread" | "flagged">("all");
+  /** A line at the foot of the screen saying what just happened (deleted, draft saved). */
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+  const [showKeys, setShowKeys] = useState(false);
+  /** Whether older pages have been loaded, which a background refresh would throw away. */
+  const morePages = useRef(false);
+  /** When the list was last fetched, so a refresh on returning to the tab is not one per click. */
+  const lastLoad = useRef(0);
   const searching = Boolean(query);
   const terms = useMemo(() => searchTerms(query), [query]);
   /** Which folder load is the current one; an older answer arriving late is dropped. */
@@ -276,17 +298,26 @@ export default function Mail() {
   const load = useCallback(async () => {
     if (!mailbox) return;
     const req = ++loadReq.current;
+    lastLoad.current = Date.now();
     setLoading(true);
     setError(null);
     try {
       const [f, m] = await Promise.all([
         getMailFolders(mailbox),
-        query ? searchMessages(mailbox, query, scope === "all" ? null : folder) : getMailMessages(mailbox, folder),
+        query
+          ? searchMessages(mailbox, query, scope === "all" ? null : folder)
+          : getMailMessages(mailbox, folder, undefined, filter === "all" ? undefined : filter),
       ]);
       if (req !== loadReq.current) return;
       setFolders(f.folders);
       setMessages(m.messages);
       setNextLink(m.nextLink);
+      morePages.current = false;
+      // Everyone on screen is someone the compose window can suggest.
+      rememberAddresses(
+        m.messages.flatMap((x) => [x.from?.emailAddress, ...x.toRecipients.map((r) => r.emailAddress), ...x.ccRecipients.map((r) => r.emailAddress)])
+          .filter((a) => a?.address && a.address.toLowerCase() !== mailbox.toLowerCase())
+      );
       // One lookup for the whole folder, so each row can say whether it has
       // already been queued instead of offering a push that does nothing.
       const q = await intakeByMessage(m.messages.map((x) => x.id));
@@ -303,11 +334,35 @@ export default function Mail() {
     } finally {
       if (req === loadReq.current) setLoading(false);
     }
-  }, [mailbox, folder, query, scope]);
+  }, [mailbox, folder, query, scope, filter]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+    New mail arrives by itself, as it does in Outlook: the list is fetched again
+    every minute while the page is in view, and on coming back to the tab. It
+    used to change only when somebody pressed Refresh, so a customer's reply
+    could sit unseen above a list that looked current. Not while searching, and
+    not once older pages have been loaded — a refresh would put the list back
+    to its first page under the reader.
+  */
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "visible" || query || morePages.current) return;
+      if (Date.now() - lastLoad.current < 20_000) return;
+      void load();
+    };
+    const every = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(every);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [load, query]);
 
   // Resolve the conversation's reference when the compose box opens. Cancelled
   // on close so a slow lookup cannot land on the next message opened.
@@ -340,6 +395,7 @@ export default function Mail() {
   async function loadMore() {
     if (!nextLink || loadingMore) return;
     setLoadingMore(true);
+    morePages.current = true;
     // A page for the folder or search that was on screen when it was asked for.
     const req = loadReq.current;
     try {
@@ -494,7 +550,9 @@ export default function Mail() {
    * three left the row standing on the next one, as if nothing had happened.
    */
   async function archive(m: MailMessage) {
-    const going = m.conversationId ? messages.filter((x) => x.conversationId === m.conversationId) : [];
+    // A search result is one message: its conversation's other results may be
+    // in Sent or elsewhere, and archiving them with it is not what was asked.
+    const going = m.conversationId && !searching ? messages.filter((x) => x.conversationId === m.conversationId) : [];
     if (!going.some((x) => x.id === m.id)) going.push(m);
     const ids = new Set(going.map((x) => x.id));
     setMessages((prev) => prev.filter((x) => !ids.has(x.id)));
@@ -503,6 +561,64 @@ export default function Mail() {
       await Promise.all(going.map((x) => moveMailMessage(mailbox, x.id, "archive")));
     } finally {
       void load();
+    }
+  }
+
+  /**
+   * Delete, as Outlook's: to Deleted Items, where it can be got back — the
+   * conversation's messages in this folder, as Archive does, or the one result
+   * when searching.
+   */
+  async function remove(m: MailMessage) {
+    const going = m.conversationId && !searching ? messages.filter((x) => x.conversationId === m.conversationId) : [];
+    if (!going.some((x) => x.id === m.id)) going.push(m);
+    const ids = new Set(going.map((x) => x.id));
+    setMessages((prev) => prev.filter((x) => !ids.has(x.id)));
+    setSelectedId(null);
+    setFull(null);
+    try {
+      await Promise.all(going.map((x) => deleteMailMessage(mailbox, x.id)));
+      setToast(going.length > 1 ? `${going.length} messages moved to Deleted Items.` : "Moved to Deleted Items.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete that.");
+    } finally {
+      void load();
+    }
+  }
+
+  /** Flag for follow-up, or take the flag off. Shown at once; put back if Outlook says no. */
+  async function toggleFlag(m: MailMessage) {
+    const flagged = !m.flagged;
+    const set = (v: boolean) => {
+      setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, flagged: v } : x)));
+      setFull((prev) => (prev && prev.id === m.id ? { ...prev, flagged: v } : prev));
+    };
+    set(flagged);
+    try {
+      await setMailFlag(mailbox, m.id, flagged);
+      if (!flagged && filter === "flagged") void load();
+    } catch (e) {
+      set(!flagged);
+      setError(e instanceof Error ? e.message : "Could not change the flag.");
+    }
+  }
+
+  /** Mark unread (or read again): the row goes bold and the Inbox count goes up. */
+  async function toggleRead(m: MailMessage) {
+    const isRead = !m.isRead;
+    const set = (v: boolean) => {
+      setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, isRead: v } : x)));
+      setFull((prev) => (prev && prev.id === m.id ? { ...prev, isRead: v } : prev));
+      if (m.folder === "inbox") {
+        setFolders((prev) => prev.map((f) => (f.id === "inbox" ? { ...f, unread: Math.max(0, f.unread + (v ? -1 : 1)) } : f)));
+      }
+    };
+    set(isRead);
+    try {
+      await setMailRead(mailbox, m.id, isRead);
+    } catch (e) {
+      set(!isRead);
+      setError(e instanceof Error ? e.message : "Could not change that.");
     }
   }
 
@@ -522,11 +638,64 @@ export default function Mail() {
     return () => window.clearTimeout(t);
   }, [landed, query]);
 
+  /*
+    Keyboard shortcuts, for a desk that reads mail all day: the arrows (or j/k)
+    move through the list, R / A / F answer, E archives, Delete deletes, U marks
+    unread, N writes a new one, / goes to the search. Never while typing, and
+    never with a window open over the page.
+  */
+  const isDraft = Boolean(selected && (selected.isDraft || selected.folder === "drafts"));
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandler.current = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="listbox"]')) return;
+    if (composing || editingSignature) return;
+    const rows = searching
+      ? messages.map((m) => ({ m, group: [m] }))
+      : conversations.map((t) => ({ m: t.messages[t.messages.length - 1], group: t.messages }));
+    const at = rows.findIndex((r) => r.group.some((x) => x.id === selectedId));
+    const key = e.key;
+    const go = (i: number) => {
+      const r = rows[Math.max(0, Math.min(rows.length - 1, i))];
+      if (r) void open(r.m, r.group);
+    };
+    if (key === "ArrowDown" || key === "j") {
+      e.preventDefault();
+      go(at + 1);
+    } else if (key === "ArrowUp" || key === "k") {
+      e.preventDefault();
+      go(at < 0 ? 0 : at - 1);
+    } else if (key === "n") {
+      e.preventDefault();
+      setComposing({});
+    } else if (key === "/") {
+      e.preventDefault();
+      document.querySelector<HTMLInputElement>('input[aria-label="Search mail"]')?.focus();
+    } else if (selected && !isDraft && (key === "r" || key === "a" || key === "f")) {
+      e.preventDefault();
+      setComposing({ replyTo: selected, mode: key === "r" ? "reply" : key === "a" ? "replyAll" : "forward" });
+    } else if (selected && key === "e" && selected.folder !== "archive" && !isDraft) {
+      e.preventDefault();
+      void archive(selected);
+    } else if (selected && (key === "Delete" || key === "#")) {
+      e.preventDefault();
+      void remove(selected);
+    } else if (selected && key === "u") {
+      e.preventDefault();
+      void toggleRead(selected);
+    }
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   if (!mailbox) return null;
 
   // Reading at full width only applies while a message is open; the list comes back without one.
   const wideOpen = wide && Boolean(selected);
-  const isDraft = Boolean(selected && (selected.isDraft || selected.folder === "drafts"));
   const roomy = wideOpen;
 
   return (
@@ -657,6 +826,7 @@ export default function Mail() {
                   // A folder is a place to read; choosing one ends the search, as in Outlook.
                   setSearch("");
                   setQuery("");
+                  setFilter("all");
                   setFolder(f.id);
                 }}
                 aria-current={active ? "page" : undefined}
@@ -718,6 +888,43 @@ export default function Mail() {
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
           <span className="hidden xl:inline">Refresh</span>
         </button>
+
+        <div className="relative hidden lg:block">
+          <button
+            type="button"
+            onClick={() => setShowKeys((v) => !v)}
+            title="Keyboard shortcuts"
+            aria-label="Keyboard shortcuts"
+            aria-expanded={showKeys}
+            className="flex items-center h-8 px-2.5 rounded-lg border border-border bg-surface-1 text-text-secondary hover:text-text-primary"
+          >
+            <Keyboard size={14} />
+          </button>
+          {showKeys && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setShowKeys(false)} />
+              <div className="absolute right-0 top-9 z-30 w-60 rounded-xl border border-border bg-surface-1 p-3 text-[12px] shadow-lg">
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">Keyboard shortcuts</p>
+                {[
+                  ["↑ ↓  or  j k", "Previous / next"],
+                  ["R", "Reply"],
+                  ["A", "Reply all"],
+                  ["F", "Forward"],
+                  ["E", "Archive"],
+                  ["Delete", "Delete"],
+                  ["U", "Mark unread / read"],
+                  ["N", "New message"],
+                  ["/", "Search"],
+                ].map(([k, what]) => (
+                  <div key={k} className="flex items-center justify-between py-0.5">
+                    <span className="text-text-secondary">{what}</span>
+                    <kbd className="rounded border border-border bg-surface-2 px-1.5 font-mono text-[11px] text-text-primary">{k}</kbd>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
 
         <button
           onClick={() => setEditingSignature(true)}
@@ -788,6 +995,26 @@ export default function Mail() {
             </div>
           )}
 
+          {/* Outlook's Filter, above the list: everything, unread, flagged. */}
+          {!searching && (
+            <div className="flex items-center gap-0.5 border-b border-border px-2 py-1.5 text-[11.5px]" role="group" aria-label="Show">
+              {(["all", "unread", "flagged"] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setFilter(f)}
+                  aria-pressed={filter === f}
+                  className={`flex h-6 items-center gap-1 rounded-md px-2 transition-colors ${
+                    filter === f ? "bg-surface-2 font-medium text-text-primary" : "text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  {f === "flagged" && <Flag size={11} />}
+                  {f === "all" ? "All" : f === "unread" ? "Unread" : "Flagged"}
+                </button>
+              ))}
+            </div>
+          )}
+
           {loading && messages.length === 0 ? (
             <ListSkeleton bare rows={7} />
           ) : messages.length === 0 ? (
@@ -804,6 +1031,10 @@ export default function Mail() {
                     </button>
                   )}
                 </>
+              ) : filter === "unread" ? (
+                "No unread mail here."
+              ) : filter === "flagged" ? (
+                "Nothing flagged here. Flag a message to keep it here until it is dealt with."
               ) : (
                 "Nothing in this folder."
               )}
@@ -843,6 +1074,7 @@ export default function Mail() {
                     queued={t.messages.map((m) => queued.get(m.id)).find(Boolean)}
                     count={Math.max(t.messages.length, sizes.get(t.conversationId) ?? 0)}
                     anyUnread={t.unread}
+                    anyFlagged={t.messages.some((m) => m.flagged)}
                     onOpen={() => void open(newest, t.messages)}
                     onChanged={() => void load()}
                   />
@@ -938,6 +1170,14 @@ export default function Mail() {
                       <PenSquare size={13} />
                       Edit and send
                     </button>
+                    <button
+                      onClick={() => void remove(selected)}
+                      title="Discard the draft (to Deleted Items)"
+                      className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors"
+                    >
+                      <Trash2 size={13} />
+                      Discard
+                    </button>
                     <span className="self-center text-[12px] text-text-muted">A draft — not sent yet.</span>
                   </>
                 ) : (
@@ -1002,6 +1242,49 @@ export default function Mail() {
                       <Archive size={13} />
                       <span className={roomy ? "" : "lg:hidden xl:inline"}>Archive</span>
                     </button>
+                  )}
+
+                  {/* The rest of Outlook's bar, as icons: Delete, flag, unread, open in Outlook. */}
+                  <button
+                    onClick={() => void remove(selected)}
+                    title={searching ? "Delete (to Deleted Items)" : "Delete the conversation (to Deleted Items)"}
+                    aria-label="Delete"
+                    className="grid size-8 place-items-center rounded-lg border border-border text-text-secondary transition-colors hover:border-border-strong hover:text-text-danger"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                  <button
+                    onClick={() => void toggleFlag(selected)}
+                    title={selected.flagged ? "Clear the flag" : "Flag for follow-up"}
+                    aria-label={selected.flagged ? "Clear the flag" : "Flag for follow-up"}
+                    aria-pressed={Boolean(selected.flagged)}
+                    className={`grid size-8 place-items-center rounded-lg border transition-colors ${
+                      selected.flagged
+                        ? "border-text-danger/40 bg-bg-danger text-text-danger"
+                        : "border-border text-text-secondary hover:border-border-strong hover:text-text-primary"
+                    }`}
+                  >
+                    <Flag size={13} className={selected.flagged ? "fill-current" : ""} />
+                  </button>
+                  <button
+                    onClick={() => void toggleRead(selected)}
+                    title={selected.isRead ? "Mark unread" : "Mark read"}
+                    aria-label={selected.isRead ? "Mark unread" : "Mark read"}
+                    className="grid size-8 place-items-center rounded-lg border border-border text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
+                  >
+                    {selected.isRead ? <MailIcon size={13} /> : <MailOpen size={13} />}
+                  </button>
+                  {selected.webLink && (
+                    <a
+                      href={selected.webLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open in Outlook on the web"
+                      aria-label="Open in Outlook"
+                      className="grid size-8 place-items-center rounded-lg border border-border text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
+                    >
+                      <ExternalLink size={13} />
+                    </a>
                   )}
                   </>
                 )}
@@ -1072,6 +1355,12 @@ export default function Mail() {
         </div>
       </div>
 
+      {toast && (
+        <div role="status" className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-lg bg-[#0F213A] px-3.5 py-2 text-[12.5px] text-white shadow-lg">
+          {toast}
+        </div>
+      )}
+
       {editingSignature && (
         <SignatureEditor
           initial={session?.signature ?? ""}
@@ -1090,6 +1379,10 @@ export default function Mail() {
           draft={composing.draft}
           reference={replyRef}
           onClose={() => setComposing(null)}
+          onDraftSaved={() => {
+            setToast("Saved to Drafts.");
+            void load();
+          }}
           onSent={() => {
             // A sent draft has left Drafts; its pane goes with it.
             if (composing.draft) {

@@ -1,6 +1,7 @@
 import { FONT_CHOICES, MAIL_FONT, fontChoiceFor, fontName, hexColor, ptFromPx, stepSize } from "../../src/lib/mailStyle";
 import { composeSubject, quoteHeaderHtml, quotedBodyHtml, replyRecipients } from "../../src/lib/mailQuote";
 import { parseAddresses } from "../../src/lib/addresses";
+import { currentToken, rankAddresses, type AddressEntry } from "../../src/lib/addressRank";
 
 /**
  * The mail editor's toolbar readings, and reply / reply all / forward the
@@ -85,6 +86,24 @@ is("mailto: is dropped", parseAddresses("mailto:a@x.com"), ["a@x.com"]);
 is("the same address twice is once", parseAddresses("a@x.com, A@X.com"), ["a@x.com"]);
 is("empty is none", parseAddresses(" , ; "), []);
 is("something that is not an address is passed on to be refused", parseAddresses("bob"), ["bob"]);
+
+console.log("\nrecipient suggestions (29 Sep 2026)");
+const book: AddressEntry[] = [
+  { address: "ops@sunrise.example", name: "Meena Rajan", kind: "customer", detail: "Sunrise Exports" },
+  { address: "meena.r@gmail.example", name: "Meena R", kind: "recent" },
+  { address: "janet@partner.example", name: "Janet Wang", kind: "partner", detail: "Pacific Consol" },
+  { address: "parasu@desk.example", name: "Parasu", kind: "desk" },
+  { address: "ops@sunrise.example", name: "ops@sunrise.example", kind: "recent" },
+];
+is("a name's first letters find it", rankAddresses(book, "mee").map((e) => e.address), ["ops@sunrise.example", "meena.r@gmail.example"]);
+is("a company finds its people", rankAddresses(book, "pacif").map((e) => e.address), ["janet@partner.example"]);
+is("an address's start ranks first", rankAddresses(book, "parasu")[0].address, "parasu@desk.example");
+is("an address known twice is offered once, by its customer name", rankAddresses(book, "ops").map((e) => e.name), ["Meena Rajan"]);
+is("one already on the line is not offered again", rankAddresses(book, "mee", ["ops@sunrise.example"]).map((e) => e.address), ["meena.r@gmail.example"]);
+is("nothing typed, nothing offered", rankAddresses(book, "  "), []);
+is("the part being typed is after the last comma", currentToken("a@x.com, me"), { before: "a@x.com,", token: " me" });
+is("or a semicolon", currentToken("a@x.com; b@y.com;jan"), { before: "a@x.com; b@y.com;", token: "jan" });
+is("a single address is all token", currentToken("jan"), { before: "", token: "jan" });
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

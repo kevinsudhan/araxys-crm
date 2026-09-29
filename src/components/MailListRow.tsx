@@ -1,4 +1,4 @@
-import { AlertCircle, Paperclip } from "lucide-react";
+import { AlertCircle, Flag, Paperclip } from "lucide-react";
 import PushMailToQueue from "./PushMailToQueue";
 import Highlighted from "./Highlighted";
 import { initialsFor } from "../lib/initials";
@@ -47,6 +47,7 @@ export default function MailListRow({
   queued,
   count = 1,
   anyUnread,
+  anyFlagged,
   highlight,
   showFolder,
   onOpen,
@@ -61,6 +62,8 @@ export default function MailListRow({
   count?: number;
   /** Whether anything in the conversation is unread, not only the newest. */
   anyUnread?: boolean;
+  /** Whether anything in the conversation is flagged for follow-up. */
+  anyFlagged?: boolean;
   /**
    * A search result: the words searched for, marked in the name, the subject
    * and the line under them — which is the line of the message around the
@@ -148,6 +151,9 @@ export default function MailListRow({
               >
                 {count}
               </span>
+            )}
+            {(anyFlagged ?? message.flagged) && (
+              <Flag size={11} className="shrink-0 fill-current text-text-danger" aria-label="Flagged" />
             )}
             {message.importance === "high" && (
               <AlertCircle size={11} className="shrink-0 text-text-danger" />

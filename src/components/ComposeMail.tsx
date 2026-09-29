@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Loader2, Maximize2, Minimize2, Send, Sparkles, X } from "lucide-react";
-import { sendMail, mailIsLive, type MailMessage } from "../services/backend";
+import { AlertCircle, FileEdit, Loader2, Maximize2, Minimize2, Send, Sparkles, X } from "lucide-react";
+import { sendMail, saveMailDraft, mailIsLive, type MailMessage } from "../services/backend";
+import AddressInput from "./AddressInput";
 import { draftReply } from "../services/classify";
 import { recordReply } from "../services/replyLog";
 import { withToken } from "../services/caseFile";
@@ -43,6 +44,7 @@ export default function ComposeMail({
   attachments: initialAttachments,
   newThreadNote,
   draft: editing,
+  onDraftSaved,
 }: {
   mailbox: string;
   fromName: string;
@@ -120,6 +122,11 @@ export default function ComposeMail({
    * without it.
    */
   draft?: MailMessage;
+  /**
+   * After "Save draft": the message is in Outlook's Drafts, unsent. Not
+   * `onSent` — a caller that records a quotation as sent must not hear this.
+   */
+  onDraftSaved?: () => void;
 }) {
   /**
    * The signature is seeded into the editable body rather than bolted on at
@@ -193,6 +200,7 @@ export default function ComposeMail({
 
   const [content, setContent] = useState(initialBody);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /**
@@ -268,7 +276,7 @@ export default function ComposeMail({
     if (opened.current === null) opened.current = snapshot();
   });
   const requestClose = () => {
-    if (busy) return;
+    if (busy || saving) return;
     const changed = opened.current !== null && snapshot() !== opened.current;
     if (changed && !window.confirm("Discard this message? What you have written will be lost.")) return;
     onClose();
@@ -288,6 +296,41 @@ export default function ComposeMail({
   // "Meena Rajan <meena@…>", as Outlook copies an address, is read as the
   // address inside the angle brackets (lib/addresses.ts).
   const addresses = parseAddresses;
+
+  /**
+   * Into Outlook's Drafts, unsent — to finish later, here or in Outlook.
+   * A reply or forward is started from its own message so it stays in the
+   * thread; a draft being edited is written over.
+   */
+  async function saveDraft() {
+    setError(null);
+    // A draft may be half-addressed, as in Outlook: what is not yet an address
+    // is left off rather than refusing to keep the rest.
+    const valid = (line: string) => addresses(line).filter((a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a));
+    setSaving(true);
+    try {
+      await saveMailDraft({
+        mailbox,
+        fromName,
+        to: valid(to),
+        cc: valid(cc),
+        bcc: valid(bcc),
+        subject: subject.trim(),
+        content,
+        draftId: editing?.id,
+        replyToId: answering ? replyTo?.id : undefined,
+        forwardOfId: kind === "forward" ? replyTo?.id : undefined,
+        attachments: attachments.length
+          ? attachments.map((a) => ({ name: a.name, contentType: a.contentType, contentBytes: a.contentBytes }))
+          : undefined,
+      });
+      onDraftSaved?.();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the draft.");
+      setSaving(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -419,24 +462,14 @@ export default function ComposeMail({
           </Row>
 
           <Row label="To">
-            <input
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="name@company.com"
-              className="w-full"
-              autoComplete="off"
-            />
+            <AddressInput value={to} onChange={setTo} label="To" placeholder="Name or address — suggestions as you type" />
           </Row>
 
           <Row label="Cc">
             <div className="flex items-center gap-2">
-              <input
-                value={cc}
-                onChange={(e) => setCc(e.target.value)}
-                placeholder="Optional, comma separated"
-                className="w-full"
-                autoComplete="off"
-              />
+              <div className="min-w-0 flex-1">
+                <AddressInput value={cc} onChange={setCc} label="Cc" placeholder="Optional, comma separated" />
+              </div>
               {!showBcc && (
                 <button type="button" onClick={() => setShowBcc(true)} className="shrink-0 text-[12px] text-text-accent hover:underline">
                   Bcc
@@ -447,14 +480,7 @@ export default function ComposeMail({
 
           {showBcc && (
             <Row label="Bcc">
-              <input
-                value={bcc}
-                onChange={(e) => setBcc(e.target.value)}
-                placeholder="Not seen by the other recipients"
-                className="w-full"
-                autoComplete="off"
-                autoFocus
-              />
+              <AddressInput value={bcc} onChange={setBcc} label="Bcc" placeholder="Not seen by the other recipients" autoFocus />
             </Row>
           )}
 
@@ -589,8 +615,18 @@ export default function ComposeMail({
               Cancel
             </button>
             <button
+              type="button"
+              onClick={() => void saveDraft()}
+              disabled={busy || saving}
+              title="Keep it in Drafts, unsent, to finish later here or in Outlook"
+              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary disabled:opacity-60"
+            >
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <FileEdit size={13} />}
+              <span className="hidden sm:inline">Save draft</span>
+            </button>
+            <button
               onClick={submit}
-              disabled={busy}
+              disabled={busy || saving}
               className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-[12px] font-medium"
             >
               {busy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}

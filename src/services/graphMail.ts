@@ -350,6 +350,8 @@ interface GraphMessage {
   hasAttachments: boolean;
   importance: string;
   internetMessageHeaders?: Array<{ name: string; value: string }>;
+  flag?: { flagStatus?: string };
+  webLink?: string;
 }
 
 const recipient = (r?: { emailAddress: { name?: string; address?: string } }): Recipient => ({
@@ -387,6 +389,8 @@ function adapt(m: GraphMessage, mailbox: string, folder: FolderId): MailMessage 
     attachments: [],
     importance: (m.importance as MailMessage["importance"]) ?? "normal",
     internetMessageHeaders: m.internetMessageHeaders,
+    flagged: m.flag?.flagStatus === "flagged",
+    webLink: m.webLink,
   };
 }
 
@@ -472,18 +476,28 @@ export interface MessagePage {
 }
 
 const LIST_SELECT =
-  "id,conversationId,subject,from,sender,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,isDraft,hasAttachments,importance";
+  "id,conversationId,subject,from,sender,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,isDraft,hasAttachments,importance,flag,webLink";
 
 export async function listMessages(
   mailbox: string,
   folder: FolderId,
-  q?: string
+  q?: string,
+  /** Outlook's Filter: unread only, or flagged only. */
+  filter?: "unread" | "flagged"
 ): Promise<MessagePage> {
+  // Graph refuses $orderby with a $filter on other properties unless the sort
+  // property is filtered on first — hence the receivedDateTime clause, which
+  // matches everything.
+  const only = filter
+    ? `&$filter=${encodeURIComponent(
+        `receivedDateTime ge 1900-01-01T00:00:00Z and ${filter === "unread" ? "isRead eq false" : "flag/flagStatus eq 'flagged'"}`
+      )}`
+    : "";
   // $search and $orderby cannot be combined in Graph; search results come back
   // by relevance, which is the right order for a search anyway.
   const path = q?.trim()
     ? `/me/mailFolders/${WELL_KNOWN[folder]}/messages?$top=50&$select=${LIST_SELECT}&$search=${encodeURIComponent(`"${q.trim()}"`)}`
-    : `/me/mailFolders/${WELL_KNOWN[folder]}/messages?$top=50&$select=${LIST_SELECT}&$orderby=receivedDateTime desc`;
+    : `/me/mailFolders/${WELL_KNOWN[folder]}/messages?$top=50&$select=${LIST_SELECT}&$orderby=receivedDateTime desc${only}`;
 
   const data = await graph<{ value: GraphMessage[]; "@odata.nextLink"?: string }>(path, {
     // ConsistencyLevel is required for $search on messages.
@@ -744,6 +758,72 @@ export async function setRead(_mailbox: string, id: string, isRead: boolean): Pr
     method: "PATCH",
     body: JSON.stringify({ isRead }),
   });
+}
+
+/** Flagged for follow-up, or the flag taken off. */
+export async function setFlag(id: string, flagged: boolean): Promise<void> {
+  await graph(`/me/messages/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ flag: { flagStatus: flagged ? "flagged" : "notFlagged" } }),
+  });
+}
+
+/** To Deleted Items, as Outlook's Delete does — recoverable there, not gone. */
+export async function deleteMessage(id: string): Promise<void> {
+  await graph(`/me/messages/${encodeURIComponent(id)}/move`, {
+    method: "POST",
+    body: JSON.stringify({ destinationId: "deleteditems" }),
+  });
+}
+
+/**
+ * Keeps what is written as a draft in Outlook, unsent.
+ *
+ * A reply or a forward is started from Graph's own createReply / createForward,
+ * so the draft is already in its thread when it is finished later — in Outlook
+ * or here. A draft being edited is written over.
+ */
+export async function saveDraft(input: {
+  draftId?: string;
+  replyToId?: string;
+  forwardOfId?: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  content: string;
+  attachments?: OutgoingAttachment[];
+}): Promise<void> {
+  const recipients = (list: string[]) => list.map((address) => ({ emailAddress: { address } }));
+  const out = await outgoing(input.content, input.attachments);
+  const files = attachmentPayload(out.attachments).attachments ?? [];
+
+  let id = input.draftId;
+  if (!id) {
+    const made = await graph<{ id: string }>(
+      input.replyToId
+        ? `/me/messages/${encodeURIComponent(input.replyToId)}/createReply`
+        : input.forwardOfId
+          ? `/me/messages/${encodeURIComponent(input.forwardOfId)}/createForward`
+          : "/me/messages",
+      { method: "POST", body: input.replyToId || input.forwardOfId ? undefined : JSON.stringify({ subject: input.subject }) }
+    );
+    id = made.id;
+  }
+  const at = `/me/messages/${encodeURIComponent(id)}`;
+  await graph(at, {
+    method: "PATCH",
+    body: JSON.stringify({
+      subject: input.subject,
+      body: { contentType: "HTML", content: asOutgoingHtml(out.content) },
+      toRecipients: recipients(input.to),
+      ccRecipients: recipients(input.cc ?? []),
+      ...(input.bcc?.length ? { bccRecipients: recipients(input.bcc) } : {}),
+    }),
+  });
+  for (const f of files) {
+    await graph(`${at}/attachments`, { method: "POST", body: JSON.stringify(f) });
+  }
 }
 
 export async function moveMessage(

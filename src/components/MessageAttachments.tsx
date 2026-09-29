@@ -6,6 +6,11 @@ import { fileMailAttachment, fileUrl, listFiles } from "../services/attachments"
 import { failureText } from "../lib/errorText";
 import { useLiveVersion } from "../lib/liveVersions";
 
+/** What a browser tab can show itself: PDFs, pictures and plain text. */
+const viewable = (a: { name: string; contentType?: string }) =>
+  /^(application\/pdf|image\/(png|jpe?g|gif|webp|bmp)|text\/plain)/i.test(a.contentType ?? "") ||
+  /\.(pdf|png|jpe?g|gif|webp|txt)$/i.test(a.name);
+
 /**
  * The files that arrived on a message, and what can be done with them.
  *
@@ -93,8 +98,11 @@ export default function MessageAttachments({
    * The Mail page listed attachments and offered no way to open one: saving to
    * a case was the only action, and the Mail page has no case to save to.
    */
-  async function download(a: { id?: string; name: string }) {
+  async function download(a: { id?: string; name: string; contentType?: string }, view = false) {
     if (!a.id) return;
+    // A tab opened now, inside the click, is not blocked the way one opened
+    // after the download would be; it is pointed at the file once it arrives.
+    const tab = view ? window.open("", "_blank") : null;
     setBusy(a.name);
     setError(null);
     try {
@@ -103,15 +111,20 @@ export default function MessageAttachments({
         type: got.contentType || "application/octet-stream",
       });
       const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = got.name || a.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (tab) {
+        tab.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = got.name || a.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
     } catch (e) {
-      setError(failureText(e, `Could not download ${a.name}.`).message);
+      tab?.close();
+      setError(failureText(e, `Could not ${view ? "open" : "download"} ${a.name}.`).message);
     } finally {
       setBusy(null);
     }
@@ -149,9 +162,22 @@ export default function MessageAttachments({
               className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 py-1.5 pl-2.5 pr-1.5 text-[12px] text-text-secondary"
             >
               <Paperclip size={11} className="shrink-0 opacity-70" />
-              <span className="max-w-[240px] truncate" title={a.name}>
-                {a.name}
-              </span>
+              {/* The name opens it: a PDF or a picture in a new tab, as Outlook
+                  previews it; anything else downloads. */}
+              {a.id ? (
+                <button
+                  type="button"
+                  onClick={() => void download(a, viewable(a))}
+                  title={viewable(a) ? `Open ${a.name}` : `Download ${a.name}`}
+                  className="max-w-[240px] truncate text-left text-text-primary hover:underline"
+                >
+                  {a.name}
+                </button>
+              ) : (
+                <span className="max-w-[240px] truncate" title={a.name}>
+                  {a.name}
+                </span>
+              )}
               <span className="tabular-nums text-text-muted">{Math.round(a.size / 1024)} KB</span>
 
               {a.id && busy !== a.name && (

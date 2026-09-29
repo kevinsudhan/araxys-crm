@@ -332,14 +332,28 @@ export const getMailFolders = async (mailbox: string) =>
 export const getMailMessages = async (
   mailbox: string,
   folder: FolderId,
-  q?: string
+  q?: string,
+  filter?: "unread" | "flagged"
 ): Promise<{ messages: MailMessage[]; nextLink?: string }> =>
   live()
-    ? graph.listMessages(mailbox, folder, q)
+    ? graph.listMessages(mailbox, folder, q, filter)
     : get<{ messages: MailMessage[] }>(
         `/api/mail/messages?mailbox=${encodeURIComponent(mailbox)}&folder=${folder}` +
-          (q ? `&q=${encodeURIComponent(q)}` : "")
+          (q ? `&q=${encodeURIComponent(q)}` : "") +
+          (filter ? `&filter=${filter}` : "")
       );
+
+/** Flag for follow-up, or take the flag off. */
+export const setMailFlag = async (mailbox: string, id: string, flagged: boolean) => {
+  if (live()) return graph.setFlag(id, flagged);
+  return post(`/api/mail/messages/${encodeURIComponent(id)}/flag`, { mailbox, flagged });
+};
+
+/** To Deleted Items (recoverable there). */
+export const deleteMailMessage = async (mailbox: string, id: string) => {
+  if (live()) return graph.deleteMessage(id);
+  return post(`/api/mail/messages/${encodeURIComponent(id)}/delete`, { mailbox });
+};
 
 /**
  * The next page of a folder. Only the live mailbox pages — the in-memory one
@@ -556,6 +570,25 @@ export const getMailAttachment = async (
 ): Promise<{ name: string; contentType: string; size: number; contentBytes: string }> => {
   if (!live()) throw new Error("Connect Outlook on the Mail page to open attachments.");
   return graph.getAttachmentBytes(messageId, attachmentId);
+};
+
+/** Keeps a message being written as a draft in Outlook, unsent. */
+export const saveMailDraft = async (body: {
+  mailbox: string;
+  fromName: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  content: string;
+  draftId?: string;
+  replyToId?: string;
+  forwardOfId?: string;
+  attachments?: graph.OutgoingAttachment[];
+}) => {
+  if (live()) return graph.saveDraft(body);
+  if (!demoMail) throw new Error(NOT_CONNECTED);
+  return post("/api/mail/draft", body);
 };
 
 /** True when this session is talking to a real Outlook mailbox. */

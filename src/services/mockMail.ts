@@ -66,6 +66,10 @@ export interface MailMessage {
    * not "none" — which is why every reader here treats missing as unknown.
    */
   internetMessageHeaders?: Array<{ name: string; value: string }>;
+  /** Flagged for follow-up, as in Outlook. */
+  flagged?: boolean;
+  /** The message in Outlook on the web, for what the CRM does not do. */
+  webLink?: string;
   /** On a search result: the line of the message around the first match. */
   searchSnippet?: string;
   /** On a search across all folders: the folder it is in, in words. */
@@ -158,8 +162,10 @@ export function listFolders(mailbox: string) {
   });
 }
 
-export function listMessages(mailbox: string, folder: FolderId, q?: string) {
+export function listMessages(mailbox: string, folder: FolderId, q?: string, filter?: "unread" | "flagged") {
   let list = forMailbox(mailbox).filter((m) => m.folder === folder);
+  if (filter === "unread") list = list.filter((m) => !m.isRead);
+  if (filter === "flagged") list = list.filter((m) => m.flagged);
 
   if (q?.trim()) {
     const needle = q.trim().toLowerCase();
@@ -187,6 +193,42 @@ export function setRead(mailbox: string, id: string, isRead: boolean) {
   if (!m) return null;
   m.isRead = isRead;
   return m;
+}
+
+export function setFlag(mailbox: string, id: string, flagged: boolean) {
+  const m = getMessage(mailbox, id);
+  if (m) m.flagged = flagged;
+  return m;
+}
+
+/** A draft kept in the local store: a new one, or the same one written over. */
+export function saveDraft(input: { mailbox: string; fromName: string; draftId?: string; to: string[]; cc?: string[]; subject: string; content: string }) {
+  const existing = input.draftId ? getMessage(input.mailbox, input.draftId) : null;
+  const fields = {
+    subject: input.subject,
+    toRecipients: input.to.map((a) => r("", a)),
+    ccRecipients: (input.cc ?? []).map((a) => r("", a)),
+    body: { contentType: "html" as const, content: input.content },
+    bodyPreview: input.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 140),
+    receivedDateTime: new Date().toISOString(),
+  };
+  if (existing) return Object.assign(existing, fields);
+  seq += 1;
+  const draft: MailMessage = {
+    id: `msg-${seq}`,
+    conversationId: `conv-${seq}`,
+    mailbox: input.mailbox,
+    folder: "drafts",
+    from: r(input.fromName, input.mailbox),
+    isRead: true,
+    isDraft: true,
+    hasAttachments: false,
+    attachments: [],
+    importance: "normal",
+    ...fields,
+  };
+  messages.push(draft);
+  return draft;
 }
 
 /** Takes a message out of the store: a draft once it has been sent. */
