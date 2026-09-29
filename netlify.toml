@@ -16,6 +16,10 @@
   # alongside Mail and Timeline. Anything other than "full" leaves the enquiry
   # as mail and its history only.
   VITE_CASE_FILE = "full"
+  # Maintenance: every screen of the desk shows "Under maintenance" (the
+  # customers' /q/ and /t/ pages keep working). Set to "off" and push to open
+  # the desk again.
+  VITE_MAINTENANCE = "on"
   # VITE_API_BASE is deliberately NOT set.
   #
   # It used to carry v1's project ref, inherited from v1's own netlify.toml —

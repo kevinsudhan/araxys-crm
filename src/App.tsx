@@ -2,7 +2,8 @@ import { Suspense, lazy, type ComponentType } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import RequireAuth from "./components/RequireAuth";
-import { ACCOUNTS_DESK } from "./lib/features";
+import { ACCOUNTS_DESK, MAINTENANCE } from "./lib/features";
+import Maintenance from "./pages/Maintenance";
 import { BootScreen } from "./components/Loading";
 
 /**
@@ -84,6 +85,19 @@ const PartnerThreads = lazy(() => import("./pages/PartnerThreads"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 
 export default function App() {
+  // Closed for maintenance: the customers' two pages still answer, everything else says so.
+  if (MAINTENANCE) {
+    return (
+      <Suspense fallback={<BootScreen />}>
+        <Routes>
+          <Route path="/q/:token" element={<QuoteAccept />} />
+          <Route path="/t/:token" element={<TrackShipment />} />
+          <Route path="*" element={<Maintenance />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
   return (
     // The first load, and the pages outside the app's shell (sign-in, the customer's
     // quotation and tracking pages). Pages inside the shell wait in AppLayout.

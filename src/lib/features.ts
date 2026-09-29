@@ -54,6 +54,13 @@
 export const ACCOUNTS_DESK = import.meta.env.VITE_ACCOUNTS_DESK === "on";
 
 /**
+ * The desk closed for maintenance: every screen shows "Under maintenance",
+ * except the customers' quotation (/q/…) and tracking (/t/…) pages. Set in
+ * netlify.toml for the deployed build; off anywhere it is not said.
+ */
+export const MAINTENANCE = import.meta.env.VITE_MAINTENANCE === "on";
+
+/**
  * The case file, reduced to the correspondence.
  *
  * ---------------------------------------------------------------------------
