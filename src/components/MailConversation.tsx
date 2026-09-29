@@ -6,6 +6,7 @@ import MessageHeader from "./MessageHeader";
 import ForwardTag from "./ForwardTag";
 import { shortTime } from "./MailListRow";
 import { SectionSkeleton } from "./Loading";
+import Highlighted from "./Highlighted";
 import { initialsFor } from "../lib/initials";
 import type { ComposeMode } from "../lib/mailQuote";
 import { conversationMessages, getMailMessage, setMailRead, type MailMessage } from "../services/backend";
@@ -41,6 +42,7 @@ export default function MailConversation({
   onReply,
   refresh,
   onSize,
+  highlight,
 }: {
   mailbox: string;
   /** The message opened from the list, with its body once it has landed. */
@@ -56,6 +58,8 @@ export default function MailConversation({
   refresh: number;
   /** How many messages the conversation holds, for the list's count. */
   onSize?: (conversationId: string, size: number) => void;
+  /** Words searched for, marked in every message of the conversation. */
+  highlight?: string[];
 }) {
   const conversationId = message.conversationId;
   const [thread, setThread] = useState<MailMessage[] | null>(null);
@@ -167,7 +171,7 @@ export default function MailConversation({
       {list.map((m) => {
         const mine = m.from.emailAddress.address?.toLowerCase() === mailbox.toLowerCase();
         if (!expanded.has(m.id)) {
-          return <Collapsed key={m.id} message={m} mine={mine} onOpen={() => toggle(m)} />;
+          return <Collapsed key={m.id} message={m} mine={mine} highlight={highlight} onOpen={() => toggle(m)} />;
         }
 
         const isOpened = m.id === message.id;
@@ -193,7 +197,7 @@ export default function MailConversation({
               <>
                 <ForwardTag message={full} />
                 <div className="mt-3 border-t border-border pt-3">
-                  <MailBody message={full} />
+                  <MailBody message={full} highlight={highlight} />
                 </div>
                 <MessageAttachments message={full} />
               </>
@@ -248,7 +252,17 @@ function SentTag() {
 }
 
 /** One line per message: who, the first words, when. The whole line opens it. */
-function Collapsed({ message, mine, onOpen }: { message: MailMessage; mine: boolean; onOpen: () => void }) {
+function Collapsed({
+  message,
+  mine,
+  highlight,
+  onOpen,
+}: {
+  message: MailMessage;
+  mine: boolean;
+  highlight?: string[];
+  onOpen: () => void;
+}) {
   const who = message.from.emailAddress;
   const preview = message.bodyPreview?.replace(/\s+/g, " ").trim();
   const unread = !message.isRead && !mine;
@@ -272,7 +286,7 @@ function Collapsed({ message, mine, onOpen }: { message: MailMessage; mine: bool
           {unread && <span className="size-1.5 shrink-0 rounded-full bg-brand" aria-label="Unread" />}
         </span>
         <span className={`mt-0.5 block truncate text-[12px] ${preview ? "text-text-secondary" : "italic text-text-muted"}`}>
-          {preview || "(No message text)"}
+          {preview ? <Highlighted text={preview} terms={highlight} /> : "(No message text)"}
         </span>
       </span>
       <span className="shrink-0 self-start pt-0.5 text-[11px] tabular-nums text-text-muted">

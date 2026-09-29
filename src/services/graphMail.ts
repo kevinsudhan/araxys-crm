@@ -3,6 +3,7 @@ import { bytesToBase64 } from "../lib/base64";
 import { brandImages, imageType } from "../lib/inlineBrand";
 import { readOutcome, type ConnectOutcome } from "../lib/outlookConnect";
 import { forOutlook } from "../lib/mailHtml";
+import { kqlFor, plainText, searchTerms, snippetAround } from "../lib/searchHighlight";
 import { MAIL_COLOR, MAIL_FONT, MAIL_IMAGE_MAX, MAIL_SIZE } from "../lib/mailStyle";
 import type { FolderId, MailMessage, Recipient } from "./mockMail";
 import {
@@ -520,6 +521,80 @@ export async function listMore(
   };
 }
 
+/**
+ * Search, the way Outlook searches: the whole mailbox or one folder, with a
+ * line of each message around the first match and the folder it is in.
+ *
+ * The bodies are asked for as plain text, which is small, and cut down to the
+ * one line here; the list never holds a whole body. Deleted and junk mail are
+ * left out. `$search` does not take `$orderby`, so the page is sorted newest
+ * first here.
+ */
+export async function searchMessages(
+  mailbox: string,
+  query: string,
+  folder: FolderId | null
+): Promise<MessagePage> {
+  const kql = kqlFor(query);
+  const base = folder ? `/me/mailFolders/${WELL_KNOWN[folder]}/messages` : "/me/messages";
+  const [data, ids] = await Promise.all([
+    graph<{ value: SearchHit[]; "@odata.nextLink"?: string }>(
+      `${base}?$top=25&$select=${LIST_SELECT},parentFolderId,body&$search=${encodeURIComponent(kql)}`,
+      { headers: { ConsistencyLevel: "eventual", Prefer: 'outlook.body-content-type="text"' } }
+    ),
+    knownFolderIds(mailbox),
+  ]);
+  return { messages: searchResults(data.value, mailbox, ids, folder, query), nextLink: data["@odata.nextLink"] };
+}
+
+/** The next page of a search, from the link Graph handed back. */
+export async function searchMore(
+  mailbox: string,
+  query: string,
+  folder: FolderId | null,
+  nextLink: string
+): Promise<MessagePage> {
+  if (!nextLink.startsWith("https://graph.microsoft.com/")) {
+    throw new Error("Refusing to follow a page link that is not Microsoft Graph.");
+  }
+  const [r, ids] = await Promise.all([
+    graphFetch(nextLink, { headers: { ConsistencyLevel: "eventual", Prefer: 'outlook.body-content-type="text"' } }),
+    knownFolderIds(mailbox),
+  ]);
+  if (!r.ok) throw new Error(`Outlook returned ${r.status}`);
+  const data = (await r.json()) as { value: SearchHit[]; "@odata.nextLink"?: string };
+  return { messages: searchResults(data.value, mailbox, ids, folder, query), nextLink: data["@odata.nextLink"] };
+}
+
+type SearchHit = GraphMessage & { parentFolderId?: string };
+
+function searchResults(
+  hits: SearchHit[],
+  mailbox: string,
+  ids: Partial<Record<KnownFolder, string>>,
+  folder: FolderId | null,
+  query: string
+): MailMessage[] {
+  const terms = searchTerms(query);
+  const label = (id?: string): { folder: FolderId; label: string } => {
+    if (folder) return { folder, label: FOLDER_LABEL[folder] };
+    if (id && id === ids.sent) return { folder: "sent", label: "Sent" };
+    if (id && id === ids.drafts) return { folder: "drafts", label: "Drafts" };
+    if (id && id === ids.archive) return { folder: "archive", label: "Archive" };
+    // Inbox, or a folder of the person's own that the four tabs do not show.
+    return { folder: "inbox", label: id && ids.inbox && id !== ids.inbox ? "Other folder" : "Inbox" };
+  };
+  return hits
+    .filter((m) => !m.parentFolderId || (m.parentFolderId !== ids.deleted && m.parentFolderId !== ids.junk))
+    .map((m) => {
+      const where = label(m.parentFolderId);
+      const text = plainText(m.body?.content ?? m.bodyPreview ?? "", m.body?.contentType?.toLowerCase() === "html");
+      const out = adapt({ ...m, body: undefined }, mailbox, where.folder);
+      return { ...out, searchSnippet: snippetAround(text, terms), folderLabel: where.label };
+    })
+    .sort((a, b) => (Date.parse(b.receivedDateTime) || 0) - (Date.parse(a.receivedDateTime) || 0));
+}
+
 export async function getMessage(
   mailbox: string,
   id: string,
@@ -1000,8 +1075,9 @@ export const mentionsQuery = (address: string) => `"${address.trim().replace(/"/
  * folder that cannot be resolved (no Archive yet) is simply left out; a mailbox
  * where none could be is not remembered, so the next conversation asks again.
  */
-type KnownFolder = "sent" | "drafts" | "archive" | "deleted" | "junk";
+type KnownFolder = "inbox" | "sent" | "drafts" | "archive" | "deleted" | "junk";
 const KNOWN_FOLDER: Record<KnownFolder, string> = {
+  inbox: "inbox",
   sent: "sentitems",
   drafts: "drafts",
   archive: "archive",

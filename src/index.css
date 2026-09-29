@@ -609,6 +609,17 @@ pre {
   height: auto;
 }
 
+/* A word searched for, wherever it appears: the list, the subject, the message.
+ * Outlook's yellow, with !important because a sender's inline background on a
+ * table cell would otherwise hide the one thing the reader is looking for. */
+mark.search-hit {
+  background: #ffe58a !important;
+  color: #1f2328 !important;
+  border-radius: 2px;
+  padding: 0 1px;
+  box-shadow: 0 0 0 1px rgba(191, 135, 0, 0.25);
+}
+
 /* No max-width: a table keeps the width it was written at, and MailBody's
  * FitToWidth scales the whole message down to the pane instead. Squeezing the
  * table's columns to the pane wrapped every cell of a rate card. */

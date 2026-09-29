@@ -1,5 +1,6 @@
 import { AlertCircle, Paperclip } from "lucide-react";
 import PushMailToQueue from "./PushMailToQueue";
+import Highlighted from "./Highlighted";
 import { initialsFor } from "../lib/initials";
 import { looksLikeWebEnquiry } from "../services/webEnquiry";
 import type { FolderId, MailMessage } from "../services/backend";
@@ -46,6 +47,8 @@ export default function MailListRow({
   queued,
   count = 1,
   anyUnread,
+  highlight,
+  showFolder,
   onOpen,
   onChanged,
 }: {
@@ -58,6 +61,14 @@ export default function MailListRow({
   count?: number;
   /** Whether anything in the conversation is unread, not only the newest. */
   anyUnread?: boolean;
+  /**
+   * A search result: the words searched for, marked in the name, the subject
+   * and the line under them — which is the line of the message around the
+   * first match rather than its opening, so it says why the mail is here.
+   */
+  highlight?: string[];
+  /** A search across every folder: say which folder each result is in. */
+  showFolder?: boolean;
   onOpen: () => void;
   onChanged: () => void;
 }) {
@@ -126,7 +137,7 @@ export default function MailListRow({
                 unread ? "font-semibold text-text-primary" : "text-text-primary"
               }`}
             >
-              {who}
+              <Highlighted text={who} terms={highlight} />
             </span>
 
             {/* A conversation, not one message: how many, as Outlook counts them. */}
@@ -149,26 +160,40 @@ export default function MailListRow({
                 Web
               </span>
             )}
+            {showFolder && message.folderLabel && (
+              <span className="shrink-0 rounded-full border border-border bg-surface-2 px-1.5 text-[10px] font-medium leading-4 text-text-secondary">
+                {message.folderLabel}
+              </span>
+            )}
             <span className="shrink-0 text-[11px] tabular-nums text-text-muted">
               {shortTime(message.receivedDateTime)}
             </span>
           </span>
 
+          {/* Two lines for a search result, so a reference at the end of a long
+              subject — where "[ALG09012-26]" always is — is not cut off. */}
           <span
-            className={`mt-0.5 block truncate text-[12.5px] ${
+            className={`mt-0.5 block text-[12.5px] ${highlight ? "line-clamp-2 break-words" : "truncate"} ${
               unread ? "font-medium text-text-primary" : "text-text-secondary"
             }`}
           >
-            {message.subject}
+            <Highlighted text={message.subject} terms={highlight} />
           </span>
 
           {/* The preview earns its line only when it says something the subject
               did not. Graph sends an empty string for a body-less message, and
               a blank third row on every one of those made the list ragged. */}
-          {message.bodyPreview?.trim() && (
-            <span className="mt-0.5 block truncate text-[11.5px] text-text-muted">
-              {message.bodyPreview}
+          {highlight && message.searchSnippet ? (
+            // Two lines for a search result: the match is the point of the row.
+            <span className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-text-secondary">
+              <Highlighted text={message.searchSnippet} terms={highlight} />
             </span>
+          ) : (
+            message.bodyPreview?.trim() && (
+              <span className="mt-0.5 block truncate text-[11.5px] text-text-muted">
+                {message.bodyPreview}
+              </span>
+            )
           )}
         </span>
       </button>

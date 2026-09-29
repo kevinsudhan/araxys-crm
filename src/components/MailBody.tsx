@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import DOMPurify from "dompurify";
 import { ChevronDown, MessagesSquare } from "lucide-react";
 import type { MailMessage } from "../services/backend";
+import Highlighted from "./Highlighted";
+import { termsPattern } from "../lib/searchHighlight";
 
 /**
  * A message rendered the way it was written.
@@ -178,15 +180,20 @@ function splitQuotedText(text: string): { latest: string; history: string | null
   };
 }
 
-export default function MailBody({ message }: { message: MailMessage }) {
+export default function MailBody({
+  message,
+  highlight,
+}: {
+  message: MailMessage;
+  /** Words searched for, marked wherever they appear in the message (Outlook's yellow). */
+  highlight?: string[];
+}) {
   const isHtml = message.body?.contentType === "html";
   const raw = message.body?.content ?? "";
   const ref = useRef<HTMLDivElement>(null);
   /** Quoted history starts folded. It is context, not the message. */
   const [showHistory, setShowHistory] = useState(false);
-
-  // A new message means a new decision about its history.
-  useEffect(() => setShowHistory(false), [message.id]);
+  const termsKey = (highlight ?? []).join("\u0001");
 
   const text = useMemo(() => (isHtml ? null : splitQuotedText(raw)), [raw, isHtml]);
 
@@ -244,8 +251,30 @@ export default function MailBody({ message }: { message: MailMessage }) {
     const doc = new DOMParser().parseFromString(html, "text/html");
     for (const img of doc.querySelectorAll('img:not([src]), img[src^="cid:"]')) img.remove();
 
-    return splitQuoted(doc);
-  }, [raw, isHtml]);
+    const split = splitQuoted(doc);
+    const re = termsPattern(highlight ?? []);
+    if (!re) return { ...split, latestHits: 0, historyHits: 0 };
+    const latest = markHits(split.latest, re);
+    const history = split.history === null ? null : markHits(split.history, re);
+    return { latest: latest.html, history: history?.html ?? null, latestHits: latest.hits, historyHits: history?.hits ?? 0 };
+    // termsKey stands for `highlight`, whose array identity changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raw, isHtml, termsKey]);
+
+  /*
+    Quoted history starts folded — unless the words searched for are only in
+    it, in which case it opens: a search result whose match is hidden behind
+    "Show earlier messages" looks like a result with no match at all.
+  */
+  const onlyInHistory = useMemo(() => {
+    const re = termsPattern(highlight ?? []);
+    if (!re) return false;
+    if (clean) return clean.latestHits === 0 && clean.historyHits > 0;
+    if (text?.history) return !new RegExp(re.source, "i").test(text.latest) && new RegExp(re.source, "i").test(text.history);
+    return false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clean, text, termsKey]);
+  useEffect(() => setShowHistory(onlyInHistory), [message.id, onlyInHistory]);
 
   /**
    * Every link in a message opens in a new tab and carries no referrer.
@@ -273,14 +302,14 @@ export default function MailBody({ message }: { message: MailMessage }) {
     return (
       <div>
         <pre className="mail-body-text whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-text-primary">
-          {text?.latest ?? raw}
+          <Highlighted text={text?.latest ?? raw} terms={highlight} />
         </pre>
         {text?.history && (
           <>
             <HistoryToggle open={showHistory} onToggle={() => setShowHistory((v) => !v)} />
             {showHistory && (
               <pre className="mt-2 whitespace-pre-wrap border-l-2 border-border-strong pl-3 font-sans text-[12.5px] leading-relaxed text-text-secondary">
-                {text.history}
+                <Highlighted text={text.history} terms={highlight} />
               </pre>
             )}
           </>
@@ -309,6 +338,43 @@ export default function MailBody({ message }: { message: MailMessage }) {
       )}
     </div>
   );
+}
+
+/**
+ * Marks every match in an HTML fragment's text, leaving its markup alone.
+ *
+ * Done on an inert DOMParser document, before React puts the HTML in the page,
+ * and only on text nodes — so a reference inside a link's address or an
+ * attribute is never touched, and the result is the same sanitised markup with
+ * `<mark>` around the words.
+ */
+function markHits(html: string, re: RegExp): { html: string; hits: number } {
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
+  let hits = 0;
+  for (const node of nodes) {
+    const value = node.nodeValue ?? "";
+    const matcher = new RegExp(re.source, "gi");
+    if (!matcher.test(value)) continue;
+    matcher.lastIndex = 0;
+    const frag = doc.createDocumentFragment();
+    let last = 0;
+    for (const m of value.matchAll(matcher)) {
+      const at = m.index ?? 0;
+      if (at > last) frag.appendChild(doc.createTextNode(value.slice(last, at)));
+      const mark = doc.createElement("mark");
+      mark.className = "search-hit";
+      mark.textContent = m[0];
+      frag.appendChild(mark);
+      hits++;
+      last = at + m[0].length;
+    }
+    if (last < value.length) frag.appendChild(doc.createTextNode(value.slice(last)));
+    node.parentNode?.replaceChild(frag, node);
+  }
+  return { html: hits ? doc.body.innerHTML : html, hits };
 }
 
 /**

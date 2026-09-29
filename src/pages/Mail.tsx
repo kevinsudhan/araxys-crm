@@ -31,6 +31,8 @@ import FileToEnquiry from "../components/FileToEnquiry";
 import MailBody from "../components/MailBody";
 import MailListRow from "../components/MailListRow";
 import MailConversation from "../components/MailConversation";
+import Highlighted from "../components/Highlighted";
+import { searchTerms } from "../lib/searchHighlight";
 import { groupIntoThreads } from "../lib/threads";
 import { useAuth } from "../lib/auth";
 import { outcomeText } from "../lib/outlookConnect";
@@ -41,6 +43,8 @@ import {
   getMailMessage,
   getMailMessages,
   getMoreMailMessages,
+  searchMessages,
+  searchMoreMessages,
   moveMailMessage,
   setMailRead,
   mailIsLive,
@@ -149,6 +153,14 @@ export default function Mail() {
     const t = window.setTimeout(() => setQuery(search.trim()), 350);
     return () => window.clearTimeout(t);
   }, [search]);
+  /**
+   * Where a search looks: every folder, as Outlook searches by default — a
+   * reference is in the customer's mail in the Inbox and in our answers in
+   * Sent — or only the folder on screen.
+   */
+  const [scope, setScope] = useState<"all" | "folder">("all");
+  const searching = Boolean(query);
+  const terms = useMemo(() => searchTerms(query), [query]);
   /** Which folder load is the current one; an older answer arriving late is dropped. */
   const loadReq = useRef(0);
   const [loading, setLoading] = useState(true);
@@ -269,7 +281,7 @@ export default function Mail() {
     try {
       const [f, m] = await Promise.all([
         getMailFolders(mailbox),
-        getMailMessages(mailbox, folder, query || undefined),
+        query ? searchMessages(mailbox, query, scope === "all" ? null : folder) : getMailMessages(mailbox, folder),
       ]);
       if (req !== loadReq.current) return;
       setFolders(f.folders);
@@ -291,7 +303,7 @@ export default function Mail() {
     } finally {
       if (req === loadReq.current) setLoading(false);
     }
-  }, [mailbox, folder, query]);
+  }, [mailbox, folder, query, scope]);
 
   useEffect(() => {
     void load();
@@ -331,7 +343,9 @@ export default function Mail() {
     // A page for the folder or search that was on screen when it was asked for.
     const req = loadReq.current;
     try {
-      const more = await getMoreMailMessages(mailbox, folder, nextLink);
+      const more = query
+        ? await searchMoreMessages(mailbox, query, scope === "all" ? null : folder, nextLink)
+        : await getMoreMailMessages(mailbox, folder, nextLink);
       if (req !== loadReq.current) return;
       setMessages((prev) => {
         const seen = new Set(prev.map((m) => m.id));
@@ -401,11 +415,11 @@ export default function Mail() {
    * message to get that press would mean marking it read a second time.
    */
   const loadBody = useCallback(
-    (id: string) => {
+    (id: string, from?: FolderId) => {
       const req = ++openReq.current;
       setFull(null);
       setBodyError(null);
-      void getMailMessage(mailbox, id, folder)
+      void getMailMessage(mailbox, id, from ?? folder)
         .then((r) => {
           // A response for a message nobody is looking at any more is dropped.
           if (req !== openReq.current) return;
@@ -454,7 +468,7 @@ export default function Mail() {
     }
 
     // The body has to be fetched; the row does not have one.
-    loadBody(m.id);
+    loadBody(m.id, m.folder);
 
     const unread = conversation.filter((x) => !x.isRead);
     if (unread.length) {
@@ -491,6 +505,22 @@ export default function Mail() {
       void load();
     }
   }
+
+  /*
+    Opening a search result shows the first match, as Outlook scrolls to it: a
+    reference in the fourth paragraph, or in a quoted reply, is otherwise below
+    the fold. Desk width only — on a phone the message is brought into view as
+    a whole (open) and the page is the thing that scrolls.
+  */
+  const landed = full && full.id === selectedId ? full.id : null;
+  useEffect(() => {
+    if (!landed || !query || !window.matchMedia("(min-width: 1024px)").matches) return;
+    const t = window.setTimeout(() => {
+      const hit = readerScroll.current?.querySelector(".mail-body mark.search-hit, .mail-body-text mark.search-hit");
+      if (hit) hit.scrollIntoView({ block: "center" });
+    }, 60);
+    return () => window.clearTimeout(t);
+  }, [landed, query]);
 
   if (!mailbox) return null;
 
@@ -623,7 +653,12 @@ export default function Mail() {
             return (
               <button
                 key={f.id}
-                onClick={() => setFolder(f.id)}
+                onClick={() => {
+                  // A folder is a place to read; choosing one ends the search, as in Outlook.
+                  setSearch("");
+                  setQuery("");
+                  setFolder(f.id);
+                }}
                 aria-current={active ? "page" : undefined}
                 className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px] transition-colors ${
                   active ? "bg-surface-2 font-medium text-text-primary" : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
@@ -646,9 +681,32 @@ export default function Mail() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search this folder…"
-            className="w-full pl-8 h-8"
+            onKeyDown={(e) => {
+              // Enter searches now rather than after the pause; Escape clears.
+              if (e.key === "Enter") setQuery(search.trim());
+              if (e.key === "Escape") {
+                setSearch("");
+                setQuery("");
+              }
+            }}
+            placeholder="Search mail — a reference, a name, a word…"
+            aria-label="Search mail"
+            className="w-full pl-8 pr-8 h-8"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setQuery("");
+              }}
+              aria-label="Clear the search"
+              title="Clear the search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-text-muted hover:bg-surface-2 hover:text-text-primary"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
 
         <button
@@ -693,12 +751,85 @@ export default function Mail() {
       >
         {/* ---- message list ---- */}
         <div className={`card flex flex-col overflow-hidden lg:min-h-0 ${wideOpen ? "lg:hidden" : ""}`}>
+          {/*
+            What a search found and where it looked, above the results — Outlook's
+            "Results" header, with the choice of every folder or this one.
+          */}
+          {searching && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2/60 px-3 py-2">
+              <p className="min-w-0 text-[12px] text-text-secondary">
+                {loading && messages.length === 0 ? (
+                  "Searching…"
+                ) : (
+                  <>
+                    <span className="font-medium text-text-primary">
+                      {messages.length}
+                      {nextLink ? "+" : ""} result{messages.length === 1 ? "" : "s"}
+                    </span>{" "}
+                    for <mark className="search-hit">{query}</mark>
+                  </>
+                )}
+              </p>
+              <div className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-1 p-0.5 text-[11.5px]" role="group" aria-label="Where to search">
+                {(["all", "folder"] as const).map((sc) => (
+                  <button
+                    key={sc}
+                    type="button"
+                    onClick={() => setScope(sc)}
+                    aria-pressed={scope === sc}
+                    className={`h-6 rounded-md px-2 transition-colors ${
+                      scope === sc ? "bg-surface-2 font-medium text-text-primary" : "text-text-secondary hover:text-text-primary"
+                    }`}
+                  >
+                    {sc === "all" ? "All folders" : folders.find((f) => f.id === folder)?.label ?? "This folder"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading && messages.length === 0 ? (
             <ListSkeleton bare rows={7} />
           ) : messages.length === 0 ? (
-            <p className="text-[13px] text-text-muted p-4">
-              {query ? "Nothing matches that search." : "Nothing in this folder."}
-            </p>
+            <div className="p-4 text-[13px] text-text-muted">
+              {query ? (
+                <>
+                  <p>
+                    Nothing found for <span className="font-medium text-text-primary">{query}</span>
+                    {scope === "folder" ? ` in ${folders.find((f) => f.id === folder)?.label ?? "this folder"}` : ""}.
+                  </p>
+                  {scope === "folder" && (
+                    <button type="button" onClick={() => setScope("all")} className="mt-2 text-[12px] text-text-accent hover:underline">
+                      Search every folder instead
+                    </button>
+                  )}
+                </>
+              ) : (
+                "Nothing in this folder."
+              )}
+            </div>
+          ) : searching ? (
+            /*
+              Search results are messages, not conversations: each is here because
+              it matched, and each says so — the words marked in the name, the
+              subject and the line of the message where they appear, and the
+              folder it is in.
+            */
+            <ul className="divide-y divide-border max-h-[calc(100vh-260px)] min-h-[300px] overflow-y-auto overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
+              {messages.map((m) => (
+                <MailListRow
+                  key={m.id}
+                  message={m}
+                  folder={m.folder}
+                  selected={selectedId === m.id}
+                  queued={queued.get(m.id)}
+                  highlight={terms}
+                  showFolder={scope === "all"}
+                  onOpen={() => void open(m)}
+                  onChanged={() => void load()}
+                />
+              ))}
+            </ul>
           ) : (
             <ul className="divide-y divide-border max-h-[calc(100vh-260px)] min-h-[300px] overflow-y-auto overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
               {conversations.map((t) => {
@@ -734,13 +865,19 @@ export default function Mail() {
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary disabled:opacity-60"
                 >
                   {loadingMore ? <Loader2 size={13} className="animate-spin" /> : null}
-                  {loadingMore ? "Loading…" : "Load older mail"}
+                  {loadingMore ? "Loading…" : searching ? "More results" : "Load older mail"}
                 </button>
               ) : (
                 <p className="py-0.5 text-center text-[11px] text-text-muted">
+                  {searching ? (
+                    `${messages.length} result${messages.length === 1 ? "" : "s"} — that is all of them.`
+                  ) : (
+                    <>
                   {conversations.length} conversation{conversations.length === 1 ? "" : "s"}
                   {conversations.length !== messages.length ? ` (${messages.length} messages)` : ""} — that is the whole
                   folder.
+                    </>
+                  )}
                 </p>
               )}
             </div>
@@ -767,7 +904,7 @@ export default function Mail() {
               <div className="flex items-start gap-2">
                 {/* Two lines at most above the message on a desk; the whole subject is its title. */}
                 <h2 title={selected.subject} className="min-w-0 flex-1 text-[16px] font-semibold tracking-tight text-text-primary lg:line-clamp-2 short:lg:line-clamp-1 xl:text-[17px]">
-                  {selected.subject}
+                  <Highlighted text={selected.subject} terms={searching ? terms : undefined} />
                 </h2>
                 <button
                   type="button"
@@ -884,6 +1021,7 @@ export default function Mail() {
                 when={fullTime}
                 refresh={sentTick}
                 onSize={noteSize}
+                highlight={searching ? terms : undefined}
                 onReply={(m, mode) => setComposing({ replyTo: m, mode })}
                 opened={
                   <>
@@ -897,7 +1035,7 @@ export default function Mail() {
                         like a short mail.
                       */}
                       {full && full.id === selectedId ? (
-                        <MailBody message={selected} />
+                        <MailBody message={selected} highlight={searching ? terms : undefined} />
                       ) : bodyError ? (
                         <div className="flex flex-wrap items-center gap-3 rounded-lg bg-bg-danger px-3 py-2.5 text-[12px] text-text-danger">
                           <span className="inline-flex items-start gap-2">

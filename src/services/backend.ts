@@ -299,6 +299,7 @@ export const bookSpace = (body: {
 export type { MailMessage, Recipient, FolderId } from "./mockMail";
 import type { MailMessage, FolderId } from "./mockMail";
 import { allMessages } from "./mockMail";
+import { hasHit, plainText, searchTerms, snippetAround } from "../lib/searchHighlight";
 
 export interface MailFolder {
   id: FolderId;
@@ -350,6 +351,38 @@ export const getMoreMailMessages = async (
   nextLink: string
 ): Promise<{ messages: MailMessage[]; nextLink?: string }> =>
   graph.listMore(mailbox, folder, nextLink);
+
+/**
+ * Mail search, Outlook's way: every folder (`folder` null) or one, each result
+ * with the line around its first match and the folder it is in. Without Outlook,
+ * the local store's own (running the app locally only).
+ */
+export const searchMessages = async (
+  mailbox: string,
+  query: string,
+  folder: FolderId | null
+): Promise<{ messages: MailMessage[]; nextLink?: string }> => {
+  if (live()) return graph.searchMessages(mailbox, query, folder);
+  const terms = searchTerms(query);
+  const label: Record<FolderId, string> = { inbox: "Inbox", sent: "Sent", drafts: "Drafts", archive: "Archive" };
+  const messages = allMessages()
+    .filter((m) => m.mailbox === mailbox && (!folder || m.folder === folder))
+    .map((m) => ({ m, text: plainText(m.body.content, m.body.contentType === "html") }))
+    // Every word must appear, in any order, as Outlook reads a search.
+    .filter(({ m, text }) =>
+      query
+        .split(/\s+/)
+        .filter(Boolean)
+        .every((w) => hasHit(`${m.subject} ${m.from.emailAddress.name} ${m.from.emailAddress.address} ${text}`, searchTerms(w)))
+    )
+    .map(({ m, text }) => ({ ...m, searchSnippet: snippetAround(text, terms), folderLabel: label[m.folder] }))
+    .sort((a, b) => Date.parse(b.receivedDateTime) - Date.parse(a.receivedDateTime));
+  return { messages };
+};
+
+/** The next page of a search. Only the live mailbox pages. */
+export const searchMoreMessages = async (mailbox: string, query: string, folder: FolderId | null, nextLink: string) =>
+  graph.searchMore(mailbox, query, folder, nextLink);
 
 export const getMailMessage = async (mailbox: string, id: string, folder: FolderId = "inbox") =>
   live()

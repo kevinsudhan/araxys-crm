@@ -66,6 +66,10 @@ export interface MailMessage {
    * not "none" — which is why every reader here treats missing as unknown.
    */
   internetMessageHeaders?: Array<{ name: string; value: string }>;
+  /** On a search result: the line of the message around the first match. */
+  searchSnippet?: string;
+  /** On a search across all folders: the folder it is in, in words. */
+  folderLabel?: string;
 }
 
 const r = (name: string, address: string): Recipient => ({ emailAddress: { name, address } });

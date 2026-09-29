@@ -497,6 +497,14 @@ draft itself (`graphMail.sendDraft`). The compose and signature windows ask befo
 attach limit is checked on the encoded size, as the send checks it. On a phone, tapping a message
 scrolls to it. Conversations and the case file leave out drafts.
 
+**Mail search (29 Sep), Outlook's way.** Searches every folder by default ("All folders" /
+the current folder), and a result is a message, not a conversation: its folder is tagged,
+the words are marked yellow in the name, subject and a line of the body around the first
+match (`lib/searchHighlight.ts`), and opening it marks them in the message and scrolls to
+the first. Graph: `searchMessages` asks `$search` for plain-text bodies to cut the line from;
+each word is quoted (`kqlFor`) so "ALG09012-26" is not read as ALG09012 NOT 26. Enter
+searches at once, Escape clears, choosing a folder ends the search.
+
 **Email HTML must be table-based with inline styles.**
 
 - The rich-text editor's sanitiser (`RichTextEditor.tsx`) allows email tables, `bgcolor`
