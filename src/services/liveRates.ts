@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { listEnquiries, type Customer, type Enquiry } from "./enquiries";
 
 /**
  * Live rates (101): the services the desk asks its partners to price every
@@ -134,4 +135,34 @@ export async function liveRates(mode: "check" | "test" | "now", requestId?: stri
     throw new Error(said?.error ?? error.message);
   }
   return data as LiveRatesAnswer;
+}
+
+/** A job that can still be asked about: an open enquiry, or a booking not yet delivered. */
+export interface OpenJob {
+  enquiry: Enquiry & { customer: Customer | null };
+  shipmentId: string | null;
+  stage: string | null;
+}
+
+/**
+ * The jobs Live rates can ask partners about, newest first: every enquiry
+ * not declined or lost, less the bookings already delivered or cancelled.
+ */
+export async function openJobs(): Promise<OpenJob[]> {
+  const [enquiries, ships] = await Promise.all([
+    listEnquiries(),
+    supabase.from("shipments").select("id, enquiry_ref, stage, cancelled_at"),
+  ]);
+  if (ships.error) throw new Error(ships.error.message);
+  const byRef = new Map(
+    (ships.data ?? []).map((s) => [String(s.enquiry_ref).toUpperCase(), s as { id: string; stage: string | null; cancelled_at: string | null }])
+  );
+  return enquiries
+    .filter((e) => e.status !== "declined" && e.status !== "lost")
+    .map((e) => {
+      const s = byRef.get(e.ref.toUpperCase());
+      return { enquiry: e, shipmentId: s?.id ?? null, stage: s?.stage ?? null, closed: Boolean(s && (s.cancelled_at || s.stage === "delivered" || s.stage === "cancelled")) };
+    })
+    .filter((j) => !j.closed)
+    .map(({ closed: _closed, ...j }) => j);
 }

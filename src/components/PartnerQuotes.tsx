@@ -3,16 +3,20 @@ import { Link } from "react-router-dom";
 import {
   AlertCircle,
   Check,
+  ChevronDown,
+  ChevronRight,
   Loader2,
   Mail,
+  MessageSquare,
   RefreshCw,
   Send,
   Trophy,
   X,
 } from "lucide-react";
 import AskPartners from "./AskPartners";
+import ThreadReader from "./ThreadReader";
 import { useAuth } from "../lib/auth";
-import { mailIsLive } from "../services/backend";
+import { conversationMessages, mailIsLive, type MailMessage } from "../services/backend";
 import {
   QUOTE_STATUS_LABEL,
   bestOf,
@@ -147,6 +151,35 @@ export default function PartnerQuotes({ enquiry }: { enquiry: Enquiry }) {
 
   const best = bestOf(rows);
 
+  /*
+    The threads: each request and whatever came back, read and answered here.
+
+    Read from the viewer's own mailbox, because that is the only one the CRM
+    can read as them — so a request somebody else sent is in their mailbox,
+    and the list says so rather than showing it as empty. Loaded when asked
+    for: one Graph call per conversation is not worth making on every visit.
+  */
+  const me = (session?.email ?? "").toLowerCase();
+  const threaded = rows.filter((r) => r.conversation_id);
+  const mine = threaded.filter((r) => !r.sent_from || r.sent_from === me);
+  const elsewhere = [...new Set(threaded.filter((r) => r.sent_from && r.sent_from !== me).map((r) => r.sent_from as string))];
+  const [threadsOpen, setThreadsOpen] = useState(false);
+  const [threadMail, setThreadMail] = useState<MailMessage[] | null>(null);
+  const mineKey = mine.map((r) => r.conversation_id).join(",");
+
+  const loadThreads = useCallback(async () => {
+    if (!me || !mailIsLive()) return setThreadMail([]);
+    const ids = [...new Set(mineKey.split(",").filter(Boolean))];
+    const pages = await Promise.all(ids.map((id) => conversationMessages(me, id).catch(() => [] as MailMessage[])));
+    const seen = new Map<string, MailMessage>();
+    for (const page of pages) for (const m of page) seen.set(m.id, m);
+    setThreadMail([...seen.values()]);
+  }, [me, mineKey]);
+
+  useEffect(() => {
+    if (threadsOpen) void loadThreads();
+  }, [threadsOpen, loadThreads]);
+
   return (
     <section className="card mt-4 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -155,8 +188,9 @@ export default function PartnerQuotes({ enquiry }: { enquiry: Enquiry }) {
             <Send size={13} /> Partner quotes
           </h2>
           <p className="mt-0.5 text-[11.5px] text-text-muted">
-            Ask several partners for a rate at once. Each is written to separately, so replies stay
-            attributable and nobody sees who else was asked.
+            Ask partners for rates, each for the services you choose for them — here or from Live
+            rates. Each is written to separately, so replies stay attributable and nobody sees who
+            else was asked.
           </p>
         </div>
 
@@ -216,7 +250,18 @@ export default function PartnerQuotes({ enquiry }: { enquiry: Enquiry }) {
                       <Trophy size={10} /> Lowest
                     </span>
                   )}
+                  {q.source === "live_rates" && <span className="text-[10.5px] text-text-muted">from Live rates</span>}
                 </div>
+
+                {q.services?.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {q.services.map((s) => (
+                      <span key={s} className="rounded-full bg-bg-accent px-2 py-0.5 text-[10.5px] text-text-accent">
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 <p className="mt-0.5 text-[11.5px] text-text-muted">
                   {q.partner_label ? `${q.partner_email} · ` : ""}
@@ -229,6 +274,7 @@ export default function PartnerQuotes({ enquiry }: { enquiry: Enquiry }) {
                       day: "numeric",
                       month: "short",
                     })}`}
+                  {q.sent_from && q.sent_from !== me && ` · from ${q.sent_from}`}
                 </p>
 
                 {(q.amount != null || q.transit_days != null || q.valid_until) && (
@@ -299,14 +345,53 @@ export default function PartnerQuotes({ enquiry }: { enquiry: Enquiry }) {
         </ul>
       )}
 
+      {threaded.length > 0 && (
+        <div className="mt-3 border-t border-border pt-3">
+          <button
+            type="button"
+            onClick={() => setThreadsOpen((v) => !v)}
+            aria-expanded={threadsOpen}
+            className="inline-flex items-center gap-1.5 text-[12px] font-medium text-text-secondary hover:text-text-primary"
+          >
+            {threadsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            <MessageSquare size={12} />
+            {threadsOpen ? "Hide the threads" : `Read the threads (${threaded.length})`}
+          </button>
+          {elsewhere.length > 0 && (
+            <p className="mt-1 text-[11.5px] text-text-muted">
+              {threaded.length - mine.length} of these went from {elsewhere.join(", ")}; those threads are in that mailbox.
+            </p>
+          )}
+          {threadsOpen &&
+            (threadMail === null ? (
+              <p className="mt-2 flex items-center gap-2 text-[12px] text-text-muted">
+                <Loader2 size={12} className="animate-spin" /> Reading the threads…
+              </p>
+            ) : (
+              <ThreadReader
+                mailbox={me}
+                fromName={session?.name ?? ""}
+                signature={session?.signature ?? ""}
+                messages={threadMail}
+                refFor={() => ({ conversationId: "", ref: enquiry.ref, kind: "shipment" })}
+                title="Rate request threads"
+                hint="Each request and what the partner sent back. Open one to read it in full and reply."
+                emptyHint={mailIsLive() ? "None of these threads is in your mailbox." : "Outlook is not connected on this session, so the threads cannot be read."}
+                onChanged={() => void loadThreads()}
+                enquiryRef={enquiry.ref}
+              />
+            ))}
+        </div>
+      )}
+
       {asking && (
         <AskPartners
           enquiry={enquiry}
-          fromName={session?.name ?? ""}
           onClose={() => setAsking(false)}
           onSent={(result) => {
-            setAsking(false);
             setSwept(false);
+            setThreadMail(null);
+            if (threadsOpen) void loadThreads();
             setNotice(
               result.failed.length
                 ? `Asked ${result.sent.length}. Could not reach ${result.failed

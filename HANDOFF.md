@@ -16,10 +16,10 @@ session should read this whole file before changing anything. §0 is the short v
   enquiries and shipments created by the desk. Treat the database as production.
 - **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
   `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (53 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (54 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **106**, so the next one is `107-….sql`.
+  migration filename (§6). The last migration is **107**, so the next one is `108-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 98 migrations
+## 4. Data model — 99 migrations
 
-`supabase-v2/001…106`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…107`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `107` | **Rate requests per partner, for chosen services.** `partner_quotes.services` (what that partner was asked to price), `sent_from` (the sender's mailbox: the thread and reply are there), `source` ('case_file' / 'live_rates'). `record_rfq_sent` takes `p_services` and `p_source` (old calls still work) and, in the same transaction, binds the conversation to the enquiry (`enquiry_threads`), adds the partner to `enquiry_parties` under their directory role unless that address is already there, and logs `partner_asked` once per partner per batch. Staff only; anon refused. Checked rolled back |
 | `106` | **A pasted quotation.** `quote_lines.section` ('ex_works' / 'other'; the PDF prints each group under its title with a subtotal), `quotes.mail_text` (set on a pasted quotation: it goes out as plain text) and `quotes.pasted_text` (the source). `require_approval_to_send` also un-approves on a change to `mail_text`. Checked rolled back: a bad section refused, the total still from the lines, approval reset |
 | `105` | **Mail snooze.** `mail_snoozes`: one row per snoozed message (its id in the Snoozed folder, when it comes back, `returned_at`, `seen_at`), visible and changeable only by its owner (RLS checked as two employees, rolled back). Outlook's snooze is not in Graph, so `services/snooze.ts` moves the message to a Snoozed folder and the Mail page brings due ones back on open and on its minute refresh |
 | `104` | **Your own profile: the signature, and nothing else.** 103's `(select auth.uid())` in `profiles_select_own`, together with 003's self-update policy that read `profiles` to pin the role, made every signature save fail with "infinite recursion detected in policy for relation profiles" (28 Sep, about a day). The self-update policy now only says "your own row"; the trigger `profiles_guard_self_update` refuses a browser (`current_user = 'authenticated'`) changing anything but `signature`. That also closes a hole older than 103: the pin covered `role` only, so an employee could set their own `can_approve_quotes` / `can_assign` through the API. Staff accounts (service role) and migrations are not held to it |
@@ -297,7 +298,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 53 suites, pure logic
+npm test                             # 54 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -314,7 +315,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 53 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 54 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -586,9 +587,13 @@ Other charges; the model only copies figures and sorts, it never adds up. `lib/p
 holds the values to allowed units and currencies, works out every total and lays out the plain
 text; the dialog (`PasteQuoteDialog`) shows the lines to correct, asks for any missing rate of
 exchange, then saves them into the draft (its charges replaced) or a new version
-(`services/pasteQuote.ts`). A quotation with `mail_text` goes by mail as plain text rebuilt from
-its charges at sending (`mailTextFor`), with the PDF attached; the PDF groups by `section`. The
-charges grid shows EXW / OTH on each line, a press moving it. The sending panel now re-reads the
+(`services/pasteQuote.ts`). A quotation with `mail_text` goes as the usual quotation letter
+(letterhead, reference, route box, terms) with its **charges as text instead of the table**:
+headings, a bulleted line per charge, the group totals and the whole in rupees in bold
+(`chargesText`, rebuilt from the charges at sending by `chargesTextFor`; the user asked for
+this on 30 Sep — tables only in the PDF). The PDF groups by `section` and prints the rate of
+exchange under the total when any line is foreign. The charges grid shows EXW / OTH on each
+line, a press moving it. The sending panel now re-reads the
 charges before mailing or downloading — it read them once, so a charge renamed in the grid went
 out under its old name until a reload.
 
@@ -955,6 +960,26 @@ card's one-request-per-line insert. What is left:
     `weekly` run with no requests sends nothing and reports `canSend: false`; the page in a
     harness. No mail was sent: the two partners on the directory are real.
   - **Not built:** reading the rates that come back into the Rate master.
+  - **For a shipment (107, 30 Sep).** The page's first tab. Choose an open job (any enquiry not
+    declined or lost, less bookings delivered or cancelled; `?job=REF` links straight to one),
+    the partners, and for each the services to price — ticked from their role
+    (`lib/rateRequest.ts` `defaultServices`: an overseas agent the far end, a line the freight, a
+    CHA the clearance, a transporter the pickup), changed per partner, or typed in. Each gets
+    their own mail **from the sender's Outlook** (delegated, like the case file's Ask partners:
+    it works without Mail.Send), opening with their greeting and their services, then the
+    message about the shipment built from the enquiry (editable, or written with AI to a brief).
+    The subject carries `[REF]`, so the reply files on the job, and starts "Rate request". Each
+    send is recorded by `record_rfq_sent` (107), which files the thread on the job and the
+    partner among its parties. The case file's Partners tab (Partner quotes) shows each
+    partner's services, "from Live rates", and **Read the threads**: the requests and replies
+    from the viewer's mailbox, opened and answered there (a request sent by someone else says
+    whose mailbox it is in). The case file's own "Ask partners" is the same form
+    (`RateRequestForm`) in a dialog. The Sunday requests are unchanged on the second tab.
+  - **Verified 30 Sep:** the migration rolled back (services cleaned, one row and one timeline
+    entry per partner per batch, thread bound, party added, old call still accepted, anon
+    refused); the page in a harness with invented partners (role defaults, a custom service,
+    a partner with no service refused, per-partner preview, the record of three sends, the case
+    file rows and threads, the dialog, a 375 px phone). No real mail was sent.
 - **Passwords (26 Sep).** Auth settings: at least 10 characters, with letters and a number
   (`password_min_length` 10, `password_required_characters` letters:digits). The staff-accounts
   function and the Staff accounts screen check the same rule first, so the admin reads a plain
@@ -1118,6 +1143,7 @@ There are 63 commits. Grouped:
 | Sign-ups closed, staff accounts, backups (093) | see `git log` | Only an admin adds staff (Staff accounts); the leaked starter password is dead; a tested nightly backup with a status card, downloads and a restore script |
 | Customer milestones (102) | see `git log` | The customer's tracking page shows only what the desk records on the job's Tracking tab: each milestone with its day, time, place and a note, the desk's own updates, nothing from feeds or internal steps. The job's records are offered as "Use this"; the stage follows the milestones |
 | Live rates (101) | see `git log` | Name a service, pick the partners: every Sunday 10:30 pm IST each gets their own mail asking for the coming week's rates, from info@, replies under Partner mail. Send now, a test to yourself, preview, pause; every send and Microsoft's reason for any refusal on the page |
+| Live rates for a shipment (107) | see `git log` | Choose a job and partners, and per partner the services to price; one mail each from your Outlook, filed on the job as a thread under Partners, with the partner added to its parties. The case file's Ask partners uses the same form |
 | ICEGATE replies (100) | see `git log` | "Read a reply" takes ICEGATE's ACK or SFL, finds the file by job number, shows each error on its house and container in the desk's words, and on an accepted live file records the CSN number and date and the MCIN/PCINs; a rejected file stops being the amendment baseline |
 | CSN amendments (SCA, 099) | see `git log` | Once the CSN number is recorded, the panel lists what changed since the last live file and makes the amendment with only that, flagged U/S/D, pointing back at the CSN; houses keep their sub-lines across amendments; checked against CBIC's SCA schema |
 | CSN for exports (SCX, 098) | see `git log` | An export console makes the CSN on exit: the desk as shipper with its IEC, each house pointing at its exporter's shipping bill by PCIN, shaped by cargo movement as the guide's table says; checked against CBIC's schema |

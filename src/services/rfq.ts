@@ -1,6 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { conversationMessages, sendTrackedMail, type MailMessage } from "./backend";
 import type { Enquiry } from "./enquiries";
+import { MODE_WORD, cleanServices, requestSubject, withReference } from "../lib/rateRequest";
 
 /**
  * Asking partners for a rate, and tracking what comes back.
@@ -51,6 +52,12 @@ export interface PartnerQuote {
   valid_until: string | null;
   quote_notes: string | null;
 
+  /** What this partner was asked to price (107). Empty on asks made before. */
+  services: string[];
+  /** The mailbox it went from: the thread and the reply are there (107). */
+  sent_from: string | null;
+  source: "case_file" | "live_rates";
+
   created_at: string;
   updated_at: string;
 }
@@ -88,21 +95,25 @@ export function draftRequest(
   enquiry: Enquiry,
   fromName: string
 ): { subject: string; body: string } {
-  const route = [enquiry.origin, enquiry.destination].filter(Boolean).join(" to ");
-  const subject = route
-    ? `Rate & space enquiry — ${route}${enquiry.cargo ? ` — ${enquiry.cargo}` : ""}`
-    : `Rate & space enquiry — ${enquiry.ref}`;
-
   const rows = ([
     ["Origin", enquiry.origin],
     ["Destination", enquiry.destination],
+    ["Mode", enquiry.transport_mode ? MODE_WORD[enquiry.transport_mode] || null : null],
     ["Commodity", enquiry.cargo],
     ["Incoterm", enquiry.incoterm],
     ["Pieces", enquiry.piece_count != null ? String(enquiry.piece_count) : null],
     ["Gross weight", enquiry.gross_weight_kg != null ? `${enquiry.gross_weight_kg} kg` : null],
     ["Volume", enquiry.volume_cbm != null ? `${enquiry.volume_cbm} CBM` : null],
+    ["Stackable", enquiry.stackable == null ? null : enquiry.stackable ? "Yes" : "No"],
+    [
+      "Hazardous",
+      enquiry.hazardous
+        ? ["Yes", enquiry.un_number ? `UN ${enquiry.un_number}` : "", enquiry.imo_class ? `class ${enquiry.imo_class}` : ""].filter(Boolean).join(", ")
+        : null,
+    ],
     ["Cargo ready", enquiry.ready_date],
     ["Pick-up", enquiry.pickup_location],
+    ["Delivery to", enquiry.delivery_location],
   ] as Array<[string, string | null]>).filter(([, v]) => v != null && String(v).trim() !== "");
 
   const detail = rows
@@ -113,23 +124,22 @@ export function draftRequest(
     )
     .join("");
 
+  /*
+    No greeting and no list of services: each partner's mail opens with their
+    own name and what they in particular are asked to price
+    (lib/rateRequest.ts `personalise`). This is the part every partner reads
+    the same.
+  */
   const body = [
-    `<p>Dear partner,</p>`,
-    `<p>We have the following shipment in hand and would appreciate your best rate` +
-      ` and confirmation of space.</p>`,
+    `<p>The shipment:</p>`,
     `<table style="border-collapse:collapse;font-size:13px">${detail}</table>`,
-    `<p>Kindly advise:</p>`,
-    `<ul>`,
-    `<li>All-in rate and the basis it is quoted on</li>`,
-    `<li>Space availability and the next sailing you can take this on</li>`,
-    `<li>Transit time and free days at destination</li>`,
-    `<li>Validity of the rate</li>`,
-    `</ul>`,
+    `<p>Kindly include, where it applies: the basis of each rate, space and the next departure,` +
+      ` transit time and free days, and how long the rates are valid.</p>`,
     `<p>We would be grateful for your reply at the earliest so we may revert to our customer.</p>`,
     `<p>Best regards,<br>${escapeHtml(fromName)}<br>Aashish Logistics Global</p>`,
   ].join("");
 
-  return { subject, body };
+  return { subject: requestSubject(enquiry), body };
 }
 
 const escapeHtml = (s: string) =>
@@ -203,6 +213,10 @@ export async function draftRequestWithAi(input: {
         "",
         `SENDER: ${input.fromName}, Aashish Logistics Global`,
         "",
+        // Each partner's greeting and the services asked of them are put above
+        // this text when it is sent (lib/rateRequest.ts), so it must not repeat them.
+        "LAYOUT: each partner's mail opens with their own greeting and the list of services they are asked to price, added above your text. So do NOT write a greeting line and do NOT list the services; start with the shipment details.",
+        "",
         `WHAT THIS REQUEST SHOULD DO: ${input.instruction.trim()}`,
       ].join("\n"),
     },
@@ -220,8 +234,20 @@ export interface BurstResult {
   failed: Array<{ email: string; label: string; reason: string }>;
 }
 
+/** One partner's mail, as it goes. */
+export interface PartnerMail {
+  partnerId: string | null;
+  /** Every address the partner has on the directory; the first is the one on record. */
+  to: string[];
+  label: string;
+  services: string[];
+  subject: string;
+  /** Already personalised: their greeting and their services (lib/rateRequest.ts). */
+  body: string;
+}
+
 /**
- * Sends the request to each partner and records each one.
+ * Sends each partner their own mail and records each one.
  *
  * ---------------------------------------------------------------------------
  * SENT ONE AT A TIME, AND RECORDED ONLY ON SUCCESS
@@ -234,48 +260,72 @@ export interface BurstResult {
  * the failures are returned so the operator can see exactly who to chase by
  * hand. Nothing is recorded for a send that did not happen — a row saying
  * somebody was asked when they were not is worse than no row.
+ *
+ * The record (record_rfq_sent, 107) also files the conversation on the job and
+ * the partner among its parties, so the request and every reply read as a
+ * thread on the case file.
  * ---------------------------------------------------------------------------
  */
 export async function sendBurst(input: {
   enquiry: Enquiry;
-  partners: Array<{ id: string | null; email: string; label: string }>;
-  subject: string;
-  body: string;
+  mails: PartnerMail[];
+  source?: "case_file" | "live_rates";
+  onProgress?: (done: number, total: number) => void;
 }): Promise<BurstResult> {
   const batchId = crypto.randomUUID();
   const sent: PartnerQuote[] = [];
   const failed: BurstResult["failed"] = [];
+  let done = 0;
 
-  for (const p of input.partners) {
+  for (const m of input.mails) {
+    const to = [...new Set(m.to.map((a) => a.trim().toLowerCase()).filter(Boolean))];
+    const subject = withReference(m.subject, input.enquiry.ref);
     try {
-      const { conversationId } = await sendTrackedMail({
-        to: [p.email],
-        subject: input.subject,
-        content: input.body,
-      });
+      if (!to.length) throw new Error("No email address on the directory.");
+      const services = cleanServices(m.services);
+      if (!services.length) throw new Error("No service chosen for them.");
+      const { conversationId } = await sendTrackedMail({ to, subject, content: m.body });
 
       const { data, error } = await supabase.rpc("record_rfq_sent", {
         p_ref: input.enquiry.ref,
         p_batch_id: batchId,
-        p_partner_email: p.email,
-        p_partner_label: p.label,
-        p_partner_id: p.id,
-        p_subject: input.subject,
+        p_partner_email: to[0],
+        p_partner_label: m.label,
+        p_partner_id: m.partnerId,
+        p_subject: subject,
         p_conversation_id: conversationId,
         p_message_id: null,
+        p_services: services,
+        p_source: input.source ?? "case_file",
       });
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(`Sent, but not recorded on ${input.enquiry.ref}: ${error.message}`);
       sent.push(data as PartnerQuote);
     } catch (e) {
       failed.push({
-        email: p.email,
-        label: p.label,
+        email: to[0] ?? "",
+        label: m.label,
         reason: e instanceof Error ? e.message : "Could not send.",
       });
     }
+    input.onProgress?.(++done, input.mails.length);
   }
 
   return { sent, failed };
+}
+
+/**
+ * The latest rate requests sent from Live rates, across every job, newest
+ * first — the page's record of what it sent and what came back.
+ */
+export async function recentRateRequests(limit = 40): Promise<PartnerQuote[]> {
+  const { data, error } = await supabase
+    .from("partner_quotes")
+    .select("*")
+    .eq("source", "live_rates")
+    .order("sent_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as PartnerQuote[];
 }
 
 export interface FoundReply {

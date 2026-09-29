@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   AlertTriangle,
@@ -19,6 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
+import LiveRatesForShipment from "../components/LiveRatesForShipment";
 import EmptyState from "../components/EmptyState";
 import StatusPill from "../components/StatusPill";
 import { ListSkeleton } from "../components/Loading";
@@ -42,8 +43,14 @@ import {
 } from "../services/liveRates";
 
 /**
- * Live rates (101): the services the desk asks its partners to price, mailed
- * to them every Sunday at 10:30 pm IST.
+ * Live rates: asking partners for rates.
+ *
+ * Two ways, on two tabs:
+ * - For a shipment (107): choose a job, the partners and what each should
+ *   price; sent now from the sender's Outlook and filed on the job
+ *   (components/LiveRatesForShipment.tsx).
+ * - Every Sunday (101): the services the desk asks its partners to price,
+ *   mailed to them every Sunday at 10:30 pm IST — below.
  *
  * ---------------------------------------------------------------------------
  * The desk names a service ("FCL 20'/40' · Chennai → Jebel Ali"), says what to
@@ -58,6 +65,53 @@ import {
  * ---------------------------------------------------------------------------
  */
 export default function LiveRates() {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "weekly" ? "weekly" : "shipment";
+  const setTab = (t: "shipment" | "weekly") =>
+    setParams(
+      (p) => {
+        const n = new URLSearchParams(p);
+        if (t === "weekly") n.set("tab", "weekly");
+        else n.delete("tab");
+        return n;
+      },
+      { replace: true }
+    );
+
+  return (
+    <div>
+      <PageHeader
+        title="Live rates"
+        subtitle="Ask partners for rates on a shipment now, each for the services you choose, or every Sunday night for the week ahead."
+      />
+      <div role="tablist" aria-label="Live rates" className="mb-4 inline-flex rounded-lg border border-border bg-surface-1 p-0.5">
+        {(
+          [
+            ["shipment", "For a shipment"],
+            ["weekly", "Every Sunday"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`h-8 rounded-md px-3.5 text-[12.5px] font-medium transition-colors ${
+              tab === key ? "bg-brand text-white" : "text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "shipment" ? <LiveRatesForShipment /> : <WeeklyRates />}
+    </div>
+  );
+}
+
+/** The Sunday requests (101), unchanged. */
+function WeeklyRates() {
   const { session } = useAuth();
   const admin = session?.role === "admin";
   const [requests, setRequests] = useState<LiveRateRequest[]>([]);
@@ -97,10 +151,10 @@ export default function LiveRates() {
 
   return (
     <div>
-      <PageHeader
-        title="Live rates"
-        subtitle="Name a service and pick the partners: every Sunday at 10:30 pm IST each of them gets their own mail asking for the coming week's rates on it. Replies come back to the sending mailbox and show under Partner mail."
-      />
+      <p className="mb-3 max-w-prose text-[12px] text-text-secondary">
+        Name a service and pick the partners: every Sunday at 10:30 pm IST each of them gets their own mail asking for the coming week's
+        rates on it. Replies come back to the sending mailbox and show under Partner mail.
+      </p>
 
       {/* ---- when, and whether Microsoft lets it ---- */}
       <div className="card mb-4 flex flex-wrap items-start gap-x-8 gap-y-3 p-4">
