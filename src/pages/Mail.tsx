@@ -26,6 +26,14 @@ import {
   MailOpen,
   ExternalLink,
   Keyboard,
+  ShieldAlert,
+  Folder,
+  FolderOpen,
+  ChevronDown,
+  Undo2,
+  CheckSquare,
+  Square,
+  MinusSquare,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import ComposeMail from "../components/ComposeMail";
@@ -36,6 +44,7 @@ import FileToEnquiry from "../components/FileToEnquiry";
 import MailBody from "../components/MailBody";
 import MailListRow from "../components/MailListRow";
 import MailConversation from "../components/MailConversation";
+import MoveMenu from "../components/MoveMenu";
 import Highlighted from "../components/Highlighted";
 import { searchTerms } from "../lib/searchHighlight";
 import { rememberAddresses } from "../services/addressBook";
@@ -68,12 +77,22 @@ import { listPeople, type Person } from "../services/enquiries";
 import { ListSkeleton, SectionSkeleton } from "../components/Loading";
 import { formatDate } from "../lib/dates";
 
-const FOLDER_ICON: Record<FolderId, React.ElementType> = {
+const FOLDER_ICON: Record<string, React.ElementType> = {
   inbox: Inbox,
   sent: Send,
   drafts: FileEdit,
   archive: Archive,
+  junk: ShieldAlert,
+  deleted: Trash2,
 };
+const iconFor = (id: FolderId): React.ElementType => FOLDER_ICON[id] ?? Folder;
+/** The four tabs; everything else (Junk, Deleted Items, the person's own) is under More. */
+const MAIN_FOLDERS: FolderId[] = ["inbox", "sent", "drafts", "archive"];
+
+/** Runs `fn` over `items` a few at a time: fifty moves at once is how Outlook starts saying 429. */
+async function inBatches<T>(items: T[], size: number, fn: (item: T) => Promise<unknown>) {
+  for (let i = 0; i < items.length; i += size) await Promise.all(items.slice(i, i + size).map(fn));
+}
 
 /**
  * Outlook inside the CRM.
@@ -177,6 +196,13 @@ export default function Mail() {
     return () => window.clearTimeout(t);
   }, [toast]);
   const [showKeys, setShowKeys] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  /**
+   * Rows ticked for a bulk action — conversations, or messages when searching —
+   * and the last one ticked, for Shift-click ranges.
+   */
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const lastChecked = useRef<string | null>(null);
   /** Whether older pages have been loaded, which a background refresh would throw away. */
   const morePages = useRef(false);
   /** When the list was last fetched, so a refresh on returning to the tab is not one per click. */
@@ -438,6 +464,7 @@ export default function Mail() {
     // sender replaced by "Parasu"), and a click on one opened the wrong mail.
     setMessages([]);
     setNextLink(undefined);
+    setChecked(new Set());
   }, [folder]);
 
   /**
@@ -458,6 +485,71 @@ export default function Mail() {
    * answers were two rows that nothing tied together.
    */
   const conversations = useMemo(() => groupIntoThreads(messages), [messages]);
+  /** The rows as drawn: a message each when searching, a conversation each otherwise. */
+  const rows = useMemo(
+    () =>
+      searching
+        ? messages.map((m) => ({ key: m.id, m, group: [m] }))
+        : conversations.map((t) => ({ key: t.conversationId, m: t.messages[t.messages.length - 1], group: t.messages })),
+    [searching, messages, conversations]
+  );
+  // A selection only ever names rows that are on screen.
+  useEffect(() => {
+    setChecked((prev) => {
+      if (!prev.size) return prev;
+      const keys = new Set(rows.map((r) => r.key));
+      const next = new Set([...prev].filter((k) => keys.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rows]);
+  const checkedMessages = useMemo(() => rows.filter((r) => checked.has(r.key)).flatMap((r) => r.group), [rows, checked]);
+
+  /** A folder is a place to read: choosing one ends a search and a filter, as in Outlook. */
+  function goToFolder(id: FolderId) {
+    setSearch("");
+    setQuery("");
+    setFilter("all");
+    setMoreOpen(false);
+    setFolder(id);
+  }
+
+  /** Ticks a row; with Shift, everything between it and the last one ticked. */
+  function toggleCheck(key: string, shift: boolean) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      const on = !prev.has(key);
+      if (shift && lastChecked.current) {
+        const a = rows.findIndex((r) => r.key === lastChecked.current);
+        const b = rows.findIndex((r) => r.key === key);
+        if (a >= 0 && b >= 0) {
+          for (const r of rows.slice(Math.min(a, b), Math.max(a, b) + 1)) on ? next.add(r.key) : next.delete(r.key);
+          return next;
+        }
+      }
+      on ? next.add(key) : next.delete(key);
+      return next;
+    });
+    lastChecked.current = key;
+  }
+
+  /** Read or unread, flag or unflag, for everything ticked. */
+  async function bulkSet(change: { isRead?: boolean; flagged?: boolean }) {
+    const targets = checkedMessages.filter((m) =>
+      change.isRead !== undefined ? m.isRead !== change.isRead : m.flagged !== change.flagged
+    );
+    if (!targets.length) return;
+    const ids = new Set(targets.map((m) => m.id));
+    setMessages((prev) => prev.map((x) => (ids.has(x.id) ? { ...x, ...change } : x)));
+    try {
+      await inBatches(targets, 6, (m) =>
+        change.isRead !== undefined ? setMailRead(mailbox, m.id, change.isRead) : setMailFlag(mailbox, m.id, !!change.flagged)
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not change all of them.");
+    } finally {
+      void load();
+    }
+  }
   const selected = useMemo(
     () => (full && full.id === selectedId ? { ...row, ...full } : row),
     [row, full, selectedId]
@@ -531,11 +623,7 @@ export default function Mail() {
       // Optimistic: the row should stop looking unread the instant it is clicked.
       const ids = new Set(unread.map((x) => x.id));
       setMessages((prev) => prev.map((x) => (ids.has(x.id) ? { ...x, isRead: true } : x)));
-      if (folder === "inbox") {
-        setFolders((prev) =>
-          prev.map((f) => (f.id === "inbox" ? { ...f, unread: Math.max(0, f.unread - unread.length) } : f))
-        );
-      }
+      setFolders((prev) => prev.map((f) => (f.id === m.folder ? { ...f, unread: Math.max(0, f.unread - unread.length) } : f)));
       try {
         await Promise.all(unread.map((x) => setMailRead(mailbox, x.id, true)));
       } catch {
@@ -550,15 +638,32 @@ export default function Mail() {
    * three left the row standing on the next one, as if nothing had happened.
    */
   async function archive(m: MailMessage) {
-    // A search result is one message: its conversation's other results may be
-    // in Sent or elsewhere, and archiving them with it is not what was asked.
+    await moveTo(m, "archive", "Archive");
+  }
+
+  /**
+   * Moves the conversation's messages in this folder (or the one result, when
+   * searching — its conversation's other results may be in Sent or elsewhere)
+   * to another folder: Archive, Junk, the Inbox, or one of the person's own.
+   */
+  async function moveTo(m: MailMessage, to: FolderId, label: string) {
     const going = m.conversationId && !searching ? messages.filter((x) => x.conversationId === m.conversationId) : [];
     if (!going.some((x) => x.id === m.id)) going.push(m);
+    await moveMany(going, to, label);
+  }
+
+  async function moveMany(going: MailMessage[], to: FolderId, label: string) {
     const ids = new Set(going.map((x) => x.id));
     setMessages((prev) => prev.filter((x) => !ids.has(x.id)));
-    setSelectedId(null);
+    if (selectedId && ids.has(selectedId)) {
+      setSelectedId(null);
+      setFull(null);
+    }
     try {
-      await Promise.all(going.map((x) => moveMailMessage(mailbox, x.id, "archive")));
+      await inBatches(going, 6, (x) => moveMailMessage(mailbox, x.id, to));
+      setToast(going.length > 1 ? `${going.length} messages moved to ${label}.` : `Moved to ${label}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not move that.");
     } finally {
       void load();
     }
@@ -572,12 +677,18 @@ export default function Mail() {
   async function remove(m: MailMessage) {
     const going = m.conversationId && !searching ? messages.filter((x) => x.conversationId === m.conversationId) : [];
     if (!going.some((x) => x.id === m.id)) going.push(m);
+    await removeMany(going);
+  }
+
+  async function removeMany(going: MailMessage[]) {
     const ids = new Set(going.map((x) => x.id));
     setMessages((prev) => prev.filter((x) => !ids.has(x.id)));
-    setSelectedId(null);
-    setFull(null);
+    if (selectedId && ids.has(selectedId)) {
+      setSelectedId(null);
+      setFull(null);
+    }
     try {
-      await Promise.all(going.map((x) => deleteMailMessage(mailbox, x.id)));
+      await inBatches(going, 6, (x) => deleteMailMessage(mailbox, x.id));
       setToast(going.length > 1 ? `${going.length} messages moved to Deleted Items.` : "Moved to Deleted Items.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not delete that.");
@@ -609,9 +720,7 @@ export default function Mail() {
     const set = (v: boolean) => {
       setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, isRead: v } : x)));
       setFull((prev) => (prev && prev.id === m.id ? { ...prev, isRead: v } : prev));
-      if (m.folder === "inbox") {
-        setFolders((prev) => prev.map((f) => (f.id === "inbox" ? { ...f, unread: Math.max(0, f.unread + (v ? -1 : 1)) } : f)));
-      }
+      setFolders((prev) => prev.map((f) => (f.id === m.folder ? { ...f, unread: Math.max(0, f.unread + (v ? -1 : 1)) } : f)));
     };
     set(isRead);
     try {
@@ -651,9 +760,6 @@ export default function Mail() {
     const target = e.target instanceof Element ? e.target : null;
     if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="listbox"]')) return;
     if (composing || editingSignature) return;
-    const rows = searching
-      ? messages.map((m) => ({ m, group: [m] }))
-      : conversations.map((t) => ({ m: t.messages[t.messages.length - 1], group: t.messages }));
     const at = rows.findIndex((r) => r.group.some((x) => x.id === selectedId));
     const key = e.key;
     const go = (i: number) => {
@@ -678,9 +784,14 @@ export default function Mail() {
     } else if (selected && key === "e" && selected.folder !== "archive" && !isDraft) {
       e.preventDefault();
       void archive(selected);
-    } else if (selected && (key === "Delete" || key === "#")) {
+    } else if (selected && (key === "Delete" || key === "#") && selected.folder !== "deleted") {
       e.preventDefault();
       void remove(selected);
+    } else if (key === "x" && at >= 0) {
+      e.preventDefault();
+      toggleCheck(rows[at].key, false);
+    } else if (key === "Escape" && checked.size) {
+      setChecked(new Set());
     } else if (selected && key === "u") {
       e.preventDefault();
       void toggleRead(selected);
@@ -816,19 +927,13 @@ export default function Mail() {
         </button>
 
         <nav aria-label="Folders" className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-1 p-0.5">
-          {folders.map((f) => {
-            const Icon = FOLDER_ICON[f.id];
+          {folders.filter((f) => MAIN_FOLDERS.includes(f.id)).map((f) => {
+            const Icon = iconFor(f.id);
             const active = f.id === folder;
             return (
               <button
                 key={f.id}
-                onClick={() => {
-                  // A folder is a place to read; choosing one ends the search, as in Outlook.
-                  setSearch("");
-                  setQuery("");
-                  setFilter("all");
-                  setFolder(f.id);
-                }}
+                onClick={() => goToFolder(f.id)}
                 aria-current={active ? "page" : undefined}
                 className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px] transition-colors ${
                   active ? "bg-surface-2 font-medium text-text-primary" : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
@@ -844,6 +949,76 @@ export default function Mail() {
               </button>
             );
           })}
+
+          {/*
+            Everything else in the mailbox — Junk, Deleted Items and the
+            person's own folders (a folder per customer under Inbox, and so on) —
+            as Outlook's folder pane lists them. The button names the folder
+            when one of them is open.
+          */}
+          {(() => {
+            const others = folders.filter((f) => !MAIN_FOLDERS.includes(f.id));
+            const here = others.find((f) => f.id === folder);
+            const unread = others.filter((f) => f.id !== "deleted").reduce((n, f) => n + f.unread, 0);
+            const HereIcon = here ? iconFor(here.id) : FolderOpen;
+            return (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMoreOpen((o) => !o)}
+                  aria-expanded={moreOpen}
+                  aria-current={here ? "page" : undefined}
+                  className={`flex h-7 max-w-[180px] items-center gap-1.5 rounded-md px-2.5 text-[12.5px] transition-colors ${
+                    here ? "bg-surface-2 font-medium text-text-primary" : "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+                  }`}
+                >
+                  <HereIcon size={13} className="shrink-0" />
+                  <span className="truncate">{here ? here.label : "More"}</span>
+                  {!here && unread > 0 && (
+                    <span className="flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-surface-3 px-1 text-[10px] font-medium text-text-secondary">
+                      {unread}
+                    </span>
+                  )}
+                  <ChevronDown size={11} className="shrink-0" />
+                </button>
+                {moreOpen && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setMoreOpen(false)} />
+                    <div className="absolute left-0 top-9 z-30 max-h-96 w-64 overflow-y-auto rounded-xl border border-border bg-surface-1 p-1 shadow-lg">
+                      {others.length === 0 && <p className="px-2.5 py-2 text-[12px] text-text-muted">No other folders.</p>}
+                      {others.map((f, i) => {
+                        const Icon = iconFor(f.id);
+                        const firstOwn = f.id.startsWith("id:") && (i === 0 || !others[i - 1].id.startsWith("id:"));
+                        return (
+                          <div key={f.id}>
+                            {firstOwn && <p className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-text-muted">Your folders</p>}
+                            <button
+                              type="button"
+                              onClick={() => goToFolder(f.id)}
+                              style={{ paddingLeft: 10 + (f.depth ?? 0) * 14 }}
+                              className={`flex w-full items-center gap-2 rounded-lg py-1.5 pr-2.5 text-left text-[13px] hover:bg-surface-2 ${
+                                f.id === folder ? "bg-surface-2 font-medium text-text-primary" : "text-text-primary"
+                              }`}
+                            >
+                              <Icon size={13} className="shrink-0 text-text-muted" />
+                              <span className="min-w-0 flex-1 truncate">
+                                {f.label}
+                                {/* A folder inside the Inbox sits under a tab, not under the item above it. */}
+                                {f.parent && MAIN_FOLDERS.some((m) => folders.find((x) => x.id === m)?.label === f.parent) && (
+                                  <span className="text-text-muted"> · in {f.parent}</span>
+                                )}
+                              </span>
+                              {f.unread > 0 && <span className="shrink-0 text-[11px] tabular-nums text-text-muted">{f.unread}</span>}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </nav>
 
         <div className="relative min-w-[160px] flex-1 max-w-sm">
@@ -913,6 +1088,7 @@ export default function Mail() {
                   ["E", "Archive"],
                   ["Delete", "Delete"],
                   ["U", "Mark unread / read"],
+                  ["X", "Tick for a bulk action"],
                   ["N", "New message"],
                   ["/", "Search"],
                 ].map(([k, what]) => (
@@ -995,8 +1171,49 @@ export default function Mail() {
             </div>
           )}
 
-          {/* Outlook's Filter, above the list: everything, unread, flagged. */}
-          {!searching && (
+          {/*
+            With rows ticked, the bar over the list acts on all of them:
+            read, unread, flag, archive, move, delete — Outlook's bulk actions.
+          */}
+          {checked.size > 0 ? (
+            <div className="flex flex-wrap items-center gap-1 border-b border-border bg-bg-accent/60 px-2 py-1.5 text-[12px]">
+              <button
+                type="button"
+                onClick={() => setChecked(checked.size === rows.length ? new Set() : new Set(rows.map((r) => r.key)))}
+                title={checked.size === rows.length ? "Untick all" : "Tick all"}
+                aria-label={checked.size === rows.length ? "Untick all" : "Tick all"}
+                className="grid size-7 place-items-center rounded-md text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+              >
+                {checked.size === rows.length ? <CheckSquare size={15} /> : <MinusSquare size={15} />}
+              </button>
+              <span className="mr-1 font-medium text-text-primary">{checked.size} selected</span>
+              <BulkButton label="Mark read" onClick={() => void bulkSet({ isRead: true })} icon={<MailOpen size={13} />} />
+              <BulkButton label="Mark unread" onClick={() => void bulkSet({ isRead: false })} icon={<MailIcon size={13} />} />
+              <BulkButton
+                label={checkedMessages.every((m) => m.flagged) ? "Clear flag" : "Flag"}
+                onClick={() => void bulkSet({ flagged: !checkedMessages.every((m) => m.flagged) })}
+                icon={<Flag size={13} />}
+              />
+              {folder !== "archive" && (
+                <BulkButton label="Archive" onClick={() => void moveMany(checkedMessages, "archive", "Archive")} icon={<Archive size={13} />} />
+              )}
+              <MoveMenu compact folders={folders} current={folder} onMove={(to, label) => void moveMany(checkedMessages, to, label)} />
+              {folder === "deleted" || folder === "junk" ? (
+                <BulkButton label={folder === "junk" ? "Not junk" : "Restore"} onClick={() => void moveMany(checkedMessages, "inbox", "Inbox")} icon={<Undo2 size={13} />} />
+              ) : (
+                <BulkButton label="Delete" danger onClick={() => void removeMany(checkedMessages)} icon={<Trash2 size={13} />} />
+              )}
+              <button
+                type="button"
+                onClick={() => setChecked(new Set())}
+                aria-label="Clear the selection"
+                title="Clear the selection"
+                className="ml-auto grid size-7 place-items-center rounded-md text-text-muted hover:bg-surface-2 hover:text-text-primary"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : !searching && (
             <div className="flex items-center gap-0.5 border-b border-border px-2 py-1.5 text-[11.5px]" role="group" aria-label="Show">
               {(["all", "unread", "flagged"] as const).map((f) => (
                 <button
@@ -1056,6 +1273,9 @@ export default function Mail() {
                   queued={queued.get(m.id)}
                   highlight={terms}
                   showFolder={scope === "all"}
+                  checked={checked.has(m.id)}
+                  selecting={checked.size > 0}
+                  onCheck={(shift) => toggleCheck(m.id, shift)}
                   onOpen={() => void open(m)}
                   onChanged={() => void load()}
                 />
@@ -1075,6 +1295,9 @@ export default function Mail() {
                     count={Math.max(t.messages.length, sizes.get(t.conversationId) ?? 0)}
                     anyUnread={t.unread}
                     anyFlagged={t.messages.some((m) => m.flagged)}
+                    checked={checked.has(t.conversationId)}
+                    selecting={checked.size > 0}
+                    onCheck={(shift) => toggleCheck(t.conversationId, shift)}
                     onOpen={() => void open(newest, t.messages)}
                     onChanged={() => void load()}
                   />
@@ -1244,15 +1467,29 @@ export default function Mail() {
                     </button>
                   )}
 
-                  {/* The rest of Outlook's bar, as icons: Delete, flag, unread, open in Outlook. */}
-                  <button
-                    onClick={() => void remove(selected)}
-                    title={searching ? "Delete (to Deleted Items)" : "Delete the conversation (to Deleted Items)"}
-                    aria-label="Delete"
-                    className="grid size-8 place-items-center rounded-lg border border-border text-text-secondary transition-colors hover:border-border-strong hover:text-text-danger"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <MoveMenu compact folders={folders} current={selected.folder} onMove={(to, label) => void moveTo(selected, to, label)} />
+
+                  {/* The rest of Outlook's bar, as icons: Delete, flag, unread, open in Outlook.
+                      In Deleted Items and Junk, Delete gives way to Restore / Not junk. */}
+                  {selected.folder === "deleted" || selected.folder === "junk" ? (
+                    <button
+                      onClick={() => void moveTo(selected, "inbox", "Inbox")}
+                      title={selected.folder === "junk" ? "Not junk — back to the Inbox" : "Restore to the Inbox"}
+                      className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-[12px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
+                    >
+                      <Undo2 size={13} />
+                      {selected.folder === "junk" ? "Not junk" : "Restore"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => void remove(selected)}
+                      title={searching ? "Delete (to Deleted Items)" : "Delete the conversation (to Deleted Items)"}
+                      aria-label="Delete"
+                      className="grid size-8 place-items-center rounded-lg border border-border text-text-secondary transition-colors hover:border-border-strong hover:text-text-danger"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                   <button
                     onClick={() => void toggleFlag(selected)}
                     title={selected.flagged ? "Clear the flag" : "Flag for follow-up"}
@@ -1439,6 +1676,22 @@ function fullTime(isoDate: string) {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+/** One action in the bulk bar: an icon, and its word where there is room. */
+function BulkButton({ label, icon, onClick, danger }: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`flex h-7 items-center gap-1 rounded-md px-2 text-text-secondary transition-colors hover:bg-surface-2 ${danger ? "hover:text-text-danger" : "hover:text-text-primary"}`}
+    >
+      {icon}
+      <span className="hidden 2xl:inline">{label}</span>
+    </button>
+  );
 }
 
 /** Microsoft's four squares, drawn rather than fetched. */

@@ -5,7 +5,7 @@ import { readOutcome, type ConnectOutcome } from "../lib/outlookConnect";
 import { forOutlook } from "../lib/mailHtml";
 import { kqlFor, plainText, searchTerms, snippetAround } from "../lib/searchHighlight";
 import { MAIL_COLOR, MAIL_FONT, MAIL_IMAGE_MAX, MAIL_SIZE } from "../lib/mailStyle";
-import type { FolderId, MailMessage, Recipient } from "./mockMail";
+import type { BaseFolder, FolderId, MailMessage, Recipient } from "./mockMail";
 import {
   isEmbeddedImage,
   rewriteCidImages,
@@ -21,6 +21,10 @@ export interface MailFolder {
   label: string;
   total: number;
   unread: number;
+  /** 1 for a folder inside another (a customer's folder under Inbox). */
+  depth?: number;
+  /** The folder it sits in, by name. */
+  parent?: string;
 }
 
 /**
@@ -313,19 +317,29 @@ async function graph<T>(path: string, init: RequestInit = {}): Promise<T> {
  * Using the well-known names rather than folder ids matters: ids differ per
  * mailbox, so hardcoding one person's Inbox id would break for everyone else.
  */
-const WELL_KNOWN: Record<FolderId, string> = {
+const WELL_KNOWN: Record<BaseFolder, string> = {
   inbox: "inbox",
   sent: "sentitems",
   drafts: "drafts",
   archive: "archive",
+  junk: "junkemail",
+  deleted: "deleteditems",
 };
 
-const FOLDER_LABEL: Record<FolderId, string> = {
+const FOLDER_LABEL: Record<BaseFolder, string> = {
   inbox: "Inbox",
   sent: "Sent",
   drafts: "Drafts",
   archive: "Archive",
+  junk: "Junk",
+  deleted: "Deleted Items",
 };
+
+const isOwn = (f: FolderId): f is `id:${string}` => f.startsWith("id:");
+/** A folder as a Graph path segment: its well-known name, or its own id. */
+const folderRef = (f: FolderId) => (isOwn(f) ? encodeURIComponent(f.slice(3)) : WELL_KNOWN[f]);
+/** A folder as a move's destination, which takes the id itself. */
+const destinationOf = (f: FolderId) => (isOwn(f) ? f.slice(3) : WELL_KNOWN[f]);
 
 interface GraphFolder {
   id: string;
@@ -426,30 +440,76 @@ function asOutgoingHtml(content: string): string {
   return `<div style="font-family:${MAIL_FONT};font-size:${MAIL_SIZE};color:${MAIL_COLOR}">` + forOutlook(content) + `</div>`;
 }
 
+/** Outlook's own folders that are not places anybody files mail. */
+const SYSTEM_FOLDERS = new Set(["outbox", "conversation history", "sync issues", "rss feeds", "rss subscriptions", "clutter", "scheduled"]);
+
+/**
+ * Every folder worth showing: the four tabs, Junk and Deleted Items, and the
+ * person's own folders — top-level ones and those one level down (a customer's
+ * folder under Inbox), as Outlook's folder pane lists them.
+ *
+ * The six well-known ones are recognised by id (knownFolderIds), not by name,
+ * so a mailbox in another language still finds them.
+ */
 export async function listFolders(mailbox: string): Promise<MailFolder[]> {
-  const data = await graph<{ value: GraphFolder[] }>(
-    "/me/mailFolders?$top=60&$select=id,displayName,totalItemCount,unreadItemCount"
+  const [data, ids] = await Promise.all([
+    graph<{ value: Array<GraphFolder & { childFolderCount?: number }> }>(
+      "/me/mailFolders?$top=100&$select=id,displayName,totalItemCount,unreadItemCount,childFolderCount"
+    ),
+    knownFolderIds(mailbox),
+  ]);
+  const top = data.value;
+  // One level down, for the folders that have any — the Inbox first, which is
+  // where most people keep a folder per customer. At most a dozen parents.
+  const parents = top.filter((f) => (f.childFolderCount ?? 0) > 0 && !SYSTEM_FOLDERS.has(f.displayName.toLowerCase())).slice(0, 12);
+  const children = await Promise.all(
+    parents.map((p) =>
+      graph<{ value: GraphFolder[] }>(
+        `/me/mailFolders/${encodeURIComponent(p.id)}/childFolders?$top=100&$select=id,displayName,totalItemCount,unreadItemCount`
+      )
+        .then((r) => r.value.map((c) => ({ ...c, parent: p })))
+        .catch(() => [] as Array<GraphFolder & { parent: GraphFolder }>)
+    )
   );
 
-  // Match Graph's folders to ours by display name, so a mailbox in another
-  // language or with renamed folders degrades to zeroes rather than throwing.
-  const byName = new Map(data.value.map((f) => [f.displayName.toLowerCase(), f]));
-  const lookup: Record<FolderId, string[]> = {
-    inbox: ["inbox"],
-    sent: ["sent items", "sent"],
-    drafts: ["drafts"],
-    archive: ["archive"],
-  };
-
-  return (Object.keys(WELL_KNOWN) as FolderId[]).map((id) => {
-    const hit = lookup[id].map((n) => byName.get(n)).find(Boolean);
+  const byId = new Map(top.map((f) => [f.id, f]));
+  const known: Array<[BaseFolder, KnownFolder]> = [
+    ["inbox", "inbox"],
+    ["sent", "sent"],
+    ["drafts", "drafts"],
+    ["archive", "archive"],
+    ["junk", "junk"],
+    ["deleted", "deleted"],
+  ];
+  const knownIds = new Set(Object.values(ids));
+  const out: MailFolder[] = known.map(([id, k]) => {
+    const hit = ids[k] ? byId.get(ids[k]!) : undefined;
     return {
       id,
       label: FOLDER_LABEL[id],
       total: hit?.totalItemCount ?? 0,
-      unread: id === "inbox" ? hit?.unreadItemCount ?? 0 : 0,
+      // A Sent item or a draft being "unread" is meaningless.
+      unread: id === "sent" || id === "drafts" ? 0 : hit?.unreadItemCount ?? 0,
     };
   });
+
+  const own = (f: GraphFolder, depth: number, parent?: string): MailFolder => ({
+    id: `id:${f.id}`,
+    label: f.displayName,
+    total: f.totalItemCount,
+    unread: f.unreadItemCount,
+    depth,
+    parent,
+  });
+  // The Inbox's own folders first — where most people keep one per customer —
+  // then the top-level ones, each with the folders inside it.
+  for (const c of children.flat().filter((x) => x.parent.id === ids.inbox)) out.push(own(c, 1, "Inbox"));
+  for (const f of top) {
+    if (knownIds.has(f.id) || SYSTEM_FOLDERS.has(f.displayName.toLowerCase())) continue;
+    out.push(own(f, 0));
+    for (const c of children.flat().filter((x) => x.parent.id === f.id)) out.push(own(c, 1, f.displayName));
+  }
+  return out;
 }
 
 /**
@@ -496,8 +556,8 @@ export async function listMessages(
   // $search and $orderby cannot be combined in Graph; search results come back
   // by relevance, which is the right order for a search anyway.
   const path = q?.trim()
-    ? `/me/mailFolders/${WELL_KNOWN[folder]}/messages?$top=50&$select=${LIST_SELECT}&$search=${encodeURIComponent(`"${q.trim()}"`)}`
-    : `/me/mailFolders/${WELL_KNOWN[folder]}/messages?$top=50&$select=${LIST_SELECT}&$orderby=receivedDateTime desc${only}`;
+    ? `/me/mailFolders/${folderRef(folder)}/messages?$top=50&$select=${LIST_SELECT}&$search=${encodeURIComponent(`"${q.trim()}"`)}`
+    : `/me/mailFolders/${folderRef(folder)}/messages?$top=50&$select=${LIST_SELECT}&$orderby=receivedDateTime desc${only}`;
 
   const data = await graph<{ value: GraphMessage[]; "@odata.nextLink"?: string }>(path, {
     // ConsistencyLevel is required for $search on messages.
@@ -550,7 +610,7 @@ export async function searchMessages(
   folder: FolderId | null
 ): Promise<MessagePage> {
   const kql = kqlFor(query);
-  const base = folder ? `/me/mailFolders/${WELL_KNOWN[folder]}/messages` : "/me/messages";
+  const base = folder ? `/me/mailFolders/${folderRef(folder)}/messages` : "/me/messages";
   const [data, ids] = await Promise.all([
     graph<{ value: SearchHit[]; "@odata.nextLink"?: string }>(
       `${base}?$top=25&$select=${LIST_SELECT},parentFolderId,body&$search=${encodeURIComponent(kql)}`,
@@ -591,7 +651,7 @@ function searchResults(
 ): MailMessage[] {
   const terms = searchTerms(query);
   const label = (id?: string): { folder: FolderId; label: string } => {
-    if (folder) return { folder, label: FOLDER_LABEL[folder] };
+    if (folder) return { folder, label: isOwn(folder) ? "Folder" : FOLDER_LABEL[folder] };
     if (id && id === ids.sent) return { folder: "sent", label: "Sent" };
     if (id && id === ids.drafts) return { folder: "drafts", label: "Drafts" };
     if (id && id === ids.archive) return { folder: "archive", label: "Archive" };
@@ -833,7 +893,7 @@ export async function moveMessage(
 ): Promise<void> {
   await graph(`/me/messages/${encodeURIComponent(id)}/move`, {
     method: "POST",
-    body: JSON.stringify({ destinationId: WELL_KNOWN[folder] }),
+    body: JSON.stringify({ destinationId: destinationOf(folder) }),
   });
 }
 

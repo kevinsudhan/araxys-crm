@@ -450,7 +450,7 @@ export function mockPost(path: string, body: unknown): Promise<unknown> {
 
   const deleteMatch = path.match(/^\/api\/mail\/messages\/([^/]+)\/delete$/);
   if (deleteMatch) {
-    dropMessage(b.mailbox, deleteMatch[1]);
+    moveMessage(b.mailbox, deleteMatch[1], "deleted");
     return delay({ ok: true });
   }
 

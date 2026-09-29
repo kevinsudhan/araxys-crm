@@ -1,4 +1,4 @@
-import { AlertCircle, Flag, Paperclip } from "lucide-react";
+import { AlertCircle, Check, Flag, Paperclip } from "lucide-react";
 import PushMailToQueue from "./PushMailToQueue";
 import Highlighted from "./Highlighted";
 import { initialsFor } from "../lib/initials";
@@ -50,6 +50,9 @@ export default function MailListRow({
   anyFlagged,
   highlight,
   showFolder,
+  checked,
+  selecting,
+  onCheck,
   onOpen,
   onChanged,
 }: {
@@ -72,6 +75,12 @@ export default function MailListRow({
   highlight?: string[];
   /** A search across every folder: say which folder each result is in. */
   showFolder?: boolean;
+  /** Ticked for a bulk action. */
+  checked?: boolean;
+  /** Anything in the list is ticked, so every row shows its box. */
+  selecting?: boolean;
+  /** Tick or untick; `shift` for everything since the last one. */
+  onCheck?: (shift: boolean) => void;
   onOpen: () => void;
   onChanged: () => void;
 }) {
@@ -91,10 +100,31 @@ export default function MailListRow({
       invalid, and browsers resolve it by dropping one of them.
     */
     <li
-      className={`relative transition-colors ${
-        selected ? "bg-surface-2" : "hover:bg-surface-2/70"
+      className={`group relative transition-colors ${
+        checked ? "bg-bg-accent/50" : selected ? "bg-surface-2" : "hover:bg-surface-2/70"
       }`}
     >
+      {/*
+        The tick box sits over the avatar, as Outlook's does: shown on hover,
+        and on every row once anything is ticked. A click on the avatar ticks
+        rather than opens, and Shift ticks a run.
+      */}
+      {onCheck && (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={!!checked}
+          aria-label={checked ? "Untick" : "Tick for a bulk action"}
+          onClick={(e) => onCheck(e.shiftKey)}
+          className={`absolute left-4 top-2.5 z-10 grid size-8 place-items-center rounded-lg border transition-opacity ${
+            checked
+              ? "border-brand bg-brand text-white opacity-100"
+              : `border-border-strong bg-surface-1 text-transparent ${selecting ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`
+          }`}
+        >
+          <Check size={15} strokeWidth={3} />
+        </button>
+      )}
       {/* The state gutter, four columns wide by the time it reaches the avatar:
           the selection bar, a gap, the unread dot, a gap. Both marks can be on
           at once — a selected message can still be unread — so they each need

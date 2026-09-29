@@ -306,6 +306,8 @@ export interface MailFolder {
   label: string;
   total: number;
   unread: number;
+  depth?: number;
+  parent?: string;
 }
 
 import * as graph from "./graphMail";
@@ -378,7 +380,7 @@ export const searchMessages = async (
 ): Promise<{ messages: MailMessage[]; nextLink?: string }> => {
   if (live()) return graph.searchMessages(mailbox, query, folder);
   const terms = searchTerms(query);
-  const label: Record<FolderId, string> = { inbox: "Inbox", sent: "Sent", drafts: "Drafts", archive: "Archive" };
+  const label: Record<string, string> = { inbox: "Inbox", sent: "Sent", drafts: "Drafts", archive: "Archive", junk: "Junk", deleted: "Deleted Items" };
   const messages = allMessages()
     .filter((m) => m.mailbox === mailbox && (!folder || m.folder === folder))
     .map((m) => ({ m, text: plainText(m.body.content, m.body.contentType === "html") }))
@@ -389,7 +391,7 @@ export const searchMessages = async (
         .filter(Boolean)
         .every((w) => hasHit(`${m.subject} ${m.from.emailAddress.name} ${m.from.emailAddress.address} ${text}`, searchTerms(w)))
     )
-    .map(({ m, text }) => ({ ...m, searchSnippet: snippetAround(text, terms), folderLabel: label[m.folder] }))
+    .map(({ m, text }) => ({ ...m, searchSnippet: snippetAround(text, terms), folderLabel: label[m.folder] ?? "Folder" }))
     .sort((a, b) => Date.parse(b.receivedDateTime) - Date.parse(a.receivedDateTime));
   return { messages };
 };

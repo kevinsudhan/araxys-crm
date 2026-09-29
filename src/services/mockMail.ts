@@ -25,7 +25,12 @@
 const MIN = 60_000;
 const ago = (minutes: number) => new Date(Date.now() - minutes * MIN).toISOString();
 
-export type FolderId = "inbox" | "sent" | "drafts" | "archive";
+/**
+ * A mail folder: the six Outlook every mailbox has, or one of the person's own,
+ * named by its Graph id after "id:".
+ */
+export type BaseFolder = "inbox" | "sent" | "drafts" | "archive" | "junk" | "deleted";
+export type FolderId = BaseFolder | `id:${string}`;
 
 export interface Recipient {
   emailAddress: { name: string; address: string };
@@ -131,12 +136,19 @@ const messages: MailMessage[] = [];
 // Queries — the four operations the UI needs
 // ---------------------------------------------------------------------------
 
-export const FOLDERS: Array<{ id: FolderId; label: string }> = [
+export const FOLDERS: Array<{ id: FolderId; label: string; depth?: number; parent?: string }> = [
   { id: "inbox", label: "Inbox" },
   { id: "sent", label: "Sent" },
   { id: "drafts", label: "Drafts" },
   { id: "archive", label: "Archive" },
+  { id: "junk", label: "Junk" },
+  { id: "deleted", label: "Deleted Items" },
 ];
+
+/** A folder of the person's own, in the local store (running the app locally only). */
+export function addFolder(id: `id:${string}`, label: string, parent?: string) {
+  if (!FOLDERS.some((f) => f.id === id)) FOLDERS.push({ id, label, depth: parent ? 1 : 0, parent });
+}
 
 const forMailbox = (mailbox: string) => messages.filter((m) => m.mailbox === mailbox);
 
@@ -155,9 +167,11 @@ export function listFolders(mailbox: string) {
     return {
       id: f.id,
       label: f.label,
+      depth: f.depth,
+      parent: f.parent,
       total: inFolder.length,
-      // Only unread in the inbox is worth badging; a Sent item being "unread" is meaningless.
-      unread: f.id === "inbox" ? inFolder.filter((m) => !m.isRead).length : 0,
+      // A Sent item or a draft being "unread" is meaningless.
+      unread: f.id === "sent" || f.id === "drafts" ? 0 : inFolder.filter((m) => !m.isRead).length,
     };
   });
 }
