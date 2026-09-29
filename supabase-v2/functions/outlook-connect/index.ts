@@ -42,8 +42,11 @@ const CLIENT_SECRET = Deno.env.get("MS_CLIENT_SECRET");
 const REDIRECT_URI = Deno.env.get("OUTLOOK_REDIRECT_URI") ?? `${SUPABASE_URL}/functions/v1/outlook-connect`;
 const ORIGINS = [...APP_ORIGINS, ...(Deno.env.get("OUTLOOK_APP_ORIGINS") ?? "").split(",").map((o) => o.trim()).filter(Boolean)];
 
-/** The same scopes the Microsoft sign-in asks for (src/lib/auth.tsx). */
-const SCOPES = "offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send";
+/**
+ * The same scopes the Microsoft sign-in asks for (src/lib/auth.tsx), with
+ * MailboxSettings.ReadWrite for Mail's Rules window (admin-consented 29 Sep 2026).
+ */
+const SCOPES = "offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send MailboxSettings.ReadWrite";
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 

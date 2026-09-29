@@ -45,8 +45,17 @@ const TENANT = Deno.env.get("MS_TENANT_ID");
 const CLIENT_ID = Deno.env.get("MS_CLIENT_ID");
 const CLIENT_SECRET = Deno.env.get("MS_CLIENT_SECRET");
 
-/** The same scopes the sign-in asks for (src/lib/auth.tsx). */
-const SCOPES = "offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send";
+/** The same scopes the sign-in asks for (src/lib/auth.tsx), before rules. */
+const BASE_SCOPES = "offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send";
+/**
+ * Plus MailboxSettings.ReadWrite, for Mail's Rules window — admin-consented on
+ * 29 Sep 2026. Asked for on top of the base; if Microsoft answers that it is
+ * not consented, the refresh is asked again without it (`exchange`). Microsoft
+ * reports a missing consent as invalid_grant, which below means "the connection
+ * is over": without the retry, a consent withdrawn later would disconnect every
+ * mailbox instead of costing only the Rules window.
+ */
+const SCOPES = `${BASE_SCOPES} MailboxSettings.ReadWrite`;
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -59,7 +68,7 @@ const reconnect = (message: string) => json({ error: message, reconnect: true },
 
 type Exchange =
   | { ok: true; access_token: string; expires_in: number; refresh_token: string }
-  | { ok: false; ended: boolean; message: string };
+  | { ok: false; ended: boolean; message: string; scopeRefused?: boolean };
 
 /**
  * Redeems a refresh token. `ended` is Microsoft saying the connection is over
@@ -68,12 +77,18 @@ type Exchange =
  * to fix and is not the person's fault, so their connection is kept.
  */
 async function exchange(refresh: string): Promise<Exchange> {
+  const first = await exchangeFor(refresh, SCOPES);
+  if (!first.ok && first.scopeRefused) return exchangeFor(refresh, BASE_SCOPES);
+  return first;
+}
+
+async function exchangeFor(refresh: string, scope: string): Promise<Exchange> {
   let r: Response;
   try {
     r = await fetch(`https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: CLIENT_ID!, client_secret: CLIENT_SECRET!, grant_type: "refresh_token", refresh_token: refresh, scope: SCOPES }),
+      body: new URLSearchParams({ client_id: CLIENT_ID!, client_secret: CLIENT_SECRET!, grant_type: "refresh_token", refresh_token: refresh, scope }),
     });
   } catch (e) {
     return { ok: false, ended: false, message: `Microsoft could not be reached: ${e instanceof Error ? e.message : e}` };
@@ -85,6 +100,11 @@ async function exchange(refresh: string): Promise<Exchange> {
   const code = String(body.error ?? r.status);
   // "AADSTS700082: The refresh token has expired due to inactivity…", before the trace ids.
   const said = String(body.error_description ?? "").split(/\r?\n| Trace ID:/)[0].trim();
+  // A scope Microsoft will not grant (not consented, or not recognised): the
+  // caller asks again without the extra one rather than ending the connection.
+  if (scope !== BASE_SCOPES && (code === "invalid_scope" || /AADSTS65001|AADSTS650057|AADSTS70011|consent/i.test(said))) {
+    return { ok: false, ended: false, message: said || code, scopeRefused: true };
+  }
   if (code === "invalid_grant" || code === "interaction_required") {
     return { ok: false, ended: true, message: said || code };
   }

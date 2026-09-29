@@ -531,14 +531,12 @@ createReply so it stays threaded).
   Graph keeps a moved message's received date.
 - **Rules**: Outlook's own inbox rules (`graphMail.listRules` etc., `RulesDialog.tsx`) — from,
   subject, subject-or-body, attachment → move, mark read, mark important, delete, stop. They need
-  the delegated permission **MailboxSettings.ReadWrite**, which the CRM does not have yet, so the
-  Rules window says so. Rules calls are "soft" on 403 (`GraphForbiddenError`): without this, a
-  403 clears the Outlook token and disconnects the mailbox. **To switch rules on**, once an admin
-  has added MailboxSettings.ReadWrite (Delegated) to the Azure app behind `MS_CLIENT_ID` and
-  granted admin consent: add ` MailboxSettings.ReadWrite` to the scopes in `src/lib/auth.tsx`
-  (signInWithMicrosoft) and to `SCOPES` in `functions/outlook-connect` and
-  `functions/outlook-token`, deploy both functions (check each one's verify_jwt first), and
-  push. Adding the scope before consent would make every token refresh fail.
+  the delegated permission **MailboxSettings.ReadWrite**, admin-consented on 29 Sep 2026 and now
+  asked for by the sign-in (`auth.tsx`), `outlook-connect` and `outlook-token`. Rules calls are
+  "soft" on 403 (`GraphForbiddenError`): a 403 elsewhere clears the Outlook token. `outlook-token`
+  asks for the base scopes plus this one, and if Microsoft refuses it (consent withdrawn: it says
+  so as invalid_grant, which otherwise ends the connection) asks again without it — so losing the
+  consent costs the Rules window, never the mailbox.
 - Phone sheets (compose, rules, file to enquiry, add container, ask partners, partner form, rate
   master) had no background below `sm`; the folder tabs now wrap so a phone is not 448 px wide.
 

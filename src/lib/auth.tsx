@@ -216,7 +216,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "azure",
       options: {
-        scopes: "profile email offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send",
+        // MailboxSettings.ReadWrite: Outlook's rules, from Mail's Rules window (admin-consented 29 Sep 2026).
+        scopes: "profile email offline_access User.Read Mail.Read Mail.ReadWrite Mail.Send MailboxSettings.ReadWrite",
         redirectTo: `${window.location.origin}/`,
       },
     });
