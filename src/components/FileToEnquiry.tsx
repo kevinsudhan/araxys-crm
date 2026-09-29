@@ -147,7 +147,7 @@ export default function FileToEnquiry({
           <div
             role="dialog"
             aria-label="File this thread against an enquiry"
-            className="flex max-h-[80vh] w-full flex-col rounded-t-card shadow-xl sm:card sm:max-w-lg"
+            className="flex max-h-[80vh] w-full flex-col rounded-t-card bg-surface-1 shadow-xl sm:card sm:max-w-lg"
           >
             <header className="flex items-center justify-between border-b border-border px-5 py-3">
               <div className="min-w-0">

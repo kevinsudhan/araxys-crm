@@ -32,8 +32,8 @@ import {
   ChevronDown,
   Undo2,
   CheckSquare,
-  Square,
   MinusSquare,
+  ListFilter,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import ComposeMail from "../components/ComposeMail";
@@ -46,6 +46,7 @@ import MailListRow from "../components/MailListRow";
 import MailConversation from "../components/MailConversation";
 import MoveMenu from "../components/MoveMenu";
 import SnoozeMenu from "../components/SnoozeMenu";
+import RulesDialog from "../components/RulesDialog";
 import { bringBack, listReturned, listSnoozes, markSeen, returnDue, snoozeMessages, type Snooze } from "../services/snooze";
 import { snoozeLabel } from "../lib/snoozeTimes";
 import Highlighted from "../components/Highlighted";
@@ -200,6 +201,7 @@ export default function Mail() {
   }, [toast]);
   const [showKeys, setShowKeys] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   /** What is snoozed in this mailbox and not back yet, by the id it has in the Snoozed folder. */
   const [snoozes, setSnoozes] = useState<Snooze[]>([]);
   const snoozeOf = useMemo(() => new Map(snoozes.map((x) => [x.message_id, x])), [snoozes]);
@@ -824,7 +826,7 @@ export default function Mail() {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     const target = e.target instanceof Element ? e.target : null;
     if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="listbox"]')) return;
-    if (composing || editingSignature) return;
+    if (composing || editingSignature || rulesOpen) return;
     const at = rows.findIndex((r) => r.group.some((x) => x.id === selectedId));
     const key = e.key;
     const go = (i: number) => {
@@ -991,7 +993,7 @@ export default function Mail() {
           New message
         </button>
 
-        <nav aria-label="Folders" className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-1 p-0.5">
+        <nav aria-label="Folders" className="flex max-w-full flex-wrap items-center gap-0.5 rounded-lg border border-border bg-surface-1 p-0.5">
           {folders.filter((f) => MAIN_FOLDERS.includes(f.id)).map((f) => {
             const Icon = iconFor(f.id);
             const active = f.id === folder;
@@ -1127,6 +1129,17 @@ export default function Mail() {
         >
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
           <span className="hidden xl:inline">Refresh</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setRulesOpen(true)}
+          title="Rules — file incoming mail automatically"
+          aria-label="Rules"
+          className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border bg-surface-1 text-[12px] text-text-secondary hover:text-text-primary xl:px-3"
+        >
+          <ListFilter size={13} />
+          <span className="hidden xl:inline">Rules</span>
         </button>
 
         <div className="relative hidden lg:block">
@@ -1679,6 +1692,8 @@ export default function Mail() {
           {toast}
         </div>
       )}
+
+      {rulesOpen && <RulesDialog mailbox={mailbox} folders={folders} onClose={() => setRulesOpen(false)} />}
 
       {editingSignature && (
         <SignatureEditor

@@ -399,7 +399,7 @@ export default function ComposeMail({
       onClick={requestClose}
     >
       <div
-        className={`w-full rounded-t-card sm:card shadow-xl flex flex-col ${big ? "h-[100dvh] sm:h-[calc(100dvh-3rem)] sm:max-w-6xl" : "max-h-[92vh] sm:max-w-3xl"}`}
+        className={`w-full rounded-t-card bg-surface-1 sm:card shadow-xl flex flex-col ${big ? "h-[100dvh] sm:h-[calc(100dvh-3rem)] sm:max-w-6xl" : "max-h-[92vh] sm:max-w-3xl"}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={TITLE[kind ?? (editing ? "draft" : "new")]}

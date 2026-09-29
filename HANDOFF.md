@@ -16,10 +16,10 @@ session should read this whole file before changing anything. §0 is the short v
   enquiries and shipments created by the desk. Treat the database as production.
 - **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
   `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (47 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (52 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **104**, so the next one is `105-….sql`.
+  migration filename (§6). The last migration is **105**, so the next one is `106-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 96 migrations
+## 4. Data model — 97 migrations
 
-`supabase-v2/001…104`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…105`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `105` | **Mail snooze.** `mail_snoozes`: one row per snoozed message (its id in the Snoozed folder, when it comes back, `returned_at`, `seen_at`), visible and changeable only by its owner (RLS checked as two employees, rolled back). Outlook's snooze is not in Graph, so `services/snooze.ts` moves the message to a Snoozed folder and the Mail page brings due ones back on open and on its minute refresh |
 | `104` | **Your own profile: the signature, and nothing else.** 103's `(select auth.uid())` in `profiles_select_own`, together with 003's self-update policy that read `profiles` to pin the role, made every signature save fail with "infinite recursion detected in policy for relation profiles" (28 Sep, about a day). The self-update policy now only says "your own row"; the trigger `profiles_guard_self_update` refuses a browser (`current_user = 'authenticated'`) changing anything but `signature`. That also closes a hole older than 103: the pin covered `role` only, so an employee could set their own `can_approve_quotes` / `can_assign` through the API. Staff accounts (service role) and migrations are not held to it |
 | `103` | **The audit's fixes.** `shipment_margin` and `console_margin` count **before GST**, as Job closing does (`invoice_net_inr`, `bill_net_inr`: lines in rupees, else the taxable value; credit notes negative). **Cancel and reopen a shipment:** `cancel_shipment(id, reason)` / `reopen_shipment(id, reason)`, with `shipments.cancelled_at/by`, `cancel_reason`; refused on a signed-off job; reopening goes back to where the milestones say; both on the timeline. `set_shipment_stage` dropped. Voice-era `capture_call_as_intake` and `forget_call` dropped, and `promote_intake`'s `public.calls` branch removed. Ten policies read `(select auth.uid())` once per query; every foreign key in `public` has an index (`…_fkx`) |
 | `102` | **Customer milestones.** `milestone_templates` (per mode; customs per direction) and `shipment_milestones` (per job: day, time as told, where, a note for the customer, hidden, `added` for the desk's own updates). Staff read; written only by `save_shipment_milestone`, `add_shipment_update`, `delete_shipment_update`. A milestone that marks a stage ticks that workflow step (`milestone_to_step`), and **a stage step can be ticked no other way** (`guard_milestone_step`, flag `app.milestone_write`). The warehouse-receipt trigger is dropped; movements no longer tick stage steps; `apply_tracking_event` needs a person and records the milestone (`set_shipment_stage` went in 103). `shipment_tracking` rebuilt to the booking plus visible milestones; `shipment_track_points` and `shipment_customs_public` dropped, so the anonymous key reaches three functions. Seeded on every new booking (booked reached on creation) and backfilled from the ticked stage steps |
@@ -295,7 +296,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 47 suites, pure logic
+npm test                             # 52 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -312,7 +313,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 47 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 52 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -513,7 +514,33 @@ and "Open in Outlook" (`webLink`) are icons beside Archive. Keyboard: arrows or 
 Delete, U, N, / (the keyboard button lists them). Compose suggests recipients from customers,
 partners, the desk and recent correspondents (`services/addressBook.ts`, `lib/addressRank.ts`),
 and "Save draft" keeps it in Outlook's Drafts (`graphMail.saveDraft`; a reply is started with
-createReply so it stays threaded). An attachment's name opens a PDF or picture in a new tab.
+createReply so it stays threaded).
+
+**Mail, 29 Sep (later).**
+- **Attachments open inside the app** (`AttachmentViewer.tsx`, loaded on first use): PDFs page by
+  page with zoom (pdfjs-dist **4.10.38**, pinned: 5+ needs Node 22 — Netlify builds on 20 — and
+  newer phones), pictures and text, with Download. Other files download. A new tab was a browser
+  tab in the installed app and a blank Safari page on an iPhone.
+- **Every folder**: Junk, Deleted Items and the person's own folders (top level and one level
+  down) under "More". `FolderId` is the six well-known ones or `id:<graph id>`. Move to, and in
+  Deleted Items / Junk, Restore / Not junk in place of Delete. Nothing deletes permanently.
+- **Bulk actions**: tick boxes over the avatars (Shift for a run, X from the keyboard); the bar
+  marks read/unread, flags, archives, moves, snoozes or deletes, six at a time (Graph throttles).
+- **Snooze** (105): see the migration table. Later today, tomorrow, the weekend, next week, or a
+  date and time. Mail back from snooze is pinned to the top of the Inbox until opened, because
+  Graph keeps a moved message's received date.
+- **Rules**: Outlook's own inbox rules (`graphMail.listRules` etc., `RulesDialog.tsx`) — from,
+  subject, subject-or-body, attachment → move, mark read, mark important, delete, stop. They need
+  the delegated permission **MailboxSettings.ReadWrite**, which the CRM does not have yet, so the
+  Rules window says so. Rules calls are "soft" on 403 (`GraphForbiddenError`): without this, a
+  403 clears the Outlook token and disconnects the mailbox. **To switch rules on**, once an admin
+  has added MailboxSettings.ReadWrite (Delegated) to the Azure app behind `MS_CLIENT_ID` and
+  granted admin consent: add ` MailboxSettings.ReadWrite` to the scopes in `src/lib/auth.tsx`
+  (signInWithMicrosoft) and to `SCOPES` in `functions/outlook-connect` and
+  `functions/outlook-token`, deploy both functions (check each one's verify_jwt first), and
+  push. Adding the scope before consent would make every token refresh fail.
+- Phone sheets (compose, rules, file to enquiry, add container, ask partners, partner form, rate
+  master) had no background below `sm`; the folder tabs now wrap so a phone is not 448 px wide.
 
 **Email HTML must be table-based with inline styles.**
 

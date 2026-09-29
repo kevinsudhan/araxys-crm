@@ -271,11 +271,27 @@ async function usableToken(): Promise<string> {
  * fetch against Graph with the token, renewing it once if Graph says it has
  * run out. A 401 means nothing was done, so sending again is safe.
  */
-async function graphFetch(url: string, init: RequestInit = {}): Promise<Response> {
+/**
+ * Microsoft refused one thing this connection was not granted — rules need
+ * MailboxSettings.ReadWrite — while the rest of the mailbox still works. Kept
+ * apart from GraphAuthError so it does not disconnect Outlook.
+ */
+export class GraphForbiddenError extends Error {
+  constructor(message = "Microsoft has not granted the CRM this permission.") {
+    super(message);
+    this.name = "GraphForbiddenError";
+  }
+}
+
+async function graphFetch(url: string, init: RequestInit = {}, soft403 = false): Promise<Response> {
   const call = (token: string) =>
     fetch(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` } });
   let r = await call(await usableToken());
   if (r.status === 401) r = await call(await renew());
+
+  // A 403 on something optional (rules) is that one permission, not the
+  // connection: the caller says so, and gets the answer to deal with.
+  if (r.status === 403 && soft403) return r;
 
   // Still 401 after a fresh token, or 403 (a permission the app was never
   // granted): both mean "reconnect", and neither is worth a stack trace at the user.
@@ -288,13 +304,18 @@ async function graphFetch(url: string, init: RequestInit = {}): Promise<Response
   return r;
 }
 
-async function graph<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function graph<T>(path: string, init: RequestInit = {}, soft403 = false): Promise<T> {
   // A path, or a next-page link Graph itself handed back (and only Graph's).
   const url = path.startsWith("https://graph.microsoft.com/") ? path : `${GRAPH}${path}`;
-  const r = await graphFetch(url, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...((init.headers as Record<string, string> | undefined) ?? {}) },
-  });
+  const r = await graphFetch(
+    url,
+    {
+      ...init,
+      headers: { "Content-Type": "application/json", ...((init.headers as Record<string, string> | undefined) ?? {}) },
+    },
+    soft403
+  );
+  if (r.status === 403 && soft403) throw new GraphForbiddenError();
 
   if (!r.ok) {
     const detail = await r.text();
@@ -865,6 +886,109 @@ export function snoozedFolderId(mailbox: string): Promise<string> {
   found.catch(() => snoozedIds.delete(mailbox));
   snoozedIds.set(mailbox, found);
   return found;
+}
+
+/**
+ * Outlook's own inbox rules (Graph messageRules), run by Exchange as mail
+ * arrives — whether or not anybody has the CRM open.
+ *
+ * They need the delegated permission MailboxSettings.ReadWrite. Every call
+ * here is "soft" on 403: without the permission the rules screen says what to
+ * grant, and the rest of Outlook stays connected.
+ */
+export interface MailRuleInput {
+  displayName: string;
+  isEnabled: boolean;
+  fromAddresses: string[];
+  subjectContains: string[];
+  bodyOrSubjectContains: string[];
+  hasAttachments: boolean;
+  moveToFolder: FolderId | null;
+  markAsRead: boolean;
+  markImportant: boolean;
+  deleteIt: boolean;
+  stopProcessingRules: boolean;
+}
+export interface MailRule extends MailRuleInput {
+  id: string;
+  sequence: number;
+}
+
+interface GraphRule {
+  id: string;
+  displayName: string;
+  sequence: number;
+  isEnabled: boolean;
+  conditions?: {
+    fromAddresses?: Array<{ emailAddress: { address: string } }>;
+    subjectContains?: string[];
+    bodyOrSubjectContains?: string[];
+    hasAttachments?: boolean;
+  };
+  actions?: {
+    moveToFolder?: string;
+    markAsRead?: boolean;
+    markImportance?: string;
+    delete?: boolean;
+    stopProcessingRules?: boolean;
+  };
+}
+
+const RULES = "/me/mailFolders/inbox/messageRules";
+
+export async function listRules(mailbox: string): Promise<MailRule[]> {
+  const [data, ids] = await Promise.all([graph<{ value: GraphRule[] }>(RULES, {}, true), knownFolderIds(mailbox)]);
+  const folderOf = (id?: string): FolderId | null => {
+    if (!id) return null;
+    const known = (Object.entries(ids) as Array<[KnownFolder, string]>).find(([, v]) => v === id)?.[0];
+    return known && known in WELL_KNOWN ? (known as BaseFolder) : `id:${id}`;
+  };
+  return data.value
+    .map((r) => ({
+      id: r.id,
+      sequence: r.sequence,
+      displayName: r.displayName,
+      isEnabled: r.isEnabled,
+      fromAddresses: (r.conditions?.fromAddresses ?? []).map((a) => a.emailAddress.address),
+      subjectContains: r.conditions?.subjectContains ?? [],
+      bodyOrSubjectContains: r.conditions?.bodyOrSubjectContains ?? [],
+      hasAttachments: !!r.conditions?.hasAttachments,
+      moveToFolder: folderOf(r.actions?.moveToFolder),
+      markAsRead: !!r.actions?.markAsRead,
+      markImportant: r.actions?.markImportance === "high",
+      deleteIt: !!r.actions?.delete,
+      stopProcessingRules: !!r.actions?.stopProcessingRules,
+    }))
+    .sort((a, b) => a.sequence - b.sequence);
+}
+
+export async function createRule(mailbox: string, input: MailRuleInput, sequence: number): Promise<void> {
+  const ids = await knownFolderIds(mailbox);
+  const folderId = (f: FolderId) => (isOwn(f) ? f.slice(3) : ids[f as KnownFolder]);
+  const conditions: GraphRule["conditions"] = {};
+  if (input.fromAddresses.length) conditions.fromAddresses = input.fromAddresses.map((address) => ({ emailAddress: { address } }));
+  if (input.subjectContains.length) conditions.subjectContains = input.subjectContains;
+  if (input.bodyOrSubjectContains.length) conditions.bodyOrSubjectContains = input.bodyOrSubjectContains;
+  if (input.hasAttachments) conditions.hasAttachments = true;
+  const actions: GraphRule["actions"] = {};
+  if (input.moveToFolder) {
+    const to = folderId(input.moveToFolder);
+    if (!to) throw new Error("That folder could not be found in this mailbox.");
+    actions.moveToFolder = to;
+  }
+  if (input.markAsRead) actions.markAsRead = true;
+  if (input.markImportant) actions.markImportance = "high";
+  if (input.deleteIt) actions.delete = true;
+  if (input.stopProcessingRules) actions.stopProcessingRules = true;
+  await graph(RULES, { method: "POST", body: JSON.stringify({ displayName: input.displayName, sequence, isEnabled: input.isEnabled, conditions, actions }) }, true);
+}
+
+export async function setRuleEnabled(id: string, isEnabled: boolean): Promise<void> {
+  await graph(`${RULES}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ isEnabled }) }, true);
+}
+
+export async function deleteRule(id: string): Promise<void> {
+  await graph(`${RULES}/${encodeURIComponent(id)}`, { method: "DELETE" }, true);
 }
 
 /** To Deleted Items, as Outlook's Delete does — recoverable there, not gone. */

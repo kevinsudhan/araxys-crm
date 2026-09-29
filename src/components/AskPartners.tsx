@@ -139,7 +139,7 @@ export default function AskPartners({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full flex-col rounded-t-card shadow-pop sm:card sm:max-w-2xl"
+        className="flex max-h-[92vh] w-full flex-col rounded-t-card bg-surface-1 shadow-pop sm:card sm:max-w-2xl"
         role="dialog"
         aria-label="Ask partners for a rate"
       >

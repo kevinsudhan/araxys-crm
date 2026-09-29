@@ -154,7 +154,7 @@ export default function PartnerForm({
         className={
           inline
             ? "card max-w-2xl flex flex-col"
-            : "w-full sm:max-w-lg rounded-t-card sm:card shadow-xl max-h-[92vh] flex flex-col"
+            : "w-full sm:max-w-lg rounded-t-card bg-surface-1 sm:card shadow-xl max-h-[92vh] flex flex-col"
         }
         onClick={inline ? undefined : (e) => e.stopPropagation()}
         role={inline ? "group" : "dialog"}

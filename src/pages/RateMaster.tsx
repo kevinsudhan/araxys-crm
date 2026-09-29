@@ -317,7 +317,7 @@ function RateForm({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-6" onClick={onClose}>
       <div
-        className="flex max-h-[92vh] w-full flex-col rounded-t-card sm:card sm:max-w-2xl"
+        className="flex max-h-[92vh] w-full flex-col rounded-t-card bg-surface-1 sm:card sm:max-w-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={form.id ? "Edit rate" : "Add rate"}
