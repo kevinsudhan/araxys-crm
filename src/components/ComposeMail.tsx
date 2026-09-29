@@ -65,7 +65,8 @@ export default function ComposeMail({
    */
   initial?: { to?: string; subject?: string; body?: string };
   onClose: () => void;
-  onSent: () => void;
+  /** After it has gone, with where it went as finally addressed. */
+  onSent: (sent: { to: string[]; cc: string[]; subject: string }) => void;
   /**
    * The partner this reply concerns, when it is being sent from their
    * screen. Attributes the row in the reply log; absent everywhere else,
@@ -386,7 +387,7 @@ export default function ComposeMail({
         await recordReply({ repliedTo: replyTo, partnerId });
       }
 
-      onSent();
+      onSent({ to: recipients, cc: addresses(cc), subject: subject.trim() });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the message.");
       setBusy(false);

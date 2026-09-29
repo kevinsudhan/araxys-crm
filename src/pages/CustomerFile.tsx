@@ -15,6 +15,7 @@ import {
 import { useAuth } from "../lib/auth";
 import { ACCOUNTS_DESK } from "../lib/features";
 import ThreadReader from "../components/ThreadReader";
+import CustomerDsr from "../components/CustomerDsr";
 import StatusPill from "../components/StatusPill";
 import { failureText, type FailureText } from "../lib/errorText";
 import { mailIsLive, type MailMessage } from "../services/backend";
@@ -96,6 +97,8 @@ const ENQUIRY_TONE: Record<string, "success" | "danger" | "warning" | "accent" |
 
 const SECTIONS = [
   { key: "shipments", label: "Shipments" },
+  // The daily status report of their live shipments, sent to them from here (108).
+  { key: "dsr", label: "DSR" },
   { key: "enquiries", label: "Enquiries" },
   { key: "mail", label: "Correspondence" },
   { key: "details", label: "Details" },
@@ -343,6 +346,7 @@ export default function CustomerFile() {
       </nav>
 
       {section === "shipments" && <ShipmentHistory shipments={shipments} />}
+      {section === "dsr" && <CustomerDsr customer={customer} />}
       {section === "enquiries" && <EnquiryHistory enquiries={enquiries} shipments={shipments} />}
       {section === "mail" && <CustomerMail customer={customer} mailbox={mailbox} />}
       {section === "details" && <Details customer={customer} />}

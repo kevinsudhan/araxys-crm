@@ -16,10 +16,10 @@ session should read this whole file before changing anything. §0 is the short v
   enquiries and shipments created by the desk. Treat the database as production.
 - **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
   `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (54 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (55 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **107**, so the next one is `108-….sql`.
+  migration filename (§6). The last migration is **108**, so the next one is `109-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 99 migrations
+## 4. Data model — 100 migrations
 
-`supabase-v2/001…107`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…108`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `108` | **The customer's DSR.** `shipment_dsr_notes` (per shipment: the REASON and STATUS the desk writes for the report; its own table because a signed-off shipment is locked; stamped with who and when; staff read, insert, update, never delete) and `customer_dsr_sends` (every DSR mailed: to, cc, subject, the shipments on it; staff add as themselves, nothing rewritten). Both on realtime. Checked rolled back: forged sender, edit or delete of the log, delete of a note and anon all refused |
 | `107` | **Rate requests per partner, for chosen services.** `partner_quotes.services` (what that partner was asked to price), `sent_from` (the sender's mailbox: the thread and reply are there), `source` ('case_file' / 'live_rates'). `record_rfq_sent` takes `p_services` and `p_source` (old calls still work) and, in the same transaction, binds the conversation to the enquiry (`enquiry_threads`), adds the partner to `enquiry_parties` under their directory role unless that address is already there, and logs `partner_asked` once per partner per batch. Staff only; anon refused. Checked rolled back |
 | `106` | **A pasted quotation.** `quote_lines.section` ('ex_works' / 'other'; the PDF prints each group under its title with a subtotal), `quotes.mail_text` (set on a pasted quotation: it goes out as plain text) and `quotes.pasted_text` (the source). `require_approval_to_send` also un-approves on a change to `mail_text`. Checked rolled back: a bad section refused, the total still from the lines, approval reset |
 | `105` | **Mail snooze.** `mail_snoozes`: one row per snoozed message (its id in the Snoozed folder, when it comes back, `returned_at`, `seen_at`), visible and changeable only by its owner (RLS checked as two employees, rolled back). Outlook's snooze is not in Graph, so `services/snooze.ts` moves the message to a Snoozed folder and the Mail page brings due ones back on open and on its minute refresh |
@@ -298,7 +299,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 54 suites, pure logic
+npm test                             # 55 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -315,7 +316,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 54 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 55 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -596,6 +597,25 @@ exchange under the total when any line is foreign. The charges grid shows EXW / 
 line, a press moving it. The sending panel now re-reads the
 charges before mailing or downloading — it read them once, so a charge renamed in the grid went
 out under its old name until a reload.
+
+**Customer DSR (108, 30 Sep).** Customers → a customer → **DSR** (or the DSR button on the list,
+for customers with live shipments). The daily status report in the desk's own 21 columns (from
+the sample the user sent: S.NO … REASON, STATUS), one line per shipment in progress plus those
+delivered in the last 7 days (`DELIVERED_KEPT_DAYS`); cancelled never. Everything but REASON and
+STATUS is read from the job (`services/dsr.ts` → `lib/dsr.ts`): booking no (the carrier's, else
+the job number), BL (house bill / HAWB, else the forwarder's, else the master), the far port
+(POL on an import, POD on an export), booking received (the quotation accepted, else the job
+opened), booking confirmed and pickup (milestones; a pickup only planned says so), packages,
+weight, CBM, vessel/voyage or flight, cut-off, ETD, ETA. REASON and STATUS are typed on the page
+and saved when the field is left (`shipment_dsr_notes`); a blank STATUS reads from the
+milestones ("Booking confirmed on 24 Sep 2026 · next: cargo picked up"). **Download Excel** is
+the desk's copy (with the agent); **Email to customer** opens the compose window from the
+sender's Outlook, to the customer's addresses, with the company letter carrying one card per
+shipment (phone-readable) and the customer's copy of the sheet attached — **no agent column**
+(the desk used to hide it; a hidden column is one click from visible). Each send is recorded
+(`customer_dsr_sends`) and the page shows the last. ComposeMail's `onSent` now reports the final
+To, Cc and subject. Tests: `scripts/tests/dsr.test.ts` (lines, both copies, the workbook read
+back, the mail).
 
 ## 9. Open items
 
@@ -1143,6 +1163,7 @@ There are 63 commits. Grouped:
 | Sign-ups closed, staff accounts, backups (093) | see `git log` | Only an admin adds staff (Staff accounts); the leaked starter password is dead; a tested nightly backup with a status card, downloads and a restore script |
 | Customer milestones (102) | see `git log` | The customer's tracking page shows only what the desk records on the job's Tracking tab: each milestone with its day, time, place and a note, the desk's own updates, nothing from feeds or internal steps. The job's records are offered as "Use this"; the stage follows the milestones |
 | Live rates (101) | see `git log` | Name a service, pick the partners: every Sunday 10:30 pm IST each gets their own mail asking for the coming week's rates, from info@, replies under Partner mail. Send now, a test to yourself, preview, pause; every send and Microsoft's reason for any refusal on the page |
+| Customer DSR (108) | see `git log` | Each customer's daily status report on their page: live shipments in the desk's columns, REASON/STATUS written there, Excel download, emailed to the customer with the sheet attached (no agent column), every send recorded |
 | Live rates for a shipment (107) | see `git log` | Choose a job and partners, and per partner the services to price; one mail each from your Outlook, filed on the job as a thread under Partners, with the partner added to its parties. The case file's Ask partners uses the same form |
 | ICEGATE replies (100) | see `git log` | "Read a reply" takes ICEGATE's ACK or SFL, finds the file by job number, shows each error on its house and container in the desk's words, and on an accepted live file records the CSN number and date and the MCIN/PCINs; a rejected file stops being the amendment baseline |
 | CSN amendments (SCA, 099) | see `git log` | Once the CSN number is recorded, the panel lists what changed since the last live file and makes the amendment with only that, flagged U/S/D, pointing back at the CSN; houses keep their sub-lines across amendments; checked against CBIC's SCA schema |

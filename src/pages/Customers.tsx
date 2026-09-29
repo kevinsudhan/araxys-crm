@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   Building2,
+  ClipboardList,
   Mail,
   Phone,
   Plus,
@@ -246,6 +247,7 @@ export default function Customers() {
 }
 
 function Row({ c }: { c: CustomerSummary }) {
+  const navigate = useNavigate();
   const days = daysSinceActivity(c);
   const lane = [c.top_origin, c.top_destination].filter(Boolean).join(" → ");
 
@@ -295,6 +297,21 @@ function Row({ c }: { c: CustomerSummary }) {
 
         <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 text-right">
           <Stat label="Shipments" value={c.shipments} sub={c.shipments_live ? `${c.shipments_live} live` : undefined} />
+          {/* Straight to their daily status report (108), where it is read and sent. */}
+          {c.shipments_live > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                navigate(`/customers/${encodeURIComponent(c.id)}?section=dsr`);
+              }}
+              className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-2.5 text-[12px] text-text-secondary hover:border-border-strong hover:text-text-primary"
+              title="Their daily status report"
+            >
+              <ClipboardList size={12} /> DSR
+            </button>
+          )}
           <Stat
             label="Enquiries"
             value={c.enquiries}
