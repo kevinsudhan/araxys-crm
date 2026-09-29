@@ -45,6 +45,9 @@ import MailBody from "../components/MailBody";
 import MailListRow from "../components/MailListRow";
 import MailConversation from "../components/MailConversation";
 import MoveMenu from "../components/MoveMenu";
+import SnoozeMenu from "../components/SnoozeMenu";
+import { bringBack, listReturned, listSnoozes, markSeen, returnDue, snoozeMessages, type Snooze } from "../services/snooze";
+import { snoozeLabel } from "../lib/snoozeTimes";
 import Highlighted from "../components/Highlighted";
 import { searchTerms } from "../lib/searchHighlight";
 import { rememberAddresses } from "../services/addressBook";
@@ -197,6 +200,12 @@ export default function Mail() {
   }, [toast]);
   const [showKeys, setShowKeys] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  /** What is snoozed in this mailbox and not back yet, by the id it has in the Snoozed folder. */
+  const [snoozes, setSnoozes] = useState<Snooze[]>([]);
+  const snoozeOf = useMemo(() => new Map(snoozes.map((x) => [x.message_id, x])), [snoozes]);
+  /** Back from snooze and not opened since: pinned to the top of the Inbox. */
+  const [returned, setReturned] = useState<Snooze[]>([]);
+  const returnedOf = useMemo(() => new Map(returned.map((x) => [x.message_id, x])), [returned]);
   /**
    * Rows ticked for a bulk action — conversations, or messages when searching —
    * and the last one ticked, for Shift-click ranges.
@@ -328,6 +337,16 @@ export default function Mail() {
     setLoading(true);
     setError(null);
     try {
+      // Snoozed mail whose time has come goes back to the Inbox before the
+      // list is read, so it is in it (services/snooze.ts).
+      const back = await returnDue(mailbox).catch(() => 0);
+      if (back && req === loadReq.current) setToast(back === 1 ? "A snoozed message is back in the Inbox." : `${back} snoozed messages are back in the Inbox.`);
+      void listSnoozes(mailbox)
+        .then((sn) => req === loadReq.current && setSnoozes(sn))
+        .catch(() => {});
+      void listReturned(mailbox)
+        .then((rt) => req === loadReq.current && setReturned(rt))
+        .catch(() => {});
       const [f, m] = await Promise.all([
         getMailFolders(mailbox),
         query
@@ -486,13 +505,15 @@ export default function Mail() {
    */
   const conversations = useMemo(() => groupIntoThreads(messages), [messages]);
   /** The rows as drawn: a message each when searching, a conversation each otherwise. */
-  const rows = useMemo(
-    () =>
-      searching
-        ? messages.map((m) => ({ key: m.id, m, group: [m] }))
-        : conversations.map((t) => ({ key: t.conversationId, m: t.messages[t.messages.length - 1], group: t.messages })),
-    [searching, messages, conversations]
-  );
+  const rows = useMemo(() => {
+    if (searching) return messages.map((m) => ({ key: m.id, m, group: [m] }));
+    const all = conversations.map((t) => ({ key: t.conversationId, m: t.messages[t.messages.length - 1], group: t.messages }));
+    if (folder !== "inbox" || !returnedOf.size) return all;
+    // Back from snooze, on top: Outlook keeps a moved message's received date,
+    // so it would otherwise sit wherever that date puts it.
+    const back = (r: (typeof all)[number]) => r.group.some((m) => returnedOf.has(m.id));
+    return [...all.filter(back), ...all.filter((r) => !back(r))];
+  }, [searching, messages, conversations, folder, returnedOf]);
   // A selection only ever names rows that are on screen.
   useEffect(() => {
     setChecked((prev) => {
@@ -601,6 +622,11 @@ export default function Mail() {
    */
   async function open(m: MailMessage, conversation: MailMessage[] = [m]) {
     setSelectedId(m.id);
+    const seenNow = conversation.map((x) => returnedOf.get(x.id)?.id).filter((x): x is string => !!x);
+    if (seenNow.length) {
+      setReturned((prev) => prev.filter((r) => !seenNow.includes(r.id)));
+      void markSeen(seenNow).catch(() => {});
+    }
 
     // The next message opened starts at its own top, not part-way down where
     // the last one was left: the pane's own scroll on a wide screen, the
@@ -650,6 +676,45 @@ export default function Mail() {
     const going = m.conversationId && !searching ? messages.filter((x) => x.conversationId === m.conversationId) : [];
     if (!going.some((x) => x.id === m.id)) going.push(m);
     await moveMany(going, to, label);
+  }
+
+  /** Snoozes the conversation's messages here (or the one result, when searching). */
+  async function snooze(m: MailMessage, until: Date) {
+    const going = m.conversationId && !searching ? messages.filter((x) => x.conversationId === m.conversationId) : [];
+    if (!going.some((x) => x.id === m.id)) going.push(m);
+    await snoozeMany(going, until);
+  }
+
+  async function snoozeMany(going: MailMessage[], until: Date) {
+    const ids = new Set(going.map((x) => x.id));
+    setMessages((prev) => prev.filter((x) => !ids.has(x.id)));
+    setChecked(new Set());
+    if (selectedId && ids.has(selectedId)) {
+      setSelectedId(null);
+      setFull(null);
+    }
+    try {
+      await snoozeMessages(mailbox, going, until);
+      setToast(`Snoozed until ${snoozeLabel(until)}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not snooze that.");
+    } finally {
+      void load();
+    }
+  }
+
+  /** A snoozed message back to the Inbox now. */
+  async function unsnooze(sn: Snooze) {
+    setSelectedId(null);
+    setFull(null);
+    try {
+      await bringBack(sn);
+      setToast("Back in the Inbox.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not bring that back.");
+    } finally {
+      void load();
+    }
   }
 
   async function moveMany(going: MailMessage[], to: FolderId, label: string) {
@@ -1198,6 +1263,7 @@ export default function Mail() {
                 <BulkButton label="Archive" onClick={() => void moveMany(checkedMessages, "archive", "Archive")} icon={<Archive size={13} />} />
               )}
               <MoveMenu compact folders={folders} current={folder} onMove={(to, label) => void moveMany(checkedMessages, to, label)} />
+              {folder !== "deleted" && folder !== "junk" && folder !== "drafts" && <SnoozeMenu compact onPick={(until) => void snoozeMany(checkedMessages, until)} />}
               {folder === "deleted" || folder === "junk" ? (
                 <BulkButton label={folder === "junk" ? "Not junk" : "Restore"} onClick={() => void moveMany(checkedMessages, "inbox", "Inbox")} icon={<Undo2 size={13} />} />
               ) : (
@@ -1276,6 +1342,7 @@ export default function Mail() {
                   checked={checked.has(m.id)}
                   selecting={checked.size > 0}
                   onCheck={(shift) => toggleCheck(m.id, shift)}
+                  snoozedUntil={snoozeOf.get(m.id)?.until}
                   onOpen={() => void open(m)}
                   onChanged={() => void load()}
                 />
@@ -1283,8 +1350,8 @@ export default function Mail() {
             </ul>
           ) : (
             <ul className="divide-y divide-border max-h-[calc(100vh-260px)] min-h-[300px] overflow-y-auto overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
-              {conversations.map((t) => {
-                const newest = t.messages[t.messages.length - 1];
+              {rows.map(({ key, m: newest, group }) => {
+                const t = { conversationId: key, messages: group, unread: group.some((x) => !x.isRead) };
                 return (
                   <MailListRow
                     key={t.conversationId}
@@ -1298,6 +1365,8 @@ export default function Mail() {
                     checked={checked.has(t.conversationId)}
                     selecting={checked.size > 0}
                     onCheck={(shift) => toggleCheck(t.conversationId, shift)}
+                    snoozedUntil={snoozeOf.get(newest.id)?.until}
+                    backFromSnooze={t.messages.some((x) => returnedOf.has(x.id))}
                     onOpen={() => void open(newest, t.messages)}
                     onChanged={() => void load()}
                   />
@@ -1468,6 +1537,19 @@ export default function Mail() {
                   )}
 
                   <MoveMenu compact folders={folders} current={selected.folder} onMove={(to, label) => void moveTo(selected, to, label)} />
+                  {snoozeOf.get(selected.id) ? (
+                    <button
+                      onClick={() => void unsnooze(snoozeOf.get(selected.id)!)}
+                      title={`Snoozed until ${snoozeLabel(new Date(snoozeOf.get(selected.id)!.until))} — bring it back now`}
+                      className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-[12px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary"
+                    >
+                      <Undo2 size={13} />
+                      Unsnooze
+                    </button>
+                  ) : (
+                    selected.folder !== "deleted" &&
+                    selected.folder !== "junk" && <SnoozeMenu compact onPick={(until) => void snooze(selected, until)} />
+                  )}
 
                   {/* The rest of Outlook's bar, as icons: Delete, flag, unread, open in Outlook.
                       In Deleted Items and Junk, Delete gives way to Restore / Not junk. */}

@@ -1,4 +1,5 @@
-import { AlertCircle, Check, Flag, Paperclip } from "lucide-react";
+import { AlarmClock, AlertCircle, Check, Flag, Paperclip } from "lucide-react";
+import { snoozeLabel } from "../lib/snoozeTimes";
 import PushMailToQueue from "./PushMailToQueue";
 import Highlighted from "./Highlighted";
 import { initialsFor } from "../lib/initials";
@@ -53,6 +54,8 @@ export default function MailListRow({
   checked,
   selecting,
   onCheck,
+  snoozedUntil,
+  backFromSnooze,
   onOpen,
   onChanged,
 }: {
@@ -81,6 +84,10 @@ export default function MailListRow({
   selecting?: boolean;
   /** Tick or untick; `shift` for everything since the last one. */
   onCheck?: (shift: boolean) => void;
+  /** In the Snoozed folder: when it comes back. */
+  snoozedUntil?: string;
+  /** Returned from a snooze and not opened since: pinned to the top. */
+  backFromSnooze?: boolean;
   onOpen: () => void;
   onChanged: () => void;
 }) {
@@ -180,6 +187,16 @@ export default function MailListRow({
                 className="shrink-0 rounded-full border border-border bg-surface-1 px-1.5 text-[10.5px] font-medium tabular-nums leading-4 text-text-secondary"
               >
                 {count}
+              </span>
+            )}
+            {backFromSnooze && (
+              <span className="flex shrink-0 items-center gap-0.5 rounded-full border border-text-accent/30 bg-bg-accent px-1.5 text-[10px] font-medium leading-4 text-text-accent">
+                <AlarmClock size={10} /> Back from snooze
+              </span>
+            )}
+            {snoozedUntil && (
+              <span className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-surface-2 px-1.5 text-[10px] leading-4 text-text-secondary" title="Comes back to the Inbox then">
+                <AlarmClock size={10} /> {snoozeLabel(new Date(snoozedUntil))}
               </span>
             )}
             {(anyFlagged ?? message.flagged) && (

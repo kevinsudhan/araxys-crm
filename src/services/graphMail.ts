@@ -828,6 +828,45 @@ export async function setFlag(id: string, flagged: boolean): Promise<void> {
   });
 }
 
+/**
+ * Moves a message and says the id it has now: Graph gives a moved message a new
+ * one, and a snooze has to keep the id that moves it back. A message no longer
+ * there (moved or deleted in Outlook meanwhile) is `null`, not an error.
+ */
+export async function moveToFolder(id: string, destinationId: string): Promise<string | null> {
+  // `destinationId` is a folder's Graph id or a well-known name ("inbox").
+  const r = await graphFetch(`${GRAPH}/me/messages/${encodeURIComponent(id)}/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ destinationId }),
+  });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`Outlook returned ${r.status}`);
+  return ((await r.json()) as { id: string }).id;
+}
+
+/**
+ * The "Snoozed" folder in this mailbox, made the first time it is needed.
+ * Outlook's own snooze keeps mail in a folder of that name too, so a snooze
+ * set here is found where Outlook users expect it.
+ */
+const snoozedIds = new Map<string, Promise<string>>();
+export function snoozedFolderId(mailbox: string): Promise<string> {
+  const kept = snoozedIds.get(mailbox);
+  if (kept) return kept;
+  const found = (async () => {
+    const hit = await graph<{ value: Array<{ id: string }> }>(
+      `/me/mailFolders?$filter=${encodeURIComponent("displayName eq 'Snoozed'")}&$select=id`
+    );
+    if (hit.value[0]) return hit.value[0].id;
+    const made = await graph<{ id: string }>("/me/mailFolders", { method: "POST", body: JSON.stringify({ displayName: "Snoozed" }) });
+    return made.id;
+  })();
+  found.catch(() => snoozedIds.delete(mailbox));
+  snoozedIds.set(mailbox, found);
+  return found;
+}
+
 /** To Deleted Items, as Outlook's Delete does — recoverable there, not gone. */
 export async function deleteMessage(id: string): Promise<void> {
   await graph(`/me/messages/${encodeURIComponent(id)}/move`, {
