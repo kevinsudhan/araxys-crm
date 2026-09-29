@@ -61,13 +61,13 @@ export default function MailListRow({
   onOpen: () => void;
   onChanged: () => void;
 }) {
-  // In Sent, the useful name is who it went to. Everywhere else it is who sent.
+  // In Sent and Drafts, the useful name is who it is to. Everywhere else it is who sent.
   const other =
-    folder === "sent"
+    folder === "sent" || folder === "drafts"
       ? message.toRecipients[0]?.emailAddress
       : message.from.emailAddress;
 
-  const who = other?.name?.trim() || other?.address || "—";
+  const who = other?.name?.trim() || other?.address || (folder === "drafts" ? "(no recipient yet)" : "—");
   const unread = (anyUnread ?? !message.isRead) && folder === "inbox";
 
   return (
@@ -92,9 +92,12 @@ export default function MailListRow({
         }`}
       />
 
-      <span className="absolute right-2 top-2.5 z-10">
-        <PushMailToQueue message={message} queued={queued} size="icon" onChanged={onChanged} />
-      </span>
+      {/* A draft has not gone anywhere, so there is nothing to turn into work yet. */}
+      {folder !== "drafts" && (
+        <span className="absolute right-2 top-2.5 z-10">
+          <PushMailToQueue message={message} queued={queued} size="icon" onChanged={onChanged} />
+        </span>
+      )}
 
       <button onClick={onOpen} className="flex w-full gap-2.5 py-2.5 pl-4 pr-9 text-left">
         <span className="relative shrink-0">

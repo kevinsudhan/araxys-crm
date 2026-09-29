@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Check, Download, Loader2, Paperclip, Save } from "lucide-react";
-import type { MailMessage } from "../services/backend";
+import { ArrowDownToLine, Check, Download, Loader2, Paperclip, Save } from "lucide-react";
+import { getMailAttachment, type MailMessage } from "../services/backend";
+import { base64ToBytes } from "../lib/base64";
 import { fileMailAttachment, fileUrl, listFiles } from "../services/attachments";
 import { failureText } from "../lib/errorText";
 import { useLiveVersion } from "../lib/liveVersions";
@@ -86,6 +87,36 @@ export default function MessageAttachments({
     }
   }
 
+  /**
+   * The file itself, from the mailbox, to this computer.
+   *
+   * The Mail page listed attachments and offered no way to open one: saving to
+   * a case was the only action, and the Mail page has no case to save to.
+   */
+  async function download(a: { id?: string; name: string }) {
+    if (!a.id) return;
+    setBusy(a.name);
+    setError(null);
+    try {
+      const got = await getMailAttachment(message.id, a.id);
+      const blob = new Blob([base64ToBytes(got.contentBytes) as Uint8Array<ArrayBuffer>], {
+        type: got.contentType || "application/octet-stream",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = got.name || a.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      setError(failureText(e, `Could not download ${a.name}.`).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function open(a: { id?: string; name: string }) {
     if (!enquiryRef || !a.id) return;
     setBusy(a.name);
@@ -122,6 +153,19 @@ export default function MessageAttachments({
                 {a.name}
               </span>
               <span className="tabular-nums text-text-muted">{Math.round(a.size / 1024)} KB</span>
+
+              {a.id && busy !== a.name && (
+                <button
+                  type="button"
+                  onClick={() => void download(a)}
+                  title="Download"
+                  aria-label={`Download ${a.name}`}
+                  className="rounded p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-primary"
+                >
+                  <ArrowDownToLine size={12} />
+                </button>
+              )}
+              {!enquiryRef && busy === a.name && <Loader2 size={12} className="mx-1 animate-spin text-text-muted" />}
 
               {enquiryRef && a.id && (
                 <>

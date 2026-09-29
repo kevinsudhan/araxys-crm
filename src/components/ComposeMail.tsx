@@ -12,6 +12,7 @@ import { bytesToBase64 } from "../lib/base64";
 import { composeSubject, quoteHeaderHtml, quotedBodyHtml, replyRecipients, type ComposeMode } from "../lib/mailQuote";
 import { inlineForeign } from "../lib/mailHtml";
 import { baseSubject } from "../lib/threads";
+import { parseAddresses } from "../lib/addresses";
 
 /**
  * Compose, reply, reply all and forward.
@@ -41,6 +42,7 @@ export default function ComposeMail({
   loadAttachables,
   attachments: initialAttachments,
   newThreadNote,
+  draft: editing,
 }: {
   mailbox: string;
   fromName: string;
@@ -112,6 +114,12 @@ export default function ComposeMail({
    * the form, so nobody is surprised when it arrives on its own.
    */
   newThreadNote?: string;
+  /**
+   * A draft already in the mailbox, usually started in Outlook: opened here to
+   * finish, and sent as itself so its attachments go too and Drafts is left
+   * without it.
+   */
+  draft?: MailMessage;
 }) {
   /**
    * The signature is seeded into the editable body rather than bolted on at
@@ -123,8 +131,9 @@ export default function ComposeMail({
   const kind: ComposeMode | null = replyTo ? (mode ?? "reply") : null;
   const answering = kind === "reply" || kind === "replyAll";
   const [who] = useState(() => (replyTo && kind ? replyRecipients(replyTo, kind, mailbox) : { to: [], cc: [] }));
-  const [to, setTo] = useState(initial?.to ?? who.to.join(", "));
-  const [cc, setCc] = useState(who.cc.join(", "));
+  const listOf = (r: MailMessage["toRecipients"]) => r.map((x) => x.emailAddress.address).filter(Boolean).join(", ");
+  const [to, setTo] = useState(initial?.to ?? (editing ? listOf(editing.toRecipients) : who.to.join(", ")));
+  const [cc, setCc] = useState(editing ? listOf(editing.ccRecipients) : who.cc.join(", "));
   const [bcc, setBcc] = useState("");
   const [showBcc, setShowBcc] = useState(false);
   /** Outlook's "pop out": the whole window for a long mail. */
@@ -139,7 +148,7 @@ export default function ComposeMail({
     reference keeps the one it has rather than gaining a second.
   */
   const [subject, setSubject] = useState(() => {
-    const base = initial?.subject ?? (replyTo && kind ? composeSubject(replyTo.subject, kind) : "");
+    const base = initial?.subject ?? (editing ? editing.subject : replyTo && kind ? composeSubject(replyTo.subject, kind) : "");
     return reference ? withToken(base, reference) : base;
   });
   /**
@@ -155,9 +164,12 @@ export default function ComposeMail({
   // A CRM mail (a quotation, a confirmation) sent into the job's thread
   // carries the thread under it, as any reply does.
   const [tail] = useState(() =>
-    replyTo
-      ? `${sig}<div><br></div>${quoteHeaderHtml(replyTo)}${inlineForeign(quotedBodyHtml(replyTo))}`
-      : sig
+    // A draft already carries whatever signature it was written with.
+    editing
+      ? ""
+      : replyTo
+        ? `${sig}<div><br></div>${quoteHeaderHtml(replyTo)}${inlineForeign(quotedBodyHtml(replyTo))}`
+        : sig
   );
   /** A drafted letter going into the conversation already running with them. */
   const inThread = Boolean(replyTo && answering && initial?.body !== undefined);
@@ -170,8 +182,9 @@ export default function ComposeMail({
    * is forty chances to send one without it — deleted in a keystroke when it is
    * not wanted.
    */
-  const initialBody =
-    initial?.body !== undefined
+  const initialBody = editing
+    ? draftBody(editing)
+    : initial?.body !== undefined
       ? `${initial.body}${tail}`
       : replyTo && answering
         ? greetingHtml(replyTo.from.emailAddress.name, replyTo.from.emailAddress.address) + tail
@@ -240,20 +253,41 @@ export default function ComposeMail({
    */
   const live = mailIsLive();
 
-  // Escape closes, as it does in every mail client.
+  /*
+    Closing asks first when something has been written.
+    ------------------------------------------------------------------------
+    Escape, a click outside the window, the X and Cancel all used to close at
+    once, and the mail went with them — Escape pressed to shut a colour menu
+    in the editor, or a stray click beside the window, threw away a reply
+    somebody had spent ten minutes on. Outlook keeps a draft; this has none to
+    keep, so it asks.
+  */
+  const opened = useRef<string | null>(null);
+  const snapshot = () => JSON.stringify([to, cc, bcc, subject, content, attachments.length]);
+  useEffect(() => {
+    if (opened.current === null) opened.current = snapshot();
+  });
+  const requestClose = () => {
+    if (busy) return;
+    const changed = opened.current !== null && snapshot() !== opened.current;
+    if (changed && !window.confirm("Discard this message? What you have written will be lost.")) return;
+    onClose();
+  };
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
+
+  // Escape closes, as it does in every mail client — asking first, as above.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !e.defaultPrevented) closeRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
-  const addresses = (s: string) =>
-    s
-      .split(/[,;]/)
-      .map((x) => x.trim())
-      .filter(Boolean);
+  // "Meena Rajan <meena@…>", as Outlook copies an address, is read as the
+  // address inside the angle brackets (lib/addresses.ts).
+  const addresses = parseAddresses;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -285,6 +319,7 @@ export default function ComposeMail({
         */
         replyToId: answering ? replyTo?.id : undefined,
         forwardOfId: kind === "forward" ? replyTo?.id : undefined,
+        draftId: editing?.id,
         // Stripped of the display-only fields the picker carries around.
         attachments: attachments.length
           ? attachments.map((a) => ({
@@ -318,16 +353,16 @@ export default function ComposeMail({
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-0 sm:p-6"
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
         className={`w-full rounded-t-card sm:card shadow-xl flex flex-col ${big ? "h-[100dvh] sm:h-[calc(100dvh-3rem)] sm:max-w-6xl" : "max-h-[92vh] sm:max-w-3xl"}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label={TITLE[kind ?? "new"]}
+        aria-label={TITLE[kind ?? (editing ? "draft" : "new")]}
       >
         <header className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h2 className="text-[14px] font-medium text-text-primary">{TITLE[kind ?? "new"]}</h2>
+          <h2 className="text-[14px] font-medium text-text-primary">{TITLE[kind ?? (editing ? "draft" : "new")]}</h2>
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -339,7 +374,7 @@ export default function ComposeMail({
               {big ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
             </button>
             <button
-              onClick={onClose}
+              onClick={requestClose}
               className="text-text-muted hover:text-text-primary"
               aria-label="Close"
             >
@@ -365,6 +400,11 @@ export default function ComposeMail({
               Goes as a reply in the conversation{" "}
               <strong className="font-medium text-text-primary">“{baseSubject(replyTo.subject)}”</strong>, under
               the subject it already has, so it stays in one thread in their mailbox and yours.
+            </p>
+          )}
+          {editing?.hasAttachments && (
+            <p className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-[12px] text-text-secondary">
+              The files already attached to this draft in Outlook go with it.
             </p>
           )}
           {!replyTo && newThreadNote && live && (
@@ -543,7 +583,7 @@ export default function ComposeMail({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary"
             >
               Cancel
@@ -563,8 +603,9 @@ export default function ComposeMail({
   );
 }
 
-const TITLE: Record<ComposeMode | "new", string> = {
+const TITLE: Record<ComposeMode | "new" | "draft", string> = {
   new: "New message",
+  draft: "Draft",
   reply: "Reply",
   replyAll: "Reply all",
   forward: "Forward",
@@ -581,3 +622,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** A draft's body for the editor: the inside of its HTML document, or its text. */
+function draftBody(m: MailMessage): string {
+  const raw = m.body?.content ?? "";
+  if (m.body?.contentType !== "html") return escapeHtml(raw).replace(/\r?\n/g, "<br>");
+  return new DOMParser().parseFromString(raw, "text/html").body.innerHTML;
+}

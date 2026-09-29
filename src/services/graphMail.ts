@@ -1053,9 +1053,53 @@ export async function messagesInConversation(
   ]);
   const folderOf = (id?: string): FolderId =>
     !id ? "inbox" : id === ids.sent ? "sent" : id === ids.drafts ? "drafts" : id === ids.archive ? "archive" : "inbox";
+  // Drafts are left out too: an unsent draft in a customer's thread read, on the
+  // case file, exactly like a mail that had gone to them.
   return data.value
+    .filter((m) => !m.isDraft)
     .filter((m) => !m.parentFolderId || (m.parentFolderId !== ids.deleted && m.parentFolderId !== ids.junk))
     .map((m) => adapt(m, mailbox, folderOf(m.parentFolderId)));
+}
+
+/**
+ * Sends a draft that already exists in the mailbox (one started in Outlook),
+ * with whatever was changed in the compose window.
+ *
+ * The draft is updated and then sent, rather than a copy sent and the draft
+ * left behind: it keeps the attachments already on it, it keeps its place in
+ * a thread if it was a reply, and the Drafts folder does not keep a copy of a
+ * mail that has gone. Bcc is only written when one was given, so a Bcc set in
+ * Outlook — which the compose window cannot see — is not wiped.
+ */
+export async function sendDraft(input: {
+  draftId: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  content: string;
+  attachments?: OutgoingAttachment[];
+}): Promise<void> {
+  const recipients = (list: string[]) => list.map((address) => ({ emailAddress: { address } }));
+  const out = await outgoing(input.content, input.attachments);
+  const files = attachmentPayload(out.attachments).attachments ?? [];
+  const at = `/me/messages/${encodeURIComponent(input.draftId)}`;
+
+  await graph(at, {
+    method: "PATCH",
+    body: JSON.stringify({
+      subject: input.subject,
+      body: { contentType: "HTML", content: asOutgoingHtml(out.content) },
+      toRecipients: recipients(input.to),
+      ccRecipients: recipients(input.cc ?? []),
+      ...(input.bcc?.length ? { bccRecipients: recipients(input.bcc) } : {}),
+    }),
+  });
+  // Added one by one, so the attachments already on the draft stay.
+  for (const f of files) {
+    await graph(`${at}/attachments`, { method: "POST", body: JSON.stringify(f) });
+  }
+  await graph(`${at}/send`, { method: "POST" });
 }
 
 /**

@@ -108,6 +108,13 @@ export default function MailAttachments({
   const documents = generated.length ? generated : (fetched ?? []);
 
   const total = value.reduce((n, a) => n + a.size, 0);
+  /*
+    The limit is on the ENCODED size, the same measure the send checks
+    (graphMail.attachmentPayload): files travel as base64, a third larger than
+    on disk. Checking bytes here let a 2.5 MB file be attached and then refused
+    on Send, after the mail was written.
+  */
+  const encoded = value.reduce((n, a) => n + a.contentBytes.length, 0);
 
   /**
    * Adds a batch, unless it would take the message over what Graph will send.
@@ -119,11 +126,11 @@ export default function MailAttachments({
    */
   function add(batch: Attached[]) {
     if (!batch.length) return;
-    const adding = batch.reduce((n, a) => n + a.size, 0);
-    if (total + adding > CAP) {
+    const adding = batch.reduce((n, a) => n + a.contentBytes.length, 0);
+    if (encoded + adding > CAP) {
       const names = batch.map((a) => a.name).join(", ");
       setError(
-        `${names} would take this message over 3MB, which is the most one mail can carry. ` +
+        `${names} would take this message over what one mail can carry (about 2.2 MB of files in all). ` +
           `Send separately, or share as a link.`
       );
       return;

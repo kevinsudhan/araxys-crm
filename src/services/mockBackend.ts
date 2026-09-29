@@ -33,6 +33,7 @@ import {
   setRead,
   moveMessage,
   sendMessage,
+  dropMessage,
   type FolderId,
 } from "./mockMail";
 
@@ -420,6 +421,8 @@ export function mockPost(path: string, body: unknown): Promise<unknown> {
     const to: string[] = (b.to ?? []).filter((x: string) => x.trim());
     if (!to.length) return Promise.reject(new Error("add at least one recipient"));
     if (!String(b.subject ?? "").trim()) return Promise.reject(new Error("add a subject"));
+    // A draft sent from the compose window leaves Drafts, as it does in Outlook.
+    if (b.draftId) dropMessage(b.mailbox, b.draftId);
     return delay({
       message: sendMessage({
         mailbox: b.mailbox,

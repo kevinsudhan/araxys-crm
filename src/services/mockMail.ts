@@ -185,6 +185,12 @@ export function setRead(mailbox: string, id: string, isRead: boolean) {
   return m;
 }
 
+/** Takes a message out of the store: a draft once it has been sent. */
+export function dropMessage(mailbox: string, id: string) {
+  const i = messages.findIndex((m) => m.mailbox === mailbox && m.id === id);
+  if (i >= 0) messages.splice(i, 1);
+}
+
 export function moveMessage(mailbox: string, id: string, folder: FolderId) {
   const m = getMessage(mailbox, id);
   if (!m) return null;

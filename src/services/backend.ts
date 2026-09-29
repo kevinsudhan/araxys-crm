@@ -444,9 +444,24 @@ export const sendMail = async (body: {
   replyToId?: string;
   /** A forward: through Graph's own, so the original's attachments go too. */
   forwardOfId?: string;
+  /** A draft already in the mailbox (started in Outlook): updated, then sent itself. */
+  draftId?: string;
   attachments?: graph.OutgoingAttachment[];
 }) => {
   if (live()) {
+    if (body.draftId) {
+      await graph.sendDraft({
+        draftId: body.draftId,
+        to: body.to,
+        cc: body.cc,
+        bcc: body.bcc,
+        subject: body.subject,
+        content: body.content,
+        attachments: body.attachments,
+      });
+      syncSentSoon();
+      return;
+    }
     if (body.forwardOfId) {
       await graph.forwardTracked({
         forwardOfId: body.forwardOfId,
@@ -496,6 +511,18 @@ export const sendMail = async (body: {
   }
   if (!demoMail) throw new Error(NOT_CONNECTED);
   return post<{ message: MailMessage }>("/api/mail/send", body);
+};
+
+/**
+ * One attachment's bytes, to download. Only a real mailbox has them; the local
+ * store's messages carry names and sizes only.
+ */
+export const getMailAttachment = async (
+  messageId: string,
+  attachmentId: string
+): Promise<{ name: string; contentType: string; size: number; contentBytes: string }> => {
+  if (!live()) throw new Error("Connect Outlook on the Mail page to open attachments.");
+  return graph.getAttachmentBytes(messageId, attachmentId);
 };
 
 /** True when this session is talking to a real Outlook mailbox. */

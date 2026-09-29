@@ -134,10 +134,26 @@ export default function Mail() {
    */
   const [nextLink, setNextLink] = useState<string | undefined>();
   const [loadingMore, setLoadingMore] = useState(false);
+  /**
+   * What is typed in the search box, and what is searched for.
+   *
+   * Every keystroke used to be a search against Outlook: "chennai" was seven
+   * requests, and whichever came back last won — often "chen", so the list
+   * showed results for a word nobody finished typing. The search now waits
+   * for a pause in typing, and an answer that is no longer the latest request
+   * is dropped (`loadReq`).
+   */
+  const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => setQuery(search.trim()), 350);
+    return () => window.clearTimeout(t);
+  }, [search]);
+  /** Which folder load is the current one; an older answer arriving late is dropped. */
+  const loadReq = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [composing, setComposing] = useState<null | { replyTo?: MailMessage; mode?: ComposeMode }>(null);
+  const [composing, setComposing] = useState<null | { replyTo?: MailMessage; mode?: ComposeMode; draft?: MailMessage }>(null);
   /**
    * The reference this conversation is already filed under, if any.
    *
@@ -247,6 +263,7 @@ export default function Mail() {
 
   const load = useCallback(async () => {
     if (!mailbox) return;
+    const req = ++loadReq.current;
     setLoading(true);
     setError(null);
     try {
@@ -254,13 +271,16 @@ export default function Mail() {
         getMailFolders(mailbox),
         getMailMessages(mailbox, folder, query || undefined),
       ]);
+      if (req !== loadReq.current) return;
       setFolders(f.folders);
       setMessages(m.messages);
       setNextLink(m.nextLink);
       // One lookup for the whole folder, so each row can say whether it has
       // already been queued instead of offering a push that does nothing.
-      setQueued(await intakeByMessage(m.messages.map((x) => x.id)));
+      const q = await intakeByMessage(m.messages.map((x) => x.id));
+      if (req === loadReq.current) setQueued(q);
     } catch (e) {
+      if (req !== loadReq.current) return;
       setError(
         e instanceof GraphAuthError
           ? e.message
@@ -269,7 +289,7 @@ export default function Mail() {
             : "Could not load the mailbox."
       );
     } finally {
-      setLoading(false);
+      if (req === loadReq.current) setLoading(false);
     }
   }, [mailbox, folder, query]);
 
@@ -308,8 +328,11 @@ export default function Mail() {
   async function loadMore() {
     if (!nextLink || loadingMore) return;
     setLoadingMore(true);
+    // A page for the folder or search that was on screen when it was asked for.
+    const req = loadReq.current;
     try {
       const more = await getMoreMailMessages(mailbox, folder, nextLink);
+      if (req !== loadReq.current) return;
       setMessages((prev) => {
         const seen = new Set(prev.map((m) => m.id));
         return [...prev, ...more.messages.filter((m) => !seen.has(m.id))];
@@ -340,6 +363,11 @@ export default function Mail() {
     openReq.current++;
     setFull(null);
     setBodyError(null);
+    // The old folder's rows go at once. They used to stay until the new folder
+    // arrived, drawn as the new folder's (Sent showed the Inbox with every
+    // sender replaced by "Parasu"), and a click on one opened the wrong mail.
+    setMessages([]);
+    setNextLink(undefined);
   }, [folder]);
 
   /**
@@ -416,8 +444,14 @@ export default function Mail() {
     // the last one was left: the pane's own scroll on a wide screen, the
     // page's on a phone.
     readerScroll.current?.scrollTo({ top: 0 });
-    const top = reader.current?.getBoundingClientRect().top;
-    if (top !== undefined && top < 0) window.scrollBy({ top: top - 72 });
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      // One column: the message is drawn under the whole list, off the bottom
+      // of a phone's screen, and tapping a row appeared to do nothing.
+      window.setTimeout(() => reader.current?.scrollIntoView({ block: "start" }), 0);
+    } else {
+      const top = reader.current?.getBoundingClientRect().top;
+      if (top !== undefined && top < 0) window.scrollBy({ top: top - 72 });
+    }
 
     // The body has to be fetched; the row does not have one.
     loadBody(m.id);
@@ -462,6 +496,7 @@ export default function Mail() {
 
   // Reading at full width only applies while a message is open; the list comes back without one.
   const wideOpen = wide && Boolean(selected);
+  const isDraft = Boolean(selected && (selected.isDraft || selected.folder === "drafts"));
   const roomy = wideOpen;
 
   return (
@@ -609,8 +644,8 @@ export default function Mail() {
         <div className="relative min-w-[160px] flex-1 max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="Search this folder…"
             className="w-full pl-8 h-8"
           />
@@ -703,7 +738,8 @@ export default function Mail() {
                 </button>
               ) : (
                 <p className="py-0.5 text-center text-[11px] text-text-muted">
-                  {messages.length} message{messages.length === 1 ? "" : "s"} — that is the whole
+                  {conversations.length} conversation{conversations.length === 1 ? "" : "s"}
+                  {conversations.length !== messages.length ? ` (${messages.length} messages)` : ""} — that is the whole
                   folder.
                 </p>
               )}
@@ -712,7 +748,7 @@ export default function Mail() {
         </div>
 
         {/* ---- reading pane ---- */}
-        <div ref={reader} className="card min-h-[320px] p-5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden lg:p-0">
+        <div ref={reader} className="card min-h-[320px] scroll-mt-16 p-5 lg:flex lg:min-h-0 lg:flex-col lg:overflow-hidden lg:p-0">
           {!selected ? (
             <div className="h-full flex flex-col items-center justify-center text-center py-16 lg:px-5">
               <MailIcon size={22} className="text-text-muted mb-2" />
@@ -750,66 +786,87 @@ export default function Mail() {
                 instead once it reaches it.
               */}
               <div className="sticky top-14 z-10 -mx-5 mt-2.5 flex flex-wrap items-start gap-2 border-b border-transparent bg-surface-1/95 px-5 py-2 backdrop-blur supports-[backdrop-filter]:bg-surface-1/85 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:pb-0 lg:backdrop-blur-none">
-                <button
-                  onClick={() => setComposing({ replyTo: selected, mode: "reply" })}
-                  className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand hover:bg-brand-dark text-white text-[12px] font-medium transition-colors"
-                >
-                  <Reply size={13} />
-                  Reply
-                </button>
-                {/* Their words only where there is room (xl, or reading at full width). */}
-                <button
-                  onClick={() => setComposing({ replyTo: selected, mode: "replyAll" })}
-                  title="Reply all"
-                  aria-label="Reply all"
-                  className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
-                >
-                  <ReplyAll size={13} />
-                  <span className={roomy ? "" : "lg:hidden xl:inline"}>Reply all</span>
-                </button>
-                <button
-                  onClick={() => setComposing({ replyTo: selected, mode: "forward" })}
-                  title="Forward"
-                  aria-label="Forward"
-                  className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
-                >
-                  <Forward size={13} />
-                  <span className={roomy ? "" : "lg:hidden xl:inline"}>Forward</span>
-                </button>
-
                 {/*
-                  Filing onto an enquiry that already exists, which is a
-                  different act from the queue buttons beside it: those mint a
-                  reference, and most mail after the first on a job should not.
-                  An enquiry collects threads — the customer's original, the
-                  agent's rate, the carrier's booking note — and each arriving
-                  as its own enquiry is how one job ends up holding four
-                  references with a quarter of the correspondence under each.
+                  A draft (one started in Outlook) is finished and sent, not
+                  answered: it used to offer Reply, Forward and "make an enquiry
+                  of this", on a mail that had not gone anywhere.
                 */}
-                <FileToEnquiry message={selected} onFiled={() => void load()} />
-
-                {/*
-                  Beside reply and archive, because it is the third thing you do
-                  with a message: answer it, file it away, or decide it is work.
-                */}
-                <PushMailToQueue
-                  message={selected}
-                  queued={queued.get(selected.id)}
-                  people={people}
-                  meId={session?.userId}
-                  onChanged={() => void load()}
-                />
-
-                {selected.folder !== "archive" && (
+                {isDraft ? (
+                  <>
+                    <button
+                      onClick={() => setComposing({ draft: selected })}
+                      disabled={!(full && full.id === selectedId)}
+                      className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand hover:bg-brand-dark text-white text-[12px] font-medium transition-colors disabled:opacity-60"
+                    >
+                      <PenSquare size={13} />
+                      Edit and send
+                    </button>
+                    <span className="self-center text-[12px] text-text-muted">A draft — not sent yet.</span>
+                  </>
+                ) : (
+                  <>
                   <button
-                    onClick={() => void archive(selected)}
-                    title="Archive the conversation"
-                    aria-label="Archive the conversation"
+                    onClick={() => setComposing({ replyTo: selected, mode: "reply" })}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand hover:bg-brand-dark text-white text-[12px] font-medium transition-colors"
+                  >
+                    <Reply size={13} />
+                    Reply
+                  </button>
+                  {/* Their words only where there is room (xl, or reading at full width). */}
+                  <button
+                    onClick={() => setComposing({ replyTo: selected, mode: "replyAll" })}
+                    title="Reply all"
+                    aria-label="Reply all"
                     className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
                   >
-                    <Archive size={13} />
-                    <span className={roomy ? "" : "lg:hidden xl:inline"}>Archive</span>
+                    <ReplyAll size={13} />
+                    <span className={roomy ? "" : "lg:hidden xl:inline"}>Reply all</span>
                   </button>
+                  <button
+                    onClick={() => setComposing({ replyTo: selected, mode: "forward" })}
+                    title="Forward"
+                    aria-label="Forward"
+                    className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
+                  >
+                    <Forward size={13} />
+                    <span className={roomy ? "" : "lg:hidden xl:inline"}>Forward</span>
+                  </button>
+
+                  {/*
+                    Filing onto an enquiry that already exists, which is a
+                    different act from the queue buttons beside it: those mint a
+                    reference, and most mail after the first on a job should not.
+                    An enquiry collects threads — the customer's original, the
+                    agent's rate, the carrier's booking note — and each arriving
+                    as its own enquiry is how one job ends up holding four
+                    references with a quarter of the correspondence under each.
+                  */}
+                  <FileToEnquiry message={selected} onFiled={() => void load()} />
+
+                  {/*
+                    Beside reply and archive, because it is the third thing you do
+                    with a message: answer it, file it away, or decide it is work.
+                  */}
+                  <PushMailToQueue
+                    message={selected}
+                    queued={queued.get(selected.id)}
+                    people={people}
+                    meId={session?.userId}
+                    onChanged={() => void load()}
+                  />
+
+                  {selected.folder !== "archive" && (
+                    <button
+                      onClick={() => void archive(selected)}
+                      title="Archive the conversation"
+                      aria-label="Archive the conversation"
+                      className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors ${roomy ? "px-3" : "lg:px-2.5 xl:px-3"}`}
+                    >
+                      <Archive size={13} />
+                      <span className={roomy ? "" : "lg:hidden xl:inline"}>Archive</span>
+                    </button>
+                  )}
+                  </>
                 )}
               </div>
               </div>
@@ -892,9 +949,15 @@ export default function Mail() {
           signature={session?.signature ?? ""}
           replyTo={composing.replyTo}
           mode={composing.mode}
+          draft={composing.draft}
           reference={replyRef}
           onClose={() => setComposing(null)}
           onSent={() => {
+            // A sent draft has left Drafts; its pane goes with it.
+            if (composing.draft) {
+              setSelectedId(null);
+              setFull(null);
+            }
             setComposing(null);
             setSentTick((t) => t + 1);
             void load();

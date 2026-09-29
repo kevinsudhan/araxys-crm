@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Loader2, X } from "lucide-react";
 import RichTextEditor from "./RichTextEditor";
 
@@ -25,11 +25,23 @@ export default function SignatureEditor({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // Closing asks first when the signature has been changed: Escape pressed to
+  // shut a menu in the editor, or a click beside the window, used to throw the
+  // edits away without a word.
+  const requestClose = () => {
+    if (busy) return;
+    if (text !== initial && !saved && !window.confirm("Discard the changes to your signature?")) return;
+    onClose();
+  };
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) closeRef.current();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   async function save() {
     setBusy(true);
@@ -48,7 +60,7 @@ export default function SignatureEditor({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6"
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
         className="w-full max-w-lg card shadow-xl"
@@ -58,7 +70,7 @@ export default function SignatureEditor({
       >
         <header className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h2 className="text-[14px] font-medium text-text-primary">Email signature</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary" aria-label="Close">
+          <button onClick={requestClose} className="text-text-muted hover:text-text-primary" aria-label="Close">
             <X size={16} />
           </button>
         </header>
@@ -96,7 +108,7 @@ export default function SignatureEditor({
           </p>
           <div className="flex items-center gap-2">
             <button
-              onClick={onClose}
+              onClick={requestClose}
               className="h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary"
             >
               Cancel

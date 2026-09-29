@@ -1,5 +1,6 @@
 import { FONT_CHOICES, MAIL_FONT, fontChoiceFor, fontName, hexColor, ptFromPx, stepSize } from "../../src/lib/mailStyle";
 import { composeSubject, quoteHeaderHtml, quotedBodyHtml, replyRecipients } from "../../src/lib/mailQuote";
+import { parseAddresses } from "../../src/lib/addresses";
 
 /**
  * The mail editor's toolbar readings, and reply / reply all / forward the
@@ -74,6 +75,16 @@ is("under Outlook's rule", head.startsWith('<div style="border:none;border-top:s
 is("no Cc line without one", quoteHeaderHtml({ ...mine, subject: "x", receivedDateTime: "2026-09-25T09:05:00Z" }).includes("Cc:"), false);
 is("plain text keeps its lines, escaped", quotedBodyHtml({ body: { contentType: "text", content: "a < b\nnext" } }), "a &lt; b<br>next");
 is("HTML as it came", quotedBodyHtml({ body: { contentType: "html", content: "<p>x</p>" } }), "<p>x</p>");
+
+console.log("addresses typed into To, Cc and Bcc (29 Sep 2026)");
+is("bare, comma separated", parseAddresses("a@x.com, b@y.com"), ["a@x.com", "b@y.com"]);
+is("semicolons, as Outlook writes them", parseAddresses("a@x.com; b@y.com;"), ["a@x.com", "b@y.com"]);
+is("Outlook's Name <address>", parseAddresses("Meena Rajan <meena@x.com>"), ["meena@x.com"]);
+is("a comma inside quotes does not split", parseAddresses('"Rajan, Meena" <meena@x.com>, b@y.com'), ["meena@x.com", "b@y.com"]);
+is("mailto: is dropped", parseAddresses("mailto:a@x.com"), ["a@x.com"]);
+is("the same address twice is once", parseAddresses("a@x.com, A@X.com"), ["a@x.com"]);
+is("empty is none", parseAddresses(" , ; "), []);
+is("something that is not an address is passed on to be refused", parseAddresses("bob"), ["bob"]);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

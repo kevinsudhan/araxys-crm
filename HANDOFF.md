@@ -488,6 +488,15 @@ is why the letter's own subject is not used there. No such message in the signed
 (a phoned-in job, or mail that came to a colleague) means a new conversation, and the compose
 window says so.
 
+**Mail fixes (29 Sep).** Switching folder clears the list at once (it used to show the old
+folder's rows, drawn as the new one's). Search waits for a pause in typing and drops late
+answers. Drafts show who they are to and open with "Edit and send", which sends the Outlook
+draft itself (`graphMail.sendDraft`). The compose and signature windows ask before discarding
+(Escape and a click outside used to close them silently). To/Cc/Bcc take Outlook's
+"Name <address>" (`lib/addresses.ts`). Attachments can be downloaded from the Mail page. The
+attach limit is checked on the encoded size, as the send checks it. On a phone, tapping a message
+scrolls to it. Conversations and the case file leave out drafts.
+
 **Email HTML must be table-based with inline styles.**
 
 - The rich-text editor's sanitiser (`RichTextEditor.tsx`) allows email tables, `bgcolor`
