@@ -577,6 +577,85 @@ const RFQ_SYSTEM = [
  * HAS happened is an event; a changed plan is a schedule change, and a plan
  * that has not changed is nothing at all.
  */
+/**
+ * A quotation pasted in by the desk, laid out as charge lines (106).
+ *
+ * The model reads and sorts; it never adds up. The app lays out the mail and
+ * works out every total from these lines, so a figure the model misread is at
+ * worst one wrong line — shown to a person before anything is saved — and never
+ * a wrong total built on top of it.
+ */
+const PASTE_SYSTEM = [
+  "You lay out a freight quotation that an employee of a freight forwarder has pasted in:",
+  "a rate from a mail, a WhatsApp message or a spreadsheet, in whatever shape it came.",
+  "",
+  "Return every charge as a line. Rules, in order of importance:",
+  "- Copy every figure EXACTLY as written. Never convert a currency, never round, never add",
+  "  up, never invent a charge or a figure that is not in the text.",
+  "- A line is one charge: description, currency, rate (per unit), unit and quantity. When the",
+  "  text gives a per-unit rate and a count (USD 1150 per 40'HC x 2), rate is the per-unit",
+  "  figure and quantity the count. When it gives one figure for the charge, quantity is 1 and",
+  "  rate is that figure.",
+  "- unit is one of: W/M, CBM, Kg, Container, B/L, Shipment, Trip, Lumpsum — the nearest. Per",
+  "  40HC / per container is Container, per BL is B/L, per kg is Kg, per cbm is CBM, per",
+  "  shipment / per job is Shipment, a fixed figure with no basis is Lumpsum.",
+  "- currency is one of INR, USD, EUR, GBP, AED, SGD. Rs, Rs. and the rupee sign are INR; $ is",
+  "  USD. A figure with no currency, in a text that sets none, is INR.",
+  "- section is ex_works for charges the text puts under an ex works / EXW / origin / pickup",
+  "  heading, or — when the text has no headings — charges that are plainly origin-side:",
+  "  pickup or collection from the shipper, loading, export customs clearance, origin",
+  "  handling, origin THC, documentation at origin, export warehousing. Everything else —",
+  "  freight, surcharges, destination charges, insurance — is other. When the text groups",
+  "  the charges itself, follow its grouping.",
+  "- description is the charge name as the customer should read it, cleaned up, in sentence",
+  "  case (Export customs clearance, Ocean freight Chennai to Jebel Ali). A condition that",
+  "  belongs to the charge (at actuals, subject to inspection) goes in note.",
+  "- A total, a subtotal, a greeting or a signature is not a line. Ignore stated totals: the",
+  "  app adds the lines up itself.",
+  "- terms are the conditions, exclusions and remarks in the text, one per item, short and in",
+  "  the text's own meaning (Rates are subject to space availability; Duties and taxes are",
+  "  extra). Validity is not a term: it goes in valid_until.",
+  "- valid_until is YYYY-MM-DD when the text gives a validity date or period (resolve a period",
+  "  from today), else null.",
+  "- exchange_rates are any rates of exchange the text states (ROE 84; 1 USD = 83.5 INR), as",
+  "  the currency and the rupees for one unit of it. Empty when there are none.",
+  "",
+  "Return nulls and empty lists freely. An honest gap is useful; a confident wrong number is not.",
+].join("\n");
+
+const PASTE_SCHEMA = {
+  type: "object",
+  properties: {
+    lines: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          section: { type: "string", description: "ex_works or other" },
+          description: { type: "string" },
+          currency: { type: "string" },
+          unit: { type: "string" },
+          quantity: { type: "number" },
+          rate: { type: "number", description: "Per unit, exactly as written." },
+          note: { type: "string", nullable: true },
+        },
+        required: ["section", "description", "currency", "unit", "quantity", "rate"],
+      },
+    },
+    terms: { type: "array", items: { type: "string" } },
+    valid_until: { type: "string", nullable: true, description: "YYYY-MM-DD" },
+    exchange_rates: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { currency: { type: "string" }, inr: { type: "number" } },
+        required: ["currency", "inr"],
+      },
+    },
+  },
+  required: ["lines", "terms", "exchange_rates"],
+};
+
 const TRACK_SYSTEM = [
   "You read mail about freight shipments that are already booked, for a forwarder in Chennai.",
   "You are given the shipment's own details and one message. List what the message says has",
@@ -805,7 +884,7 @@ Deno.serve(async (req) => {
      * "classify" reads a message, "draft" answers one, "quote" reads a rate out
      * of a reply, "rfq" writes a rate request from shipment details.
      */
-    mode?: "classify" | "draft" | "quote" | "rfq" | "tracking" | "hbl";
+    mode?: "classify" | "draft" | "quote" | "rfq" | "tracking" | "hbl" | "paste_quote";
     /** Draft only: what the operator wants said, in their own words. */
     instruction?: string;
     /** Tracking only: the shipment's own details, and when the message was sent. */
@@ -826,6 +905,7 @@ Deno.serve(async (req) => {
   const writingRfq = input.mode === "rfq";
   const tracking = input.mode === "tracking";
   const readingBill = input.mode === "hbl";
+  const pasting = input.mode === "paste_quote";
   const text = (input.body ?? "").trim();
   if (readingBill) {
     if (!input.file_base64 || !HBL_TYPES.has(input.file_mime ?? "")) {
@@ -852,7 +932,9 @@ Deno.serve(async (req) => {
           ? "Write a rate request from these shipment details."
           : tracking
             ? `The shipment:\n${(input.context ?? "").slice(0, 2000)}\n\nThe message was sent ${input.sent_at ?? "(date unknown)"}.`
-            : "",
+            : pasting
+              ? `The job this quotation is for:\n${(input.context ?? "").slice(0, 1500)}\n\nThe quotation, as pasted:`
+              : "",
     // Today's date, for a classification: "ready on the 2nd", "must reach by
     // 12 Oct" and "next Monday" carry no year, and without a date to anchor
     // them the model can only guess one or leave a date it plainly read blank.
@@ -872,7 +954,9 @@ Deno.serve(async (req) => {
     .filter(Boolean)
     .join("\n");
 
-  const systemText = drafting
+  const systemText = pasting
+    ? PASTE_SYSTEM
+    : drafting
     ? DRAFT_SYSTEM
     : quoting
       ? QUOTE_SYSTEM
@@ -883,7 +967,7 @@ Deno.serve(async (req) => {
           : readingBill
             ? HBL_SYSTEM
             : SYSTEM;
-  const schema = quoting ? QUOTE_SCHEMA : tracking ? TRACK_SCHEMA : readingBill ? HBL_SCHEMA : SCHEMA;
+  const schema = pasting ? PASTE_SCHEMA : quoting ? QUOTE_SCHEMA : tracking ? TRACK_SCHEMA : readingBill ? HBL_SCHEMA : SCHEMA;
 
   const body = JSON.stringify({
     systemInstruction: {
@@ -1027,7 +1111,7 @@ Deno.serve(async (req) => {
       with the shipper, not with a model. So a yes stands only with a UN number
       or IMO class beside it, or where the message itself says so.
     */
-    if (!quoting && !tracking && !readingBill && answer.hazardous === true && !answer.un_number && !answer.imo_class) {
+    if (!quoting && !tracking && !readingBill && !pasting && answer.hazardous === true && !answer.un_number && !answer.imo_class) {
       const said = /\b(dangerous goods|hazardous|hazmat|haz\b|non-?haz|DGR?\b|IMDG|IMO class|UN\s?\d{4})/i;
       if (!said.test(`${input.subject ?? ""}\n${excerpt}`)) answer.hazardous = null;
     }

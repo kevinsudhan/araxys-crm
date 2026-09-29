@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { AlertCircle, Check, IndianRupee, Loader2, Send, ThumbsDown } from "lucide-react";
+import { AlertCircle, Check, ClipboardPaste, IndianRupee, Loader2, Send, ThumbsDown } from "lucide-react";
+import PasteQuoteDialog from "./PasteQuoteDialog";
+import { linesFor } from "../services/quoteLines";
 import {
   acceptQuote,
   addQuote,
@@ -55,6 +57,15 @@ export default function QuotePanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
+  /** "Paste a quotation" open, with how many charges the draft has now. */
+  const [pasting, setPasting] = useState<{ count: number } | null>(null);
+  /**
+   * Bumped when a paste is saved. The charges and the sending panel each keep
+   * their own copy of the lines, read when the quotation changes — and a paste
+   * into the draft keeps the same quotation, so without this both went on
+   * showing, and mailing, the charges it had just replaced.
+   */
+  const [pasted, setPasted] = useState(0);
 
   const missing = missingForQuote(enquiry);
   const live = quotes.find((q) => q.status === "sent" || q.status === "draft") ?? null;
@@ -158,6 +169,7 @@ export default function QuotePanel({
           */}
           <div className="mt-3 border-t border-border pt-3">
             <QuoteCharges
+              key={`${live.id}:${pasted}`}
               quoteId={live.id}
               locked={live.status !== "draft"}
               partnerQuotes={partnerQuotes}
@@ -184,6 +196,7 @@ export default function QuotePanel({
             it": the terms, the approval, and the three ways it can leave.
           */}
           <QuoteSend
+            key={`${live.id}:${pasted}`}
             enquiry={enquiry}
             customer={customer ?? null}
             quote={live}
@@ -196,6 +209,7 @@ export default function QuotePanel({
       {!accepted && (
         <div className="mt-3">
           {!drafting ? (
+            <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setDrafting(true)}
               /*
@@ -217,6 +231,22 @@ export default function QuotePanel({
             >
               {live ? "Revise quote" : "Add quote"}
             </button>
+            {/*
+              The rate as the desk already has it — a mail, a WhatsApp message, a
+              rate sheet — read by the AI into Ex works and Other charges (106).
+              Into the draft when there is one; a new version otherwise.
+            */}
+            <button
+              onClick={() => {
+                if (live?.status === "draft") void linesFor(live.id).then((l) => setPasting({ count: l.length }), () => setPasting({ count: 0 }));
+                else setPasting({ count: 0 });
+              }}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-3 text-[12px] font-medium text-text-primary hover:bg-surface-2"
+            >
+              <ClipboardPaste size={13} />
+              Paste a quotation
+            </button>
+            </div>
           ) : (
             <div className="rounded-lg border border-border p-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -366,6 +396,20 @@ export default function QuotePanel({
             </div>
           )}
         </div>
+      )}
+
+      {pasting && (
+        <PasteQuoteDialog
+          enquiry={enquiry}
+          live={live}
+          liveCount={pasting.count}
+          onClose={() => setPasting(null)}
+          onApplied={() => {
+            setPasting(null);
+            setPasted((n) => n + 1);
+            onChanged();
+          }}
+        />
       )}
 
       {error && (

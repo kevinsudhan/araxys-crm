@@ -230,6 +230,10 @@ export interface Quote {
   self_approval_review_note?: string;
   /** The terms printed under the charges, copied on at the time of sending. */
   terms: Array<{ scope: string; text: string }>;
+  /** Set on a pasted quotation (106): it goes out as plain text, laid out from its charges. */
+  mail_text?: string | null;
+  /** What was pasted, for checking the figures against their source. */
+  pasted_text?: string | null;
 }
 
 /** One line of the sign-off checklist, as `shipment_signoff_checklist` returns it. */

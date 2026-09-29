@@ -50,6 +50,8 @@ export interface QuoteLine {
   /** What this charge costs us in rupees. Derived when a cost rate is given. */
   cost_inr: number | null;
   partner_quote_id: string | null;
+  /** Ex works or Other charges, on a pasted quotation (106); the PDF groups by it. */
+  section?: "ex_works" | "other" | null;
   created_at: string;
 }
 

@@ -16,10 +16,10 @@ session should read this whole file before changing anything. §0 is the short v
   enquiries and shipments created by the desk. Treat the database as production.
 - **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
   `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (52 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (53 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **105**, so the next one is `106-….sql`.
+  migration filename (§6). The last migration is **106**, so the next one is `107-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 97 migrations
+## 4. Data model — 98 migrations
 
-`supabase-v2/001…105`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…106`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `106` | **A pasted quotation.** `quote_lines.section` ('ex_works' / 'other'; the PDF prints each group under its title with a subtotal), `quotes.mail_text` (set on a pasted quotation: it goes out as plain text) and `quotes.pasted_text` (the source). `require_approval_to_send` also un-approves on a change to `mail_text`. Checked rolled back: a bad section refused, the total still from the lines, approval reset |
 | `105` | **Mail snooze.** `mail_snoozes`: one row per snoozed message (its id in the Snoozed folder, when it comes back, `returned_at`, `seen_at`), visible and changeable only by its owner (RLS checked as two employees, rolled back). Outlook's snooze is not in Graph, so `services/snooze.ts` moves the message to a Snoozed folder and the Mail page brings due ones back on open and on its minute refresh |
 | `104` | **Your own profile: the signature, and nothing else.** 103's `(select auth.uid())` in `profiles_select_own`, together with 003's self-update policy that read `profiles` to pin the role, made every signature save fail with "infinite recursion detected in policy for relation profiles" (28 Sep, about a day). The self-update policy now only says "your own row"; the trigger `profiles_guard_self_update` refuses a browser (`current_user = 'authenticated'`) changing anything but `signature`. That also closes a hole older than 103: the pin covered `role` only, so an employee could set their own `can_approve_quotes` / `can_assign` through the API. Staff accounts (service role) and migrations are not held to it |
 | `103` | **The audit's fixes.** `shipment_margin` and `console_margin` count **before GST**, as Job closing does (`invoice_net_inr`, `bill_net_inr`: lines in rupees, else the taxable value; credit notes negative). **Cancel and reopen a shipment:** `cancel_shipment(id, reason)` / `reopen_shipment(id, reason)`, with `shipments.cancelled_at/by`, `cancel_reason`; refused on a signed-off job; reopening goes back to where the milestones say; both on the timeline. `set_shipment_stage` dropped. Voice-era `capture_call_as_intake` and `forget_call` dropped, and `promote_intake`'s `public.calls` branch removed. Ten policies read `(select auth.uid())` once per query; every foreign key in `public` has an index (`…_fkx`) |
@@ -296,7 +297,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 52 suites, pure logic
+npm test                             # 53 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -313,7 +314,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 52 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 53 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -578,6 +579,18 @@ line where it does not, or a labelled card per charge on a phone — the panel g
 scrolls inside it. A charge just added is scrolled into view with its rate field focused; the
 picker has a filter and "another charge". The code column is headed "Code": headed "Charge", it
 had prices typed into it (ALG09011-26).
+
+**Paste a quotation (106, 30 Sep).** Quotation → "Paste a quotation": the rate as the desk has
+it is read by classify-enquiry's `paste_quote` mode (Gemini) into lines, each under Ex works or
+Other charges; the model only copies figures and sorts, it never adds up. `lib/pastedQuote.ts`
+holds the values to allowed units and currencies, works out every total and lays out the plain
+text; the dialog (`PasteQuoteDialog`) shows the lines to correct, asks for any missing rate of
+exchange, then saves them into the draft (its charges replaced) or a new version
+(`services/pasteQuote.ts`). A quotation with `mail_text` goes by mail as plain text rebuilt from
+its charges at sending (`mailTextFor`), with the PDF attached; the PDF groups by `section`. The
+charges grid shows EXW / OTH on each line, a press moving it. The sending panel now re-reads the
+charges before mailing or downloading — it read them once, so a charge renamed in the grid went
+out under its old name until a reload.
 
 ## 9. Open items
 

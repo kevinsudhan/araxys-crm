@@ -223,7 +223,8 @@ export default function QuoteCharges({
     setError(null);
     const before = new Set(lines.map((l) => l.id));
     try {
-      await addLine(quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...line });
+      // On a quotation grouped into Ex works and Other charges, a new charge joins Other.
+      await addLine(quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...(lines.some((l) => l.section) ? { section: "other" as const } : {}), ...line });
       const next = await linesFor(quoteId);
       setLines(next);
       setFresh(next.find((l) => !before.has(l.id))?.id ?? null);
@@ -323,10 +324,31 @@ export default function QuoteCharges({
     }
   }
 
+  /** A pasted quotation (106) files its charges under Ex works or Other charges. */
+  const anySection = lines.some((l) => l.section);
+
   /** Every cell of one charge, for whichever arrangement the width allows. */
   function cells(l: QuoteLine) {
+    const exw = l.section === "ex_works";
     return {
-      name: (
+      name: anySection ? (
+        <div className="flex min-w-0 items-center gap-1">
+          {/* Its group on the PDF and in the mail; a press moves it to the other one. */}
+          <button
+            type="button"
+            disabled={locked}
+            onClick={() => void run(() => updateLine(l.id, { section: exw ? "other" : "ex_works" }))}
+            title={exw ? "Ex works — press to move to Other charges" : "Other charges — press to move to Ex works"}
+            aria-label={exw ? "Ex works charge; move to Other charges" : "Other charge; move to Ex works"}
+            className={`h-6 shrink-0 rounded-md px-1.5 text-[10px] font-semibold tracking-wide ${exw ? "bg-bg-accent text-text-accent" : "bg-surface-2 text-text-secondary"} disabled:cursor-default`}
+          >
+            {exw ? "EXW" : "OTH"}
+          </button>
+          <div className="min-w-0 flex-1">
+            <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void run(() => updateLine(l.id, { description: v }))} />
+          </div>
+        </div>
+      ) : (
         <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void run(() => updateLine(l.id, { description: v }))} />
       ),
       code: (

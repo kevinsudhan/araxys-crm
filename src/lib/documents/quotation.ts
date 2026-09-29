@@ -177,7 +177,9 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
     doc.text("Amount Per Unit", xs.per + 2, ty);
     doc.text("Min Amount", xs.min + COL.min - 2, ty, { align: "right" });
     doc.text("Estimated Unit", xs.units + COL.units - 2, ty, { align: "right" });
-    doc.text("Total Amount", tableRight - 2, ty, { align: "right" });
+    // The last column is in rupees whatever the line's currency: say so where a
+    // dollar line sits beside it, or its total reads as dollars.
+    doc.text(lines.some((l) => (l.currency || "INR") !== "INR") ? "Total (INR)" : "Total Amount", tableRight - 2, ty, { align: "right" });
     return top + 8;
   };
 
@@ -194,31 +196,82 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
     y += 9;
   }
 
-  for (const l of lines) {
-    // Wrapped first, because the row has to be as tall as its description.
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    const wrapped = doc.splitTextToSize(l.description || "—", COL.desc - 4) as string[];
-    const h = Math.max(9, wrapped.length * 4 + 4.5);
+  /*
+    A pasted quotation (106) files each charge under Ex works or Other charges,
+    and the document prints them that way: each group under its own title with
+    its own total, then the whole. A quotation built charge by charge has no
+    groups and prints as one table, as before.
+  */
+  const bySection = lines.some((l) => l.section);
+  const groups: Array<{ title: string | null; totalLabel: string | null; lines: QuoteLine[] }> = bySection
+    ? [
+        { title: "EX WORKS CHARGES", totalLabel: "Ex works total (INR)", lines: lines.filter((l) => l.section === "ex_works") },
+        { title: "OTHER CHARGES", totalLabel: "Other charges total (INR)", lines: lines.filter((l) => l.section !== "ex_works") },
+      ].filter((g) => g.lines.length)
+    : [{ title: null, totalLabel: null, lines }];
 
-    if (y + h > FOOTER_Y - 6) {
-      doc.addPage();
-      y = MARGIN;
-      y = headerRow(y);
+  for (const g of groups) {
+    if (g.title) {
+      if (y + 16 > FOOTER_Y - 6) {
+        doc.addPage();
+        y = MARGIN;
+        y = headerRow(y);
+      }
+      fill(TINT);
+      doc.rect(MARGIN, y, CONTENT_W, 7, "F");
+      stroke(RULE);
+      doc.rect(MARGIN, y, CONTENT_W, 7);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.8);
+      set(BRAND);
+      doc.text(g.title, xs.desc + 2, y + 4.8);
+      y += 7;
     }
 
-    stroke(RULE);
-    doc.rect(MARGIN, y, CONTENT_W, h);
-    const ty = y + 6;
-    set(INK);
-    doc.text(wrapped, xs.desc + 2, ty);
-    doc.text(l.currency || "INR", xs.ccy + 2, ty);
-    doc.text(`${amount(l.rate)} per ${l.unit || "unit"}`, xs.per + 2, ty, { maxWidth: COL.per - 4 });
-    doc.text(amount(0), xs.min + COL.min - 2, ty, { align: "right" });
-    doc.text(amount(l.quantity), xs.units + COL.units - 2, ty, { align: "right" });
-    doc.setFont("helvetica", "bold");
-    doc.text(amount(l.amount_inr), tableRight - 2, ty, { align: "right" });
-    y += h;
+    for (const l of g.lines) {
+      // Wrapped first, because the row has to be as tall as its description.
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      const wrapped = doc.splitTextToSize(l.description || "—", COL.desc - 4) as string[];
+      const h = Math.max(9, wrapped.length * 4 + 4.5);
+
+      if (y + h > FOOTER_Y - 6) {
+        doc.addPage();
+        y = MARGIN;
+        y = headerRow(y);
+      }
+
+      stroke(RULE);
+      doc.rect(MARGIN, y, CONTENT_W, h);
+      const ty = y + 6;
+      set(INK);
+      doc.text(wrapped, xs.desc + 2, ty);
+      doc.text(l.currency || "INR", xs.ccy + 2, ty);
+      // A lump sum is the figure itself, not "per Lumpsum".
+      doc.text(l.unit === "Lumpsum" ? amount(l.rate) : `${amount(l.rate)} per ${l.unit || "unit"}`, xs.per + 2, ty, { maxWidth: COL.per - 4 });
+      // The line's own floor where it has one; it used to print 0.00 on every line.
+      doc.text(l.min_amount == null ? "—" : amount(l.min_amount), xs.min + COL.min - 2, ty, { align: "right" });
+      doc.text(amount(l.quantity), xs.units + COL.units - 2, ty, { align: "right" });
+      doc.setFont("helvetica", "bold");
+      doc.text(amount(l.amount_inr), tableRight - 2, ty, { align: "right" });
+      y += h;
+    }
+
+    if (g.totalLabel) {
+      const sub = g.lines.reduce((n, l) => n + Number(l.amount_inr || 0), 0);
+      if (y + 8 > FOOTER_Y - 6) {
+        doc.addPage();
+        y = MARGIN;
+      }
+      stroke(RULE);
+      doc.rect(MARGIN, y, CONTENT_W, 7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      set(INK);
+      doc.text(g.totalLabel, tableRight - 34, y + 5, { align: "right" });
+      doc.text(amount(sub), tableRight - 2, y + 5, { align: "right" });
+      y += 7.5;
+    }
   }
 
   // ------------------------------------------------------------- the total

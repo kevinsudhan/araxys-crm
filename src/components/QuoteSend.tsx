@@ -21,6 +21,8 @@ import { quotationHtml, quotationMessage, quotationSubject } from "../lib/quotat
 import { MAIL_LOGO_PATH } from "../lib/company";
 import { acceptUrl, isReachable, issueLink } from "../services/publicQuote";
 import { threadWith } from "../services/customerThread";
+import { mailTextFor } from "../services/pasteQuote";
+import { plainTextHtml, quoteMailText } from "../lib/pastedQuote";
 import type { MailMessage } from "../services/backend";
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
 import { linesFor, type QuoteLine } from "../services/quoteLines";
@@ -105,13 +107,28 @@ export default function QuoteSend({
   const [replyTo, setReplyTo] = useState<MailMessage | null>(null);
   const [opening, setOpening] = useState(false);
 
+  /*
+    Read again whenever the quotation's figures move, and again just before it
+    is mailed or downloaded (`fresh`): the charges are edited in the grid above,
+    which keeps its own copy, and this used to read them once — so a renamed
+    charge went out under its old name until the page was reloaded.
+  */
   const load = useCallback(async () => {
     try {
-      setLines(await linesFor(quote.id));
+      const got = await linesFor(quote.id);
+      setLines(got);
+      return got;
     } catch {
       setLines([]);
+      return [];
     }
-  }, [quote.id]);
+  }, [quote.id, quote.amount_inr, quote.mail_text]);
+
+  /** The PDF from the charges as they are this moment. */
+  async function downloadPdf() {
+    const now = { ...pdfInput, lines: await load() };
+    renderQuotationPdf(now).save(quotationFile(now).name);
+  }
 
   useEffect(() => {
     void load();
@@ -204,6 +221,8 @@ export default function QuoteSend({
       // Best-effort: a quotation that cannot carry an accept button is still a
       // quotation worth sending.
       .catch(() => setLink(null))
+      // The charges as they are now, for the body and the PDF.
+      .then(() => load())
       .then(() => thread)
       .then((m) => {
         setReplyTo(m);
@@ -463,10 +482,7 @@ export default function QuoteSend({
             </button>
             <button
               type="button"
-              onClick={() => {
-                const f = quotationFile(pdfInput);
-                renderQuotationPdf(pdfInput).save(f.name);
-              }}
+              onClick={() => void downloadPdf()}
               className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[12px] text-text-secondary hover:border-border-strong hover:text-text-primary disabled:opacity-60"
             >
               <Download size={13} /> Download the PDF
@@ -508,10 +524,7 @@ export default function QuoteSend({
             </button>
             <button
               type="button"
-              onClick={() => {
-                const f = quotationFile(pdfInput);
-                renderQuotationPdf(pdfInput).save(f.name);
-              }}
+              onClick={() => void downloadPdf()}
               className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[12px] text-text-secondary hover:border-border-strong hover:text-text-primary"
             >
               <Download size={13} /> Download the PDF
@@ -561,7 +574,22 @@ export default function QuoteSend({
           initial={{
             to,
             subject: replyTo ? undefined : quotationSubject({ enquiry, quote }),
-            body: quotationHtml({
+            /*
+              A pasted quotation (106) goes as plain text, laid out from its
+              charges as they are now — the Ex works charges and their total,
+              the other charges and theirs, the whole in rupees, validity and
+              terms — with the PDF attached. Everything else goes as the
+              designed letter.
+            */
+            body: quote.mail_text
+              ? plainTextHtml(
+                  quoteMailText({
+                    name: customer?.name ?? null,
+                    text: mailTextFor(enquiry, quote, lines),
+                    acceptUrl: link && isReachable(link) ? link : null,
+                  })
+                )
+              : quotationHtml({
               enquiry,
               customer,
               quote,
