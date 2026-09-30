@@ -1526,14 +1526,15 @@ export async function replyTracked(input: {
   // Before the draft exists, so an oversized attachment does not leave one
   // behind in the mailbox.
   const out = await outgoing(input.content, input.attachments);
-  const files = attachmentPayload(out.attachments);
+  const files = attachmentPayload(out.attachments).attachments ?? [];
 
   const draft = await graph<{ id: string; conversationId: string }>(
     `/me/messages/${encodeURIComponent(input.replyToId)}/createReply`,
     { method: "POST" }
   );
+  const at = `/me/messages/${encodeURIComponent(draft.id)}`;
 
-  await graph(`/me/messages/${encodeURIComponent(draft.id)}`, {
+  await graph(at, {
     method: "PATCH",
     body: JSON.stringify({
       subject: input.subject,
@@ -1541,11 +1542,23 @@ export async function replyTracked(input: {
       toRecipients: recipients(input.to),
       ccRecipients: recipients(input.cc ?? []),
       bccRecipients: recipients(input.bcc ?? []),
-      ...files,
     }),
   });
 
-  await graph(`/me/messages/${encodeURIComponent(draft.id)}/send`, { method: "POST" });
+  /*
+    Each file posted onto the draft, as a forward's are.
+
+    Graph does not add attachments through a PATCH of the message: they were
+    in the PATCH body and it ignored them, so every reply went without its
+    files — a quotation in the customer's thread left without its PDF, and
+    without the logo, which travels as an inline attachment the letter points
+    at by cid: (1 Oct, ALG09014-26).
+  */
+  for (const f of files) {
+    await graph(`${at}/attachments`, { method: "POST", body: JSON.stringify(f) });
+  }
+
+  await graph(`${at}/send`, { method: "POST" });
 
   return { conversationId: draft.conversationId };
 }
