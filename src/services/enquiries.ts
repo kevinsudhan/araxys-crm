@@ -936,9 +936,32 @@ export async function addParty(p: {
   return data as Party;
 }
 
-/** Binds a mail thread, so the rest of the conversation files itself. */
-export async function bindThread(ref: string, conversationId: string, messageId?: string) {
+/** The enquiry a conversation is filed on, if it is on one. */
+export async function threadOwner(conversationId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("enquiry_threads")
+    .select("enquiry_ref")
+    .eq("conversation_id", conversationId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.enquiry_ref as string | undefined) ?? null;
+}
+
+/**
+ * Binds a mail thread, so the rest of the conversation files itself.
+ *
+ * A conversation lives on one enquiry. Filing one that is already on another
+ * MOVES it, and that enquiry loses its mail — which is how ALG09010-26 came
+ * to show none (30 Sep). So a move has to be asked for (`move`), and it is
+ * written on both timelines: where it went, and where it came from.
+ */
+export async function bindThread(ref: string, conversationId: string, messageId?: string, opts: { move?: boolean } = {}) {
   const { data: user } = await supabase.auth.getUser();
+  const to = ref.toUpperCase();
+  const from = await threadOwner(conversationId);
+  if (from && from !== to && !opts.move) {
+    throw new Error(`This conversation is filed on ${from}. Moving it takes it off ${from}.`);
+  }
 
   const { error } = await supabase.from("enquiry_threads").upsert(
     {
@@ -958,7 +981,12 @@ export async function bindThread(ref: string, conversationId: string, messageId?
         { onConflict: "message_id,enquiry_ref" }
       );
   }
-  await logEvent(ref, "mail_linked", "Mail thread linked to this enquiry");
+  if (from && from !== to) {
+    await logEvent(from, "mail_moved", `Mail thread moved to ${to}`, { conversation_id: conversationId, to });
+    await logEvent(to, "mail_linked", `Mail thread moved here from ${from}`, { conversation_id: conversationId, from });
+  } else if (from !== to) {
+    await logEvent(ref, "mail_linked", "Mail thread linked to this enquiry");
+  }
 }
 
 export async function logEvent(
@@ -1080,11 +1108,32 @@ export async function acceptQuote(quoteId: string, ref: string, amount: number) 
   await logEvent(ref, "accepted", `Customer accepted ₹${amount.toLocaleString("en-IN")}`);
 }
 
+/**
+ * Closed without a job, with the reason (lib/enquiryStatus.ts). Its quotations
+ * are left as they are: "declined" is the customer's own answer, and this is
+ * the desk's.
+ */
+export async function closeEnquiry(ref: string, reason: string, note = ""): Promise<void> {
+  const why = [reason.trim(), note.trim()].filter(Boolean).join(" — ");
+  if (!why) throw new Error("Say why it is being closed.");
+  await updateEnquiry(ref, { status: "lost" });
+  await logEvent(ref, "lost", `Closed: ${why}`, { reason: reason.trim(), note: note.trim() });
+}
+
+/** Back on the board, where it was: quoted when a quotation is out, else new. */
+export async function reopenEnquiry(ref: string, to: EnquiryStatus): Promise<void> {
+  await updateEnquiry(ref, { status: to });
+  await logEvent(ref, "reopened", `Reopened as ${STATUS_LABEL[to].toLowerCase()}`);
+}
+
 export async function declineQuote(quoteId: string, ref: string, reason: string) {
-  await supabase
+  // Checked: an enquiry marked declined over a quotation still "sent" is two
+  // records disagreeing about the same answer.
+  const { error } = await supabase
     .from("quotes")
     .update({ status: "declined", responded_at: new Date().toISOString() })
     .eq("id", quoteId);
+  if (error) throw error;
   await updateEnquiry(ref, { status: "declined" });
   await logEvent(ref, "declined", reason || "Customer declined the quote");
 }

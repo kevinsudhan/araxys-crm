@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { AlertCircle, Loader2, Ruler, Sparkles, Wand2 } from "lucide-react";
 import { failureText, type FailureText } from "../lib/errorText";
 import { readText, type Reading } from "../services/classify";
-import { threadText } from "../lib/mailText";
+import { threadSubject, threadText } from "../lib/mailText";
 import { useAuth } from "../lib/auth";
 import { updateEnquiry, type Enquiry, type FiledMessage } from "../services/enquiries";
 import { byKey, saneValue } from "../data/requestFields";
@@ -88,7 +88,7 @@ export default function MailFillBar({
         mailbox,
         mail.map((f) => f.message)
       );
-      setFound(await readText({ body: text, subject: enquiry.ref }));
+      setFound(await readText({ body: text, subject: threadSubject(mail.map((f) => f.message)) || enquiry.ref }));
     } catch (e) {
       setError(failureText(e, "Could not read the correspondence."));
     } finally {

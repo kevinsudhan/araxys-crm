@@ -39,6 +39,8 @@
  * ---------------------------------------------------------------------------
  */
 
+import { laneFromSubjects } from "./lane.ts";
+
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
 
 /**
@@ -141,8 +143,16 @@ const SCHEMA = {
     company: { type: "string", nullable: true },
     email: { type: "string", nullable: true },
     phone: { type: "string", nullable: true },
-    origin: { type: "string", nullable: true, description: "Port or city of loading." },
-    destination: { type: "string", nullable: true, description: "Port or city of discharge." },
+    origin: {
+      type: "string",
+      nullable: true,
+      description: "Port or city of loading — or the country or region, as written, when that is all the message gives ('from Vietnam'). The subject line counts.",
+    },
+    destination: {
+      type: "string",
+      nullable: true,
+      description: "Port or city of discharge — or the country or region, as written, when that is all the message gives. The subject line counts.",
+    },
     cargo: { type: "string", nullable: true, description: "What is being shipped, and how much." },
     summary: { type: "string", description: "One or two sentences a colleague could act on." },
 
@@ -827,15 +837,21 @@ const SYSTEM = [
   "Decide whether the message is a NEW enquiry the desk should quote, and pull out the details.",
   "",
   "Rules:",
-  "- Take details from what the sender wrote, never from the mail headers. A website contact form",
-  "  arrives from the form mailer, not from the customer; the customer's own address is in the body.",
+  "- Take details from what the sender wrote, never from the address headers (From, To, Cc, Sent).",
+  "  A website contact form arrives from the form mailer, not from the customer; the customer's own",
+  "  address is in the body. The Subject line is NOT an address header: it is the sender's words.",
   "- NEVER return one of our own people as the contact. Anything at aashishlogistics.com or",
   "  aashishlogisticsglobal.com is a colleague, not a customer — that includes the signature at the",
   "  bottom of a message somebody here forwarded. On a forwarded or replied message the contact is",
   "  the ORIGINAL sender further down the thread. If the only name and address in the message are",
   "  ours, return null for contact_name, company, email and phone rather than naming a colleague.",
   "- Leave a field null when the message does not say. Do not infer a port from a country, do not",
-  "  expand an abbreviation you are not sure of, and never invent a figure.",
+  "  expand an abbreviation you are not sure of, and never invent a figure. A country or region the",
+  "  message does name ('IMPORT FROM VIETNAM TO CHENNAI') is an answer: write it as given, without",
+  "  turning it into a port.",
+  "- The subject line is part of what the sender wrote. This trade puts the lane, the mode and the",
+  "  terms there ('SEA SHIPMENT FROM XIAMEN TO CHENNAI // FOB') and a reply's body may say nothing",
+  "  else; read every Subject: line in the thread.",
   "- A subject carrying an enquiry reference — ENQ NO, ENQUIRY NO, ENQ#, ENQ, or the same idea",
   "  written another way — means this desk has already numbered this as an enquiry. Set",
   "  is_enquiry true, and put the reference itself in `reference` exactly as written. This rule",
@@ -1114,6 +1130,31 @@ Deno.serve(async (req) => {
     if (!quoting && !tracking && !readingBill && !pasting && answer.hazardous === true && !answer.un_number && !answer.imo_class) {
       const said = /\b(dangerous goods|hazardous|hazmat|haz\b|non-?haz|DGR?\b|IMDG|IMO class|UN\s?\d{4})/i;
       if (!said.test(`${input.subject ?? ""}\n${excerpt}`)) answer.hazardous = null;
+    }
+
+    // The lane and "air" from the subject lines, for what the model left blank.
+    if (!quoting && !tracking && !readingBill && !pasting && !drafting && !writingRfq) {
+      const subjects = [input.subject ?? "", ...[...excerpt.matchAll(/^Subject:\s*(.+)$/gim)].map((m) => m[1])];
+      const lane = laneFromSubjects(subjects);
+      if (!answer.origin && lane.origin) answer.origin = lane.origin;
+      if (!answer.destination && lane.destination) answer.destination = lane.destination;
+      if (!answer.transport_mode && lane.air) answer.transport_mode = "air";
+    }
+
+    /*
+      LCL or FCL only on the sender's word.
+
+      The schema has no plain "sea", so "SEA FREIGHT RATE" was answered with a
+      guess between the two — sea_fcl on a mail that never said container
+      (30 Sep). A wrong load type is worse than a blank one: the quotation is
+      priced per container or per CBM from it. Each needs its own evidence.
+    */
+    if (!quoting && !tracking && !readingBill && !pasting && (answer.transport_mode === "sea_fcl" || answer.transport_mode === "sea_lcl")) {
+      const seen = `${input.subject ?? ""}\n${excerpt}`;
+      const fcl = /\b(FCL|full container|full load|container load|\d+\s*[x×*]\s*(20|40|45)|(20|40|45)\s*('|’|ft|feet|gp|dc|hc|hq|rf|ot|fr|std)\b|20'|40')/i;
+      const lcl = /\b(LCL|less than container|consol(e|idation|idated)?|co-?load(ing|er)?|part load|groupage)\b/i;
+      if (answer.transport_mode === "sea_fcl" && !fcl.test(seen)) answer.transport_mode = null;
+      else if (answer.transport_mode === "sea_lcl" && !lcl.test(seen)) answer.transport_mode = null;
     }
 
     return json({ ...answer, model: used, usage });

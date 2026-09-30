@@ -16,10 +16,10 @@ session should read this whole file before changing anything. §0 is the short v
   enquiries and shipments created by the desk. Treat the database as production.
 - **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
   `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (56 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (57 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **109**, so the next one is `110-….sql`.
+  migration filename (§6). The last migration is **110**, so the next one is `111-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 101 migrations
+## 4. Data model — 102 migrations
 
-`supabase-v2/001…109`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…110`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `110` | **Enquiry and intake fixes.** `create_customer` takes an advisory lock and counts only ids shaped `C0001` (a `DEMO-` id made the cast fail and every new customer with it); `create_enquiry` sets `received_at` (a manual enquiry had none; `promote_intake` still sets the intake's); `promote_intake` logs `mail_linked` only when the conversation was actually bound, and `mail_elsewhere` naming the enquiry it stays on when it was already filed. Checked rolled back: sequences and `reference_series` unchanged afterwards |
 | `109` | **A quotation that cannot be right does not go.** `quote_problems(quote)` lists, in sentences: no charges; adds up to nothing; a charge with no name; a foreign charge (or the quotation itself) in a foreign currency at a rate of exchange of 1, 0 or none. `quote_ready_or_raise` refuses with that list from `submit_quote_for_approval`, `self_approve_quote` and `require_approval_to_send` (new rule 4: draft → sent/accepted, whoever sends). A charge at nothing is allowed when the whole adds up to something. Both helpers internal (no grant). Checked rolled back on the real drafts |
 | `108` | **The customer's DSR.** `shipment_dsr_notes` (per shipment: the REASON and STATUS the desk writes for the report; its own table because a signed-off shipment is locked; stamped with who and when; staff read, insert, update, never delete) and `customer_dsr_sends` (every DSR mailed: to, cc, subject, the shipments on it; staff add as themselves, nothing rewritten). Both on realtime. Checked rolled back: forged sender, edit or delete of the log, delete of a note and anon all refused |
 | `107` | **Rate requests per partner, for chosen services.** `partner_quotes.services` (what that partner was asked to price), `sent_from` (the sender's mailbox: the thread and reply are there), `source` ('case_file' / 'live_rates'). `record_rfq_sent` takes `p_services` and `p_source` (old calls still work) and, in the same transaction, binds the conversation to the enquiry (`enquiry_threads`), adds the partner to `enquiry_parties` under their directory role unless that address is already there, and logs `partner_asked` once per partner per batch. Staff only; anon refused. Checked rolled back |
@@ -300,7 +301,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 56 suites, pure logic
+npm test                             # 57 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -317,7 +318,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 56 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 57 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -630,6 +631,31 @@ before, they were fixed when the quotation was opened. The sending panel lists w
 Email the quotation are unavailable until it is right; an admin's send whose clearance is refused
 no longer opens the mail anyway. The panel re-reads the charges on every grid edit
 (`chargesVersion`), so renaming a charge clears its warning.
+
+**Enquiries sweep, part 2 (110, 30 Sep).**
+- *The reader missed lanes given only in the subject.* Both the automatic fill and "Read the
+  mail again" passed the enquiry reference as the subject, and the thread text showed each
+  subject as a bare `--- …` separator, so "IMPORT SEA FREIGHT RATE FROM VIETNAM TO CHENNAI"
+  was read past and four enquiries were marked read with nothing filled. Now the first
+  message's subject is passed (`threadSubject`) and each message is labelled From / Subject
+  (`messageBlock`). In `classify-enquiry`: the Subject line is the sender's words, not an
+  address header; a country given as the place is written as given; when the model still
+  leaves the lane blank, "FROM X TO Y" is copied out of a subject line (`lane.ts`, tested by
+  `scripts/tests/lane.test.ts`), and "AIR FREIGHT" there means air; `sea_fcl` / `sea_lcl` stand
+  only with FCL / LCL evidence in the text (it used to guess FCL from "SEA").
+  **To do by hand:** ALG09001, 09003, 09010 and 09011 are still marked read with no lane; press
+  "Read the mail again" on each (the database reset of the mark was not made).
+- *File to enquiry moved a thread silently.* A conversation already on another enquiry was
+  moved by one click and that enquiry lost its mail (ALG09010-26's thread went to ALG09008-26
+  on 28 Sep). Now the dialog says where it is filed, marks that row, and asks before moving;
+  `bindThread` refuses a move not asked for (`move`), and both timelines record it
+  (`mail_moved` / "moved here from"). **Left as found:** ALG09010-26's thread is still on
+  ALG09008-26 — the desk decides whether it belongs there.
+- *No way to close an enquiry.* Nothing set "lost". The case file's status pill (now in the
+  board's colours) has **Close enquiry** with a reason (`lib/enquiryStatus.ts`) and **Reopen**
+  (back to quoted if a quotation is out, else new); both are on the timeline. The board opens
+  on **Open**, with Closed (lost + declined) and All beside the stages. `declineQuote` now
+  stops if the quotation could not be marked.
 
 ## 9. Open items
 

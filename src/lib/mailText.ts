@@ -110,7 +110,40 @@ export async function threadText(
   );
 
   return parts
-    .map((m) => `--- ${m.subject ?? ""}\n${textOf(m)}`)
+    .map((m, i) => messageBlock(m, i, parts.length))
     .join("\n\n")
     .trim();
+}
+
+/**
+ * One message of the thread, labelled as a mail is read: who, when, and the
+ * subject as a SUBJECT. This desk's trade puts the lane, the mode and the
+ * terms in the subject line ("IMPORT SEA FREIGHT RATE FROM VIETNAM TO
+ * CHENNAI") and often nothing in a one-line reply's body; a subject shown as
+ * a bare "--- …" separator was read past, and those enquiries were marked read
+ * with nothing filled (30 Sep).
+ */
+export function messageBlock(m: MailMessage, i: number, of: number): string {
+  const from = m.from?.emailAddress;
+  const who = from ? (from.name && from.address ? `${from.name} <${from.address}>` : from.address || from.name || "") : "";
+  const when = m.receivedDateTime ? m.receivedDateTime.slice(0, 10) : "";
+  return [
+    `--- Message ${i + 1} of ${of}${when ? ` · ${when}` : ""}`,
+    who ? `From: ${who}` : "",
+    `Subject: ${m.subject ?? ""}`,
+    "",
+    textOf(m),
+  ]
+    .filter((line, n) => n > 2 || line !== "")
+    .join("\n");
+}
+
+/**
+ * The subject to read a thread under: the first message's, where the request
+ * was made. Not the enquiry reference, which tells the reader nothing about
+ * the cargo and hid the one line that named the lane.
+ */
+export function threadSubject(messages: MailMessage[]): string {
+  const ordered = [...messages].sort((a, b) => a.receivedDateTime.localeCompare(b.receivedDateTime));
+  return (ordered.find((m) => (m.subject ?? "").trim())?.subject ?? "").trim();
 }

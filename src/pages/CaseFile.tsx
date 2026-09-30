@@ -23,6 +23,7 @@ import PromotePanel from "../components/PromotePanel";
 import ConfirmPanel from "../components/ConfirmPanel";
 import PartnersPanel from "../components/PartnersPanel";
 import PartnerQuotes from "../components/PartnerQuotes";
+import EnquiryStatusControl from "../components/EnquiryStatusControl";
 import DocumentsPanel from "../components/DocumentsPanel";
 import { documentDataFromEnquiry } from "../lib/documents";
 import {
@@ -372,9 +373,7 @@ export default function CaseFile() {
             </p>
           </div>
           <div className="text-right">
-            <span className="rounded-full bg-bg-accent px-2.5 py-1 text-[11px] font-medium text-text-accent">
-              {STATUS_LABEL[enquiry.status]}
-            </span>
+            <EnquiryStatusControl enquiry={enquiry} quotes={quotes} shipped={Boolean(shipment)} onChanged={load} />
             <p className="mt-1 text-[11px] text-text-muted capitalize">via {enquiry.source}</p>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { readText } from "./classify";
 import { updateEnquiry, type Enquiry, type FiledMessage } from "./enquiries";
 import { byKey, saneValue, type FieldDef } from "../data/requestFields";
-import { threadText } from "../lib/mailText";
+import { threadSubject, threadText } from "../lib/mailText";
 import { addDimensions } from "./enquiryDimensions";
 import {
   isEmptyLine,
@@ -195,7 +195,7 @@ export async function fillFromNewMail(
     mail.map((f) => f.message)
   );
 
-  const reading = (await readText({ body: text, subject: enquiry.ref })) as unknown as Record<
+  const reading = (await readText({ body: text, subject: threadSubject(mail.map((f) => f.message)) || enquiry.ref })) as unknown as Record<
     string,
     unknown
   >;

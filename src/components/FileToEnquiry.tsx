@@ -4,6 +4,7 @@ import { failureText, type FailureText } from "../lib/errorText";
 import {
   bindThread,
   listEnquiries,
+  threadOwner,
   STATUS_LABEL,
   type Customer,
   type Enquiry,
@@ -56,21 +57,31 @@ export default function FileToEnquiry({
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<FailureText | null>(null);
+  /** The enquiry this conversation is already filed on, if any. */
+  const [owner, setOwner] = useState<string | null>(null);
+  /** A move asked for and not yet confirmed. */
+  const [moving, setMoving] = useState<string | null>(null);
+  const conversation = message.conversationId || message.id;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setRows(await listEnquiries());
+      const [list, on] = await Promise.all([listEnquiries(), threadOwner(conversation).catch(() => null)]);
+      setOwner(on);
+      setRows(list);
     } catch (e) {
       setError(failureText(e, "Could not load the enquiries."));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [conversation]);
 
   useEffect(() => {
-    if (open) void load();
+    if (open) {
+      setMoving(null);
+      void load();
+    }
   }, [open, load]);
 
   // Escape closes, as everywhere else. No backdrop dismissal: there is nothing
@@ -98,14 +109,21 @@ export default function FileToEnquiry({
       .slice(0, 40);
   }, [rows, query]);
 
-  async function file(ref: string) {
+  async function file(ref: string, move = false) {
+    if (owner === ref) return;
+    // Already on another enquiry: say so, and move it only when asked twice.
+    if (owner && !move) {
+      setMoving(ref);
+      return;
+    }
+    setMoving(null);
     setBusy(ref);
     setError(null);
     try {
       // The message id goes too: it pins this particular mail even if it
       // arrived before the conversation was bound, which is the usual case —
       // you file it because it is in front of you.
-      await bindThread(ref, message.conversationId || message.id, message.id);
+      await bindThread(ref, conversation, message.id, { move });
       setDone(ref);
       onFiled();
       // Left open for a moment so the confirmation is seen rather than inferred
@@ -178,6 +196,35 @@ export default function FileToEnquiry({
                 />
               </div>
 
+              {owner && (
+                <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-[12px] text-text-secondary">
+                  Filed on <span className="font-mono text-text-primary">{owner}</span>. Choosing another enquiry moves the whole conversation
+                  there, and {owner} no longer shows it.
+                </p>
+              )}
+
+              {moving && owner && (
+                <div role="alert" className="mt-3 rounded-lg border border-text-warning/40 bg-bg-warning px-3 py-2.5 text-[12px] text-text-warning">
+                  <p>
+                    Move this conversation from <span className="font-mono">{owner}</span> to <span className="font-mono">{moving}</span>?{" "}
+                    {owner} will no longer show it. Both timelines record the move.
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void file(moving, true)}
+                      disabled={busy !== null}
+                      className="h-7 rounded-lg bg-brand px-3 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
+                    >
+                      Move it
+                    </button>
+                    <button type="button" onClick={() => setMoving(null)} className="h-7 rounded-lg border border-border bg-surface-1 px-3 text-[12px] text-text-secondary hover:text-text-primary">
+                      Keep it on {owner}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {error && (
                 <div className="mt-3 flex items-start gap-2 rounded-lg bg-bg-danger px-3 py-2.5 text-[12px] text-text-danger">
                   <AlertCircle size={13} className="mt-px shrink-0" />
@@ -202,7 +249,7 @@ export default function FileToEnquiry({
                     <li key={r.ref}>
                       <button
                         onClick={() => void file(r.ref)}
-                        disabled={busy !== null}
+                        disabled={busy !== null || owner === r.ref}
                         className="flex w-full items-start justify-between gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-60"
                       >
                         <span className="min-w-0">
@@ -218,6 +265,9 @@ export default function FileToEnquiry({
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
+                          {owner === r.ref && (
+                            <span className="rounded-full bg-bg-success px-2 py-0.5 text-[11px] text-text-success">Filed here</span>
+                          )}
                           <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-text-secondary">
                             {STATUS_LABEL[r.status] ?? r.status}
                           </span>

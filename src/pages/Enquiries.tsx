@@ -40,18 +40,10 @@ import { mailIsLive, type MailMessage } from "../services/backend";
 import { intakeByMessage, type Intake } from "../services/intake";
 import { ListSkeleton } from "../components/Loading";
 import { formatDate } from "../lib/dates";
+import { STATUS_TONE } from "../lib/enquiryStatus";
 
 type Row = Enquiry & { customer: Customer | null };
 
-/** Matches StatusPill's treatment: a light fill inside a hairline of its hue. */
-const STATUS_TONE: Record<EnquiryStatus, string> = {
-  new: "bg-bg-accent text-text-accent border-text-accent/25",
-  qualifying: "bg-bg-accent text-text-accent border-text-accent/25",
-  quoted: "bg-bg-warning text-text-warning border-text-warning/25",
-  accepted: "bg-bg-success text-text-success border-text-success/25",
-  declined: "bg-surface-2 text-text-secondary border-border-strong",
-  lost: "bg-surface-2 text-text-muted border-border-strong",
-};
 
 /** How long ago, in the shortest form that is still exact enough to act on. */
 function when(iso: string | null): string {
@@ -102,7 +94,12 @@ export default function Enquiries() {
       { replace: true }
     );
   };
-  const [filter, setFilter] = useState<EnquiryStatus | "all">("all");
+  /*
+    Open by default: an enquiry closed without a job (lost) or declined by the
+    customer is done, and a board that shows them beside live work makes the
+    live work harder to see. Closed and All are one press away.
+  */
+  const [filter, setFilter] = useState<EnquiryStatus | "open" | "closed" | "all">("open");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<FailureText | null>(null);
   const [creating, setCreating] = useState(false);
@@ -172,7 +169,15 @@ export default function Enquiries() {
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return rows
-      .filter((r) => filter === "all" || r.status === filter)
+      .filter((r) =>
+        filter === "all"
+          ? true
+          : filter === "open"
+            ? INBOUND_STATUSES.includes(r.status)
+            : filter === "closed"
+              ? r.status === "lost" || r.status === "declined"
+              : r.status === filter
+      )
       .filter((r) =>
         owner === "all"
           ? true
@@ -190,7 +195,11 @@ export default function Enquiries() {
   }, [rows, query, filter, owner, session?.userId]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: rows.length };
+    const c: Record<string, number> = {
+      all: rows.length,
+      open: rows.filter((r) => INBOUND_STATUSES.includes(r.status)).length,
+      closed: rows.filter((r) => r.status === "lost" || r.status === "declined").length,
+    };
     for (const s of INBOUND_STATUSES) c[s] = rows.filter((r) => r.status === s).length;
     return c;
   }, [rows]);
@@ -276,14 +285,20 @@ export default function Enquiries() {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 mb-4">
-        <Chip active={filter === "all"} onClick={() => setFilter("all")}>
-          All <span className="opacity-60">{counts.all}</span>
+        <Chip active={filter === "open"} onClick={() => setFilter("open")}>
+          Open <span className="opacity-60">{counts.open}</span>
         </Chip>
         {INBOUND_STATUSES.map((s) => (
           <Chip key={s} active={filter === s} onClick={() => setFilter(s)}>
             {STATUS_LABEL[s]} <span className="opacity-60">{counts[s] ?? 0}</span>
           </Chip>
         ))}
+        <Chip active={filter === "closed"} onClick={() => setFilter("closed")}>
+          Closed <span className="opacity-60">{counts.closed}</span>
+        </Chip>
+        <Chip active={filter === "all"} onClick={() => setFilter("all")}>
+          All <span className="opacity-60">{counts.all}</span>
+        </Chip>
       </div>
 
       {error && (
