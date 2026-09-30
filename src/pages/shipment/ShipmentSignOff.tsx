@@ -61,7 +61,9 @@ export default function ShipmentSignOff() {
   const admin = session?.role === "admin";
   const failing = items.filter((i) => i.blocking && !i.ok);
   const warnings = items.filter((i) => !i.blocking && !i.ok);
-  const canSign = failing.length === 0 || (admin && note.trim() !== "");
+  // Nothing read yet (or the reading failed) is not "everything in order".
+  const known = items.length > 0;
+  const canSign = known && (failing.length === 0 || (admin && note.trim() !== ""));
   const signed = Boolean(s.signed_off_at);
   const who = people.find((p) => p.id === s.signed_off_by);
 
@@ -148,7 +150,9 @@ export default function ShipmentSignOff() {
         {!signed ? (
           <>
             <p className="text-[12.5px] text-text-secondary">
-              {failing.length === 0
+              {!known
+                ? "Working out the checklist…"
+                : failing.length === 0
                 ? warnings.length
                   ? `Ready. ${warnings.length} warning${warnings.length === 1 ? "" : "s"} will be kept with the sign-off.`
                   : "Ready. Everything is in order."

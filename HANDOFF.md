@@ -16,10 +16,10 @@ session should read this whole file before changing anything. §0 is the short v
   enquiries and shipments created by the desk. Treat the database as production.
 - **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
   `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (57 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (58 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **110**, so the next one is `111-….sql`.
+  migration filename (§6). The last migration is **111**, so the next one is `112-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 102 migrations
+## 4. Data model — 103 migrations
 
-`supabase-v2/001…110`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…111`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `111` | **Revert only an untouched booking.** `revert_shipment` deletes the shipment, and everything cascades with it (milestones, receipts, pickups, customs, issued house bills) while vendor `bills` went to no job (ON DELETE SET NULL). Now refused when signed off, cancelled, past booked, with a bill recorded, a house bill or HAWB issued, cargo received into the warehouse, or a pickup/delivery done — cancel instead. Checked rolled back |
 | `110` | **Enquiry and intake fixes.** `create_customer` takes an advisory lock and counts only ids shaped `C0001` (a `DEMO-` id made the cast fail and every new customer with it); `create_enquiry` sets `received_at` (a manual enquiry had none; `promote_intake` still sets the intake's); `promote_intake` logs `mail_linked` only when the conversation was actually bound, and `mail_elsewhere` naming the enquiry it stays on when it was already filed. Checked rolled back: sequences and `reference_series` unchanged afterwards |
 | `109` | **A quotation that cannot be right does not go.** `quote_problems(quote)` lists, in sentences: no charges; adds up to nothing; a charge with no name; a foreign charge (or the quotation itself) in a foreign currency at a rate of exchange of 1, 0 or none. `quote_ready_or_raise` refuses with that list from `submit_quote_for_approval`, `self_approve_quote` and `require_approval_to_send` (new rule 4: draft → sent/accepted, whoever sends). A charge at nothing is allowed when the whole adds up to something. Both helpers internal (no grant). Checked rolled back on the real drafts |
 | `108` | **The customer's DSR.** `shipment_dsr_notes` (per shipment: the REASON and STATUS the desk writes for the report; its own table because a signed-off shipment is locked; stamped with who and when; staff read, insert, update, never delete) and `customer_dsr_sends` (every DSR mailed: to, cc, subject, the shipments on it; staff add as themselves, nothing rewritten). Both on realtime. Checked rolled back: forged sender, edit or delete of the log, delete of a note and anon all refused |
@@ -301,7 +302,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 57 suites, pure logic
+npm test                             # 58 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -318,7 +319,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 57 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 58 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -656,6 +657,17 @@ no longer opens the mail anyway. The panel re-reads the charges on every grid ed
   (back to quoted if a quotation is out, else new); both are on the timeline. The board opens
   on **Open**, with Closed (lost + declined) and All beside the stages. `declineQuote` now
   stops if the quotation could not be marked.
+
+**Shipments sweep (111, 30 Sep).** Every tab of both jobs and both boards were opened on an
+anonymised copy with no errors. Fixed: *Revert* (send the booking back to the enquiry) was offered on
+every job and deleted a job's receipts, milestones and issued house bills with it, leaving its vendor
+bills attached to nothing — now only an untouched booking can be reverted, on screen and in the
+database (111). *Dates that cannot all be true* are said on the job (`lib/shipmentDates.ts`): cargo
+ready after the ETD or after the cut-off, a cut-off after the sailing, an ETA before the ETD
+(ARX-SHP-0006 is ready 1 Oct on a 30 Sep sailing). An air job no longer shows a Containers tab.
+Sign-off no longer says "Ready" before its checklist has been read (or if reading it failed).
+The harness (`src/__audit.ts`, never committed) now sorts, joins, limits and upserts like
+PostgREST: the old one made "next step" and customer names look wrong when they were not.
 
 ## 9. Open items
 

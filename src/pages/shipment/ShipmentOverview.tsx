@@ -227,16 +227,20 @@ export default function ShipmentOverview() {
         </section>
       )}
 
-      <section className="card mt-4 p-5">
-        <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
-          Not ready to be a booking?
-        </h2>
-        <p className="mb-3 max-w-prose text-[12px] text-text-secondary">
-          Send it back to the enquiry and start it again when it is. Refused once an invoice has
-          been raised against it — that takes a credit note, not a deletion.
-        </p>
-        <RevertShipment shipmentId={s.id} enquiryRef={s.enquiry_ref} />
-      </section>
+      {/* Only while nothing has happened on it (111): past that it is cancelled,
+          which keeps its records, rather than deleted. */}
+      {s.stage === "booked" && !s.signed_off_at && !s.cancelled_at && (
+        <section className="card mt-4 p-5">
+          <h2 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
+            Not ready to be a booking?
+          </h2>
+          <p className="mb-3 max-w-prose text-[12px] text-text-secondary">
+            Send it back to the enquiry and start it again when it is — while nothing has happened on it yet. Once there is an invoice, a
+            vendor bill, an issued house bill, or cargo received or collected, cancel it instead: that keeps its records.
+          </p>
+          <RevertShipment shipmentId={s.id} enquiryRef={s.enquiry_ref} />
+        </section>
+      )}
     </div>
   );
 }

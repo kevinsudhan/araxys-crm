@@ -15,6 +15,7 @@ import { todayIST } from "../lib/progress";
 import { appliesTo, clocksFor, NO_FREE_TIME, sideOf, summarise } from "../lib/freeTime";
 import { FreeTimePill } from "../components/FreeTime";
 import { listShipmentContainers, type ShipmentContainer } from "../services/shipmentContainers";
+import { dateClashes } from "../lib/shipmentDates";
 import { money } from "../services/billing";
 import { ACCOUNTS_DESK } from "../lib/features";
 import SendPreAlert from "../components/SendPreAlert";
@@ -139,7 +140,8 @@ function tabsFor(mode: Enquiry["transport_mode"] | null | undefined) {
     // to go back to the enquiry to read the thread it came from is how a desk
     // ends up working the mailbox instead of the system.
     { to: "mail", label: "Mail", end: false },
-    { to: "containers", label: "Containers", end: false },
+    // Boxes are a sea thing: an air job has no container to record (30 Sep).
+    ...(mode === "air" ? [] : [{ to: "containers", label: "Containers", end: false }]),
     // Registered as routes only when the accounts desk is on, so the tabs follow.
     ...(ACCOUNTS_DESK
       ? [
@@ -277,6 +279,16 @@ export default function ShipmentDetail() {
   // Revenue and cost before GST, net of credit notes, as Job closing counts
   // them (shipment_margin, 103); `billed` from the billing summary counts tax
   // invoices only and is kept for the draft badge.
+  // Dates that cannot all be true — cargo ready after the ETD, and the like.
+  const clashes = dateClashes({
+    ready: enquiry?.ready_date ?? null,
+    cutoff: s.cargo_cutoff ?? null,
+    siCutoff: s.si_cutoff ?? null,
+    etd: s.etd,
+    eta: s.eta,
+    stage: s.stage,
+  });
+
   const revenue = Number(margin?.revenue_inr ?? billed);
   const cost = Number(margin?.cost_inr ?? 0);
   const pct = marginPct(revenue, cost);
@@ -312,6 +324,19 @@ export default function ShipmentDetail() {
         <div className="mb-4 flex items-start gap-2 rounded-lg bg-bg-danger px-3 py-2.5 text-[12px] text-text-danger">
           <AlertCircle size={13} className="mt-px shrink-0" />
           {error}
+        </div>
+      )}
+
+      {clashes.length > 0 && (
+        <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-text-warning/30 bg-bg-warning px-3 py-2.5 text-[12px] text-text-warning">
+          <AlertCircle size={13} className="mt-px shrink-0" />
+          <span>
+            {clashes.map((c) => (
+              <span key={c} className="block">
+                {c}
+              </span>
+            ))}
+          </span>
         </div>
       )}
 
