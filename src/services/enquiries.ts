@@ -1038,6 +1038,18 @@ export async function addQuote(input: {
   return data as Quote;
 }
 
+/**
+ * The currency a draft is presented in, and its rate of exchange (109). Set
+ * when the quotation was opened and, before this, never again — so a draft
+ * opened in USD at a rate of 1 could not be put right.
+ */
+export async function setQuoteCurrency(quoteId: string, currency: string, fxRate: number): Promise<void> {
+  const rate = currency === "INR" ? 1 : fxRate;
+  if (!(rate > 0)) throw new Error("Give the rate of exchange: rupees for one " + currency + ".");
+  const { error } = await supabase.from("quotes").update({ currency, fx_rate: rate }).eq("id", quoteId).eq("status", "draft");
+  if (error) throw error;
+}
+
 export async function markQuoteSent(quoteId: string, ref: string, amount: number) {
   const { error } = await supabase
     .from("quotes")

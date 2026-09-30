@@ -16,10 +16,10 @@ session should read this whole file before changing anything. §0 is the short v
   enquiries and shipments created by the desk. Treat the database as production.
 - **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
   `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (55 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (56 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **108**, so the next one is `109-….sql`.
+  migration filename (§6). The last migration is **109**, so the next one is `110-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 100 migrations
+## 4. Data model — 101 migrations
 
-`supabase-v2/001…108`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…109`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `109` | **A quotation that cannot be right does not go.** `quote_problems(quote)` lists, in sentences: no charges; adds up to nothing; a charge with no name; a foreign charge (or the quotation itself) in a foreign currency at a rate of exchange of 1, 0 or none. `quote_ready_or_raise` refuses with that list from `submit_quote_for_approval`, `self_approve_quote` and `require_approval_to_send` (new rule 4: draft → sent/accepted, whoever sends). A charge at nothing is allowed when the whole adds up to something. Both helpers internal (no grant). Checked rolled back on the real drafts |
 | `108` | **The customer's DSR.** `shipment_dsr_notes` (per shipment: the REASON and STATUS the desk writes for the report; its own table because a signed-off shipment is locked; stamped with who and when; staff read, insert, update, never delete) and `customer_dsr_sends` (every DSR mailed: to, cc, subject, the shipments on it; staff add as themselves, nothing rewritten). Both on realtime. Checked rolled back: forged sender, edit or delete of the log, delete of a note and anon all refused |
 | `107` | **Rate requests per partner, for chosen services.** `partner_quotes.services` (what that partner was asked to price), `sent_from` (the sender's mailbox: the thread and reply are there), `source` ('case_file' / 'live_rates'). `record_rfq_sent` takes `p_services` and `p_source` (old calls still work) and, in the same transaction, binds the conversation to the enquiry (`enquiry_threads`), adds the partner to `enquiry_parties` under their directory role unless that address is already there, and logs `partner_asked` once per partner per batch. Staff only; anon refused. Checked rolled back |
 | `106` | **A pasted quotation.** `quote_lines.section` ('ex_works' / 'other'; the PDF prints each group under its title with a subtotal), `quotes.mail_text` (set on a pasted quotation: it goes out as plain text) and `quotes.pasted_text` (the source). `require_approval_to_send` also un-approves on a change to `mail_text`. Checked rolled back: a bad section refused, the total still from the lines, approval reset |
@@ -299,7 +300,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 55 suites, pure logic
+npm test                             # 56 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -316,7 +317,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 55 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 56 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -616,6 +617,19 @@ shipment (phone-readable) and the customer's copy of the sheet attached — **no
 (`customer_dsr_sends`) and the page shows the last. ComposeMail's `onSent` now reports the final
 To, Cc and subject. Tests: `scripts/tests/dsr.test.ts` (lines, both copies, the workbook read
 back, the mail).
+
+**Quotation checks (109, 30 Sep — Enquiries sweep).** Found on the live data: a charge switched to
+USD kept the rupee rate of exchange of 1, so USD 15 counted as Rs 15 (ALG09011-26, ALG09012-26);
+a quotation at Rs 0 was sent and accepted (ALG09009-26); a nameless charge row sat on an approved
+draft (ALG09008-26). Now: the grid shows a foreign line's rate empty and outlined in red
+("Rate?") until it is given, and a line switched to a currency starts at the rate another line
+on the quotation already uses for it (`lib/quoteChecks.ts` `rateInUse`; none in use, none
+guessed). A draft's own currency and rate are editable under its total (`setQuoteCurrency`) —
+before, they were fixed when the quotation was opened. The sending panel lists what is wrong
+(`quoteProblems`, the same list the database uses) and Send for approval, Approve it myself and
+Email the quotation are unavailable until it is right; an admin's send whose clearance is refused
+no longer opens the mail anyway. The panel re-reads the charges on every grid edit
+(`chargesVersion`), so renaming a charge clears its warning.
 
 ## 9. Open items
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle, Check, ClipboardPaste, IndianRupee, Loader2, Send, ThumbsDown } from "lucide-react";
 import PasteQuoteDialog from "./PasteQuoteDialog";
 import { linesFor } from "../services/quoteLines";
@@ -8,12 +8,15 @@ import {
   declineQuote,
   markQuoteSent,
   missingForQuote,
+  setQuoteCurrency,
   type Customer,
   type Enquiry,
   type Quote,
 } from "../services/enquiries";
 import QuoteCharges from "./QuoteCharges";
 import { LINE_CURRENCIES } from "../services/charges";
+import { formatDate } from "../lib/dates";
+import { missingRate } from "../lib/quoteChecks";
 import QuoteSend from "./QuoteSend";
 import SchedulePicker from "./SchedulePicker";
 import type { PartnerQuote } from "../services/rfq";
@@ -66,6 +69,8 @@ export default function QuotePanel({
    * showing, and mailing, the charges it had just replaced.
    */
   const [pasted, setPasted] = useState(0);
+  /** Bumped by every edit in the charges grid, so the sending panel re-reads them (109). */
+  const [edits, setEdits] = useState(0);
 
   const missing = missingForQuote(enquiry);
   const live = quotes.find((q) => q.status === "sent" || q.status === "draft") ?? null;
@@ -97,7 +102,7 @@ export default function QuotePanel({
           </p>
           <p className="mt-0.5 text-[12px]">
             {accepted.basis}
-            {accepted.sailing_date ? ` · sailing ${accepted.sailing_date}` : ""}
+            {accepted.sailing_date ? ` · sailing ${day(accepted.sailing_date)}` : ""}
           </p>
           <p className="mt-2 text-[12px]">
             This enquiry is ready to become a booking. Container allocation and documentation
@@ -122,9 +127,18 @@ export default function QuotePanel({
               <p className="text-[12px] text-text-secondary">
                 Version {live.version} · {live.status}
                 {live.basis ? ` · ${live.basis}` : ""}
-                {live.sailing_date ? ` · sailing ${live.sailing_date}` : ""}
-                {live.valid_until ? ` · valid to ${live.valid_until}` : ""}
+                {live.sailing_date ? ` · sailing ${day(live.sailing_date)}` : ""}
+                {live.valid_until ? ` · valid to ${day(live.valid_until)}` : ""}
               </p>
+              {live.status === "draft" ? (
+                <QuoteCurrency quoteId={live.id} currency={live.currency} fxRate={Number(live.fx_rate)} onChanged={onChanged} />
+              ) : (
+                live.currency !== "INR" && (
+                  <p className="text-[12px] text-text-secondary">
+                    Quoted in {live.currency} at ₹{Number(live.fx_rate).toLocaleString("en-IN")}
+                  </p>
+                )
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -187,7 +201,10 @@ export default function QuotePanel({
                 mode: enquiry.transport_mode,
                 direction: enquiry.trade_direction ?? null,
               }}
-              onChanged={onChanged}
+              onChanged={() => {
+                setEdits((n) => n + 1);
+                onChanged();
+              }}
             />
           </div>
 
@@ -200,6 +217,7 @@ export default function QuotePanel({
             enquiry={enquiry}
             customer={customer ?? null}
             quote={live}
+            chargesVersion={edits}
             onChanged={onChanged}
           />
         </div>
@@ -468,6 +486,99 @@ function Field({
         className="w-full"
         autoComplete="off"
       />
+    </div>
+  );
+}
+
+const day = (iso: string) => formatDate(iso, { day: "numeric", month: "short", year: "numeric" });
+
+/**
+ * The currency a draft is presented in and its rate of exchange, changeable
+ * while it is a draft (109). A foreign currency at a rate of 1 is flagged: it
+ * is the rate a quotation keeps when nobody gave one, and it cannot be sent.
+ */
+function QuoteCurrency({
+  quoteId,
+  currency,
+  fxRate,
+  onChanged,
+}: {
+  quoteId: string;
+  currency: string;
+  fxRate: number;
+  onChanged: () => void;
+}) {
+  const [cur, setCur] = useState(currency);
+  const [rate, setRate] = useState(currency === "INR" || fxRate === 1 ? "" : String(fxRate));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setCur(currency);
+    setRate(currency === "INR" || fxRate === 1 ? "" : String(fxRate));
+  }, [currency, fxRate]);
+
+  const flagged = missingRate({ currency, fx_rate: fxRate });
+
+  async function save(nextCur: string, nextRate: string) {
+    setError(null);
+    if (nextCur !== "INR" && !(Number(nextRate) > 0)) return;
+    if (nextCur === currency && (nextCur === "INR" || Number(nextRate) === fxRate)) return;
+    setBusy(true);
+    try {
+      await setQuoteCurrency(quoteId, nextCur, Number(nextRate));
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not change the currency.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-text-secondary">
+      <span>Quoted in</span>
+      <select
+        value={cur}
+        disabled={busy}
+        aria-label="Quote currency"
+        onChange={(e) => {
+          const v = e.target.value;
+          setCur(v);
+          if (v === "INR") {
+            setRate("");
+            void save("INR", "1");
+          }
+        }}
+        className="h-7 w-20 text-[12px]"
+      >
+        {LINE_CURRENCIES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </select>
+      {cur !== "INR" && (
+        <label className="inline-flex items-center gap-1.5">
+          at ₹
+          <input
+            type="number"
+            step="0.0001"
+            min={0}
+            value={rate}
+            disabled={busy}
+            placeholder="Rate?"
+            aria-label={`Rupees for one ${cur}`}
+            aria-invalid={flagged || !(Number(rate) > 0) ? true : undefined}
+            onChange={(e) => setRate(e.target.value)}
+            onBlur={() => void save(cur, rate)}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            className={`h-7 w-24 text-[12px] ${flagged || !(Number(rate) > 0) ? "border-text-danger bg-bg-danger/40" : ""}`}
+          />
+          <span className="text-text-muted">per {cur}</span>
+        </label>
+      )}
+      {busy && <Loader2 size={12} className="animate-spin" />}
+      {error && <span className="text-text-danger">{error}</span>}
     </div>
   );
 }

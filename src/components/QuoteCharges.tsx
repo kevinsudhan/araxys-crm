@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, Plus, Trash2, Wand2 } from "lucide-react";
 import Select from "./Select";
 import { CHARGE_HEADS, LINE_CURRENCIES, UNITS, money } from "../services/charges";
+import { missingRate, rateInUse } from "../lib/quoteChecks";
 import {
   addLine,
   addLines,
@@ -58,10 +59,13 @@ function Cell({
   placeholder,
   field,
   label,
+  invalid,
 }: {
   value: string;
   onCommit: (v: string) => void;
   locked?: boolean;
+  /** What is missing, when something is: the cell is outlined and says so. */
+  invalid?: string;
   align?: "right";
   mono?: boolean;
   placeholder?: string;
@@ -90,13 +94,17 @@ function Cell({
       placeholder={placeholder}
       data-field={field}
       aria-label={label}
+      aria-invalid={invalid ? true : undefined}
+      title={invalid}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft !== value && onCommit(draft)}
       onKeyDown={(e) => {
         // Enter keeps the figure, as moving off the cell does.
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
-      className={`h-8 w-full rounded-lg border border-border bg-surface-1 px-2.5 text-[12.5px] text-text-primary transition-colors placeholder:text-text-muted hover:border-border-strong focus:border-text-accent focus:outline-none ${
+      className={`h-8 w-full rounded-lg border bg-surface-1 px-2.5 text-[12.5px] text-text-primary transition-colors placeholder:text-text-muted focus:border-text-accent focus:outline-none ${
+        invalid ? "border-text-danger bg-bg-danger/40 placeholder:text-text-danger" : "border-border hover:border-border-strong"
+      } ${
         align === "right" ? "text-right tabular-nums" : ""
       } ${mono ? "font-mono" : ""}`}
     />
@@ -369,13 +377,22 @@ export default function QuoteCharges({
           className="w-full"
           value={l.currency}
           options={LINE_CURRENCIES.map((c) => ({ value: c, label: c }))}
-          onChange={(v) => void run(() => updateLine(l.id, { currency: v, ...(v === "INR" ? { fx_rate: 1 } : {}) }))}
+          onChange={(v) => {
+            // Rupees are always at 1. A foreign currency starts at the rate another
+            // charge on this quotation already uses for it; with none, the rate of
+            // exchange is left for the desk to give, and flagged until it is (109).
+            const inUse = v === "INR" ? 1 : rateInUse(lines.filter((x) => x.id !== l.id), v);
+            void run(() => updateLine(l.id, { currency: v, ...(inUse ? { fx_rate: inUse } : {}) }));
+          }}
         />
       ),
       roe: (
         <Cell
           label="Rate of exchange"
-          value={String(l.fx_rate)}
+          // Left at 1 on a foreign line is not a rate; shown empty and flagged.
+          value={missingRate(l) ? "" : String(l.fx_rate)}
+          placeholder={missingRate(l) ? "Rate?" : undefined}
+          invalid={missingRate(l) ? `Rupees for one ${l.currency} — needed before this quotation can go` : undefined}
           // A rupee line's rate is always 1 and is not editable, even while the
           // column is up for the sake of a foreign line beside it.
           locked={locked || l.currency === "INR"}

@@ -431,8 +431,7 @@ export default function CaseFile() {
       */}
       <PartnersPanel enquiry={enquiry} onChanged={load} />
       <PartnerQuotes enquiry={enquiry} />
-
-      {/* ---- quoting and acceptance ---- */}
+      {/* The quotation itself is under Shipment process, beside the dimensions it is priced on. */}
         </>
       )}
 

@@ -22,6 +22,7 @@ import { MAIL_LOGO_PATH } from "../lib/company";
 import { acceptUrl, isReachable, issueLink } from "../services/publicQuote";
 import { threadWith } from "../services/customerThread";
 import { chargesTextFor } from "../services/pasteQuote";
+import { quoteProblems } from "../lib/quoteChecks";
 import type { MailMessage } from "../services/backend";
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
 import { linesFor, type QuoteLine } from "../services/quoteLines";
@@ -74,11 +75,14 @@ export default function QuoteSend({
   enquiry,
   customer,
   quote,
+  chargesVersion = 0,
   onChanged,
 }: {
   enquiry: Enquiry;
   customer: Customer | null;
   quote: Quote;
+  /** Moves on every edit in the charges grid: they are read again (109). */
+  chargesVersion?: number;
   onChanged: () => void;
 }) {
   const { session } = useAuth();
@@ -112,16 +116,20 @@ export default function QuoteSend({
     which keeps its own copy, and this used to read them once — so a renamed
     charge went out under its old name until the page was reloaded.
   */
+  /** Which quotation `lines` were read for: nothing is judged before they are in. */
+  const [linesOf, setLinesOf] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
       const got = await linesFor(quote.id);
       setLines(got);
+      setLinesOf(quote.id);
       return got;
     } catch {
       setLines([]);
       return [];
     }
-  }, [quote.id, quote.amount_inr, quote.mail_text]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chargesVersion is the signal to read again
+  }, [quote.id, quote.amount_inr, quote.mail_text, chargesVersion]);
 
   /** The PDF from the charges as they are this moment. */
   async function downloadPdf() {
@@ -156,6 +164,13 @@ export default function QuoteSend({
   */
   const exempt = session?.canApproveQuotes === true;
   const ready = sendable(quote) || (exempt && quote.status === "draft");
+  /*
+    What stops it going (109), from the charges as last read: the database
+    refuses the same list, but a refusal after the mail has left is too late,
+    so nothing that leads to the customer is offered while there is one.
+  */
+  const problems = quote.status === "draft" && linesOf === quote.id ? quoteProblems(quote, lines) : [];
+  const blocked = problems.length > 0;
   const to = customer?.emails?.[0] ?? "";
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
@@ -214,12 +229,20 @@ export default function QuoteSend({
       exempt && quote.approval_status !== "approved"
         ? submitForApproval(quote.id).then(() => onChanged())
         : Promise.resolve();
+    setError(null);
     void cleared
-      .then(() => issueLink(quote.id))
-      .then((l) => setLink(acceptUrl(l.token)))
-      // Best-effort: a quotation that cannot carry an accept button is still a
-      // quotation worth sending.
-      .catch(() => setLink(null))
+      .then(
+        () =>
+          issueLink(quote.id)
+            .then((l) => setLink(acceptUrl(l.token)))
+            // Best-effort: a quotation that cannot carry an accept button is
+            // still a quotation worth sending.
+            .catch(() => setLink(null)),
+        // Not cleared (109: something on it is wrong): the mail does not open.
+        (e) => {
+          throw e;
+        }
+      )
       // The charges as they are now, for the body and the PDF.
       .then(() => load())
       .then(() => thread)
@@ -227,6 +250,7 @@ export default function QuoteSend({
         setReplyTo(m);
         setComposing(true);
       })
+      .catch((e) => setError(failureText(e, "It could not be cleared to send.").message))
       .finally(() => setOpening(false));
   }
 
@@ -403,7 +427,7 @@ export default function QuoteSend({
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={busy !== null || reason.trim().length < 10}
+              disabled={busy !== null || blocked || reason.trim().length < 10}
               title={reason.trim().length < 10 ? "A sentence, please: the admins will read it" : undefined}
               onClick={() =>
                 void run("self", async () => {
@@ -430,6 +454,19 @@ export default function QuoteSend({
         </div>
       )}
 
+      {blocked && (
+        <div role="alert" className="mt-3 rounded-lg border border-text-danger/30 bg-bg-danger px-3 py-2.5 text-[12px] text-text-danger">
+          <p className="flex items-center gap-1.5 font-medium">
+            <AlertCircle size={13} /> Put this right in the charges before it can go:
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* ---- the three acts ---- */}
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
         {!exempt &&
@@ -437,7 +474,7 @@ export default function QuoteSend({
           <button
             type="button"
             onClick={() => void run("submit", () => submitForApproval(quote.id))}
-            disabled={busy !== null}
+            disabled={busy !== null || blocked}
             className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
           >
             {busy === "submit" ? (
@@ -462,7 +499,7 @@ export default function QuoteSend({
           <button
             type="button"
             onClick={() => setSelfOpen(true)}
-            disabled={busy !== null}
+            disabled={busy !== null || blocked}
             className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[12px] text-text-secondary hover:border-border-strong hover:text-text-primary disabled:opacity-60"
           >
             <UserCheck size={13} /> Approve it myself
@@ -474,7 +511,7 @@ export default function QuoteSend({
             <button
               type="button"
               onClick={openMail}
-              disabled={opening}
+              disabled={opening || blocked}
               className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
             >
               {opening ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />} Email the quotation
@@ -516,7 +553,7 @@ export default function QuoteSend({
             <button
               type="button"
               onClick={openMail}
-              disabled={opening}
+              disabled={opening || blocked}
               className="flex h-8 items-center gap-1.5 rounded-lg border border-border-strong bg-surface-1 px-3 text-[12px] font-medium text-text-primary hover:bg-surface-2 disabled:opacity-60"
             >
               {opening ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />} Send again
