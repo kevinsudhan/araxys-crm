@@ -19,7 +19,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (58 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **111**, so the next one is `112-….sql`.
+  migration filename (§6). The last migration is **113**, so the next one is `114-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 103 migrations
+## 4. Data model — 105 migrations
 
-`supabase-v2/001…111`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…113`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,8 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `113` | **Rates find the enquiry's lane.** `rates_for` matched places by exact text, so a rate for "Chennai" never met an enquiry reading "Chennai (MAA)". `place_words` / `place_matches`: every word of one place is among the other's, either way round ("Dubai" matches "Jebel Ali / Dubai, UAE"; "MAA" matches "Chennai (MAA)"; "Chennai" does not match "Kochi"). Ranking unchanged. Checked rolled back |
+| `112` | **What can go on a console.** `attach_to_console` took an air job onto a sea console, an import onto an export console, cancelled and signed-off jobs; a move between consoles was logged as a plain "Put on". Now sea only, directions must agree (cross-trade takes either), not cancelled or signed off, the same console again is a no-op, and a move says "Moved from X to Y" (the old console's master bill leaves with it). Checked rolled back |
 | `111` | **Revert only an untouched booking.** `revert_shipment` deletes the shipment, and everything cascades with it (milestones, receipts, pickups, customs, issued house bills) while vendor `bills` went to no job (ON DELETE SET NULL). Now refused when signed off, cancelled, past booked, with a bill recorded, a house bill or HAWB issued, cargo received into the warehouse, or a pickup/delivery done — cancel instead. Checked rolled back |
 | `110` | **Enquiry and intake fixes.** `create_customer` takes an advisory lock and counts only ids shaped `C0001` (a `DEMO-` id made the cast fail and every new customer with it); `create_enquiry` sets `received_at` (a manual enquiry had none; `promote_intake` still sets the intake's); `promote_intake` logs `mail_linked` only when the conversation was actually bound, and `mail_elsewhere` naming the enquiry it stays on when it was already filed. Checked rolled back: sequences and `reference_series` unchanged afterwards |
 | `109` | **A quotation that cannot be right does not go.** `quote_problems(quote)` lists, in sentences: no charges; adds up to nothing; a charge with no name; a foreign charge (or the quotation itself) in a foreign currency at a rate of exchange of 1, 0 or none. `quote_ready_or_raise` refuses with that list from `submit_quote_for_approval`, `self_approve_quote` and `require_approval_to_send` (new rule 4: draft → sent/accepted, whoever sends). A charge at nothing is allowed when the whole adds up to something. Both helpers internal (no grant). Checked rolled back on the real drafts |
@@ -668,6 +670,15 @@ ready after the ETD or after the cut-off, a cut-off after the sailing, an ETA be
 Sign-off no longer says "Ready" before its checklist has been read (or if reading it failed).
 The harness (`src/__audit.ts`, never committed) now sorts, joins, limits and upserts like
 PostgREST: the old one made "next step" and customer names look wrong when they were not.
+
+**Operations sweep (112, 113, 1 Oct).** The Operations tables are empty (no schedules, boxes,
+consoles or rate cards yet), so the create flows were run against the live database in rolled-back
+transactions: schedule → container → console → jobs on it, and the rate lookup with invented
+rates. Fixed: a console took air jobs, jobs going the other way, and moves without saying so (112;
+the air HAWB tab no longer offers a console, and the menu lists only consoles going the job's way);
+the rate master never matched the reader's place names (113); a schedule's cut-off after its ETD
+was accepted by the form and the Excel import (`scheduleDateProblem`, tested in
+`schedules.test.ts`). The test used two `sailing_schedule_seq` numbers; the sequence was set back.
 
 ## 9. Open items
 

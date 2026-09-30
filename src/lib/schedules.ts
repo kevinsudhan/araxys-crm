@@ -181,8 +181,15 @@ export function schedulesFromSheet(sheet: Raw[][]): ImportResult {
       errors.push({ line, message: "Needs a port of loading, a port of discharge and an ETD" });
       return;
     }
-    if (dates.eta && dates.eta < dates.etd) {
-      errors.push({ line, message: "ETA is before ETD" });
+    const wrong = scheduleDateProblem({
+      etd: dates.etd,
+      eta: dates.eta,
+      cfs_cutoff: dates.cfs_cutoff,
+      port_cutoff: dates.port_cutoff,
+      si_cutoff: dates.si_cutoff,
+    });
+    if (wrong) {
+      errors.push({ line, message: wrong });
       return;
     }
     const services = parseServices(get("services"));
@@ -228,3 +235,30 @@ export function onLane(sch: Pick<ScheduleInput, "port_of_loading" | "port_of_dis
   return has([sch.port_of_loading, sch.port_of_receipt], f) && has([sch.port_of_discharge, sch.final_destination], t);
 }
 
+
+export interface ScheduleDates {
+  etd: string | null;
+  eta?: string | null;
+  cfs_cutoff?: string | null;
+  port_cutoff?: string | null;
+  si_cutoff?: string | null;
+}
+
+/**
+ * A schedule's dates that cannot all be true — the ETA before the ETD, or a
+ * cut-off after the sailing (1 Oct: only the first was checked, so "CFS
+ * cut-off 12 Oct" on a 10 Oct sailing was saved, and every booking on it
+ * inherited a cut-off after its ship had left). One sentence, or null.
+ */
+export function scheduleDateProblem(d: ScheduleDates): string | null {
+  if (!d.etd) return null;
+  if (d.eta && d.eta < d.etd) return "ETA is before ETD";
+  const late = (
+    [
+      ["CFS cut-off", d.cfs_cutoff],
+      ["Port cut-off", d.port_cutoff],
+      ["SI cut-off", d.si_cutoff],
+    ] as Array<[string, string | null | undefined]>
+  ).filter(([, v]) => v && v > d.etd!);
+  return late.length ? `${late.map(([k]) => k).join(", ")} ${late.length === 1 ? "is" : "are"} after the ETD` : null;
+}

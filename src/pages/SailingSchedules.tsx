@@ -6,7 +6,7 @@ import PageHeader from "../components/PageHeader";
 import { failureText } from "../lib/errorText";
 import { downloadWorkbook, stamped } from "../lib/xlsx";
 import { readSpreadsheet } from "../lib/xlsxRead";
-import { SCHEDULE_COLUMNS, schedulesFromSheet, type ImportResult, type ScheduleInput } from "../lib/schedules";
+import { SCHEDULE_COLUMNS, scheduleDateProblem, schedulesFromSheet, type ImportResult, type ScheduleInput } from "../lib/schedules";
 import { todayIST } from "../lib/progress";
 import { listContainers, type Container } from "../services/containers";
 import { listPartners, type Partner } from "../services/partners";
@@ -545,8 +545,8 @@ function ScheduleForm({
   const problem =
     !s.port_of_loading.trim() || !s.port_of_discharge.trim() || !s.etd
       ? "Port of loading, port of discharge and ETD are needed."
-      : s.eta && s.eta < s.etd
-        ? "ETA is before ETD."
+      : scheduleDateProblem(s)
+        ? `${scheduleDateProblem(s)}.`
         : null;
 
   async function save() {

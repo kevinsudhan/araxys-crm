@@ -98,6 +98,8 @@ export default function ShipmentBill() {
         </p>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {/* A console is a sea consolidation (112): an air consol is its MAWB, below. */}
+          {!air && (
           <div className="min-w-0">
             <span className="mb-0.5 block text-[11px] text-text-secondary">Console</span>
             <Select
@@ -105,7 +107,10 @@ export default function ShipmentBill() {
               value={shipment.console_id ?? ""}
               options={[
                 { value: "", label: "Not on a console" },
-                ...consoles.map((c) => ({
+                // Only consoles going the job's way; a cross-trade console takes either.
+                ...consoles
+                  .filter((c) => c.id === shipment.console_id || !shipment.trade_direction || c.direction === "cross_trade" || c.direction === shipment.trade_direction)
+                  .map((c) => ({
                   value: c.id,
                   label: c.console_no ?? "(unnumbered)",
                   hint: [c.pol, c.pod].filter(Boolean).join(" → ") || c.mode,
@@ -128,6 +133,7 @@ export default function ShipmentBill() {
               </Link>
             )}
           </div>
+          )}
 
           {/*
             The job's master, which the pre-alert, tracking and the arrival

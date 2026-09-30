@@ -1,4 +1,4 @@
-import { onLane, parseServices, placeKey, schedulesFromSheet, toDate } from "../../src/lib/schedules";
+import { onLane, parseServices, placeKey, scheduleDateProblem, schedulesFromSheet, toDate } from "../../src/lib/schedules";
 
 /**
  * Uploading a sailing schedule.
@@ -76,6 +76,17 @@ is("the job's spelling finds the carrier's", onLane(sch, "Chennai (MAA)", "Jebel
 is("the other way round is not the lane", onLane(sch, "Jebel Ali", "Chennai"), false);
 is("no lane given matches everything", onLane(sch, null, null), true);
 is("a final destination counts", onLane({ ...sch, final_destination: "Hamburg" }, "Chennai", "Hamburg"), true);
+
+console.log("\ndates that cannot all be true (1 Oct)");
+is("a cut-off after the sailing is refused", scheduleDateProblem({ etd: "2026-10-10", cfs_cutoff: "2026-10-12" }), "CFS cut-off is after the ETD");
+is("two of them, both named", scheduleDateProblem({ etd: "2026-10-10", port_cutoff: "2026-10-11", si_cutoff: "2026-10-11" }), "Port cut-off, SI cut-off are after the ETD");
+is("the ETA before the ETD, first", scheduleDateProblem({ etd: "2026-10-10", eta: "2026-10-01", cfs_cutoff: "2026-10-12" }), "ETA is before ETD");
+is("cut-offs on the day, and before, are fine", scheduleDateProblem({ etd: "2026-10-10", eta: "2026-10-30", cfs_cutoff: "2026-10-07", port_cutoff: "2026-10-10" }), null);
+const lateSheet = schedulesFromSheet([
+  ["POL", "POD", "ETD", "CFS cut-off"],
+  ["Chennai", "Hamburg", "2026-10-10", "2026-10-12"],
+]);
+is("an uploaded row with a late cut-off is not imported, and says why", [lateSheet.rows.length, lateSheet.errors[0]?.message], [0, "CFS cut-off is after the ETD"]);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);
