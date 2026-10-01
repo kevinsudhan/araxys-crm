@@ -764,6 +764,13 @@ accepting — please provide the shipper details" and one box (`lib/shipperText.
 name, the rest the address, an email kept as the email; a single line splits at its first comma),
 then "We have the shipper details". The faded copy of the quotation under it is gone.
 
+**Accept from the mail asks for the shipper at once (1 Oct).** The mail's "Accept this quotation"
+opens `/q/:token?accept=1`: "Thanks for accepting — please provide the shipper details", the
+shipper box, then the quotation under it. "Confirm and send the shipper details" records the
+acceptance and then the shipper (opening the link records nothing: mail scanners open links).
+"Accept now, send the shipper details later" and "Revise this quote instead" sit under the box.
+Mails sent before this open the page without `?accept=1`, with Accept / Revise as before.
+
 ## 9. Open items
 
 ### Waiting on the user

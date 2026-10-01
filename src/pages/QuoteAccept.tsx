@@ -57,6 +57,13 @@ export default function QuoteAccept() {
    * start when they came by the mail's "Revise this quote" button (?revise=1).
    */
   const [revising, setRevising] = useState(() => params.get("revise") === "1");
+  /**
+   * Came by the mail's "Accept this quotation" button (?accept=1): to them
+   * that press was the acceptance, so the page thanks them and asks for the
+   * shipper at once. Sending the details is what records it — opening the
+   * link cannot, as mail scanners open every link in a message.
+   */
+  const [accepting, setAccepting] = useState(() => params.get("accept") === "1");
   const [change, setChange] = useState("");
   const [said, setSaid] = useState<string | null>(null);
 
@@ -128,6 +135,29 @@ export default function QuoteAccept() {
             />
           ) : quote.state !== "open" ? (
             <Closed quote={quote} token={token} onChanged={load} />
+          ) : accepting && !revising ? (
+            <>
+              <Ended title="Thanks for accepting" body="Please provide the shipper details to confirm the booking." good />
+              <ShipperBox quote={quote} token={token} onChanged={load} acceptFirst />
+              <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1 text-[12.5px]">
+                <button type="button" onClick={() => void accept()} disabled={busy} className="text-[#1670b0] hover:underline disabled:opacity-60">
+                  Accept now, send the shipper details later
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccepting(false);
+                    setRevising(true);
+                  }}
+                  className="text-[#6b7280] hover:underline"
+                >
+                  Revise this quote instead
+                </button>
+              </div>
+              <div className="mt-8 border-t border-[#e5e7eb] pt-6">
+                <Summary quote={quote} />
+              </div>
+            </>
           ) : (
             <>
               <Summary quote={quote} />
@@ -367,7 +397,18 @@ function Closed({ quote, token, onChanged }: { quote: PublicQuote; token: string
  * email address in it is kept as the email. Shown back once given, with a way
  * to correct it.
  */
-function ShipperBox({ quote, token, onChanged }: { quote: PublicQuote; token: string; onChanged: () => Promise<void> }) {
+function ShipperBox({
+  quote,
+  token,
+  onChanged,
+  acceptFirst,
+}: {
+  quote: PublicQuote;
+  token: string;
+  onChanged: () => Promise<void>;
+  /** Not accepted yet: sending the details accepts the quotation first. */
+  acceptFirst?: boolean;
+}) {
   const given = quote.shipper ?? null;
   const [editing, setEditing] = useState(!given);
   const [text, setText] = useState(given ? shipperText(given) : "");
@@ -380,6 +421,13 @@ function ShipperBox({ quote, token, onChanged }: { quote: PublicQuote; token: st
     setBusy(true);
     setSaid(null);
     try {
+      if (acceptFirst) {
+        const a = await acceptByToken(token, "", "");
+        if (!a.ok && a.reason !== "accepted") {
+          setSaid("This quotation can no longer be accepted here. Please reply to the email it came from.");
+          return;
+        }
+      }
       const r = await shipperByToken(token, s);
       if (!r.ok) setSaid(r.reason === "incomplete" ? "Give the shipper's name and full address." : "That did not go through. Please reply to the email instead.");
       else {
@@ -431,7 +479,7 @@ function ShipperBox({ quote, token, onChanged }: { quote: PublicQuote; token: st
               className="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-[#1670b0] px-5 text-[15px] font-semibold text-white hover:bg-[#125e94] disabled:opacity-60 sm:flex-none"
             >
               {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-              Send the shipper details
+              {acceptFirst ? "Confirm and send the shipper details" : "Send the shipper details"}
             </button>
             {given && (
               <button type="button" onClick={() => setEditing(false)} className="h-11 rounded-lg border border-[#d1d5db] bg-white px-4 text-[14px] text-[#374151]">

@@ -81,6 +81,7 @@ is("one line splits at its first comma", shipperFrom("ABC Exports, 12 Main Road,
 is("a name alone is not enough", [shipperFrom("ABC Exports"), shipperFrom(""), shipperFrom("AB\nx")], [null, null, null]);
 is("back in the box to correct, without saying the email twice", shipperText({ name: "ABC", address: "12 Main Road\nravi@abc.in", contact: null, email: "ravi@abc.in" }), "ABC\n12 Main Road\nravi@abc.in");
 is("accept only with a link", [html.includes("Accept this quotation"), quotationHtml(base).includes("Accept this quotation")], [true, false]);
+is("accept opens the page asking for the shipper", html.includes('href="https://x/q/abc?accept=1"'), true);
 const v2 = { ...base, quote: { ...quote, version: 2 } as Quote };
 const revised = quotationHtml({ ...v2, message: quotationMessage(v2) });
 is("a revision is titled as one, its number in the reference", [revised.includes(">REVISED QUOTATION</p>"), revised.includes("Rev 1</p>"), html.includes("REVISED")], [true, true, false]);

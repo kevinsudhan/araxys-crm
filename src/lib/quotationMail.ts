@@ -177,22 +177,25 @@ export function quotationHtml(i: QuotationMailInput): string {
     Outlook ignores padding and background on inline elements.
 
     Two buttons side by side: accept, or ask for a revision (114). Both open
-    the same page; the second opens it at the box for what they want changed
-    (`?revise=1`).
+    the same page: the first thanks them and asks for the shipper (`?accept=1`;
+    sending the details records the acceptance), the second opens it at the box
+    for what they want changed (`?revise=1`).
   */
-  const reviseUrl = i.acceptUrl ? `${i.acceptUrl}${i.acceptUrl.includes("?") ? "&" : "?"}revise=1` : null;
+  const withParam = (url: string, param: string) => `${url}${url.includes("?") ? "&" : "?"}${param}`;
+  const acceptHref = i.acceptUrl ? withParam(i.acceptUrl, "accept=1") : null;
+  const reviseUrl = i.acceptUrl ? withParam(i.acceptUrl, "revise=1") : null;
   const accept = i.acceptUrl
     ? section(
         `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
           <td bgcolor="${ACCENT}" style="background:${ACCENT};border:1px solid ${ACCENT};border-radius:6px;">
-            <a href="${esc(i.acceptUrl)}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Accept this quotation &rarr;</a>
+            <a href="${esc(acceptHref!)}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Accept this quotation &rarr;</a>
           </td>
           <td style="width:10px;font-size:0;line-height:0;">&nbsp;</td>
           <td bgcolor="#ffffff" style="background:#ffffff;border:1px solid ${ACCENT};border-radius:6px;">
             <a href="${esc(reviseUrl!)}" style="display:inline-block;padding:12px 22px;color:${ACCENT};font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Revise this quote</a>
           </td>
         </tr></table>
-        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Each opens a page showing this quotation: accept it there, or tell us what you would like revised. Replying to this email works just as well.</p>`,
+        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Accepting asks for the shipper's details to confirm the booking; revising asks what you would like changed. Replying to this email works just as well.</p>`,
         24
       )
     : "";
