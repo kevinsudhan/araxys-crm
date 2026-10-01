@@ -606,6 +606,9 @@ export default function QuoteSend({
           */
           replyTo={replyTo ?? undefined}
           mode="reply"
+          // The letter alone, without the thread quoted under it: Gmail folded
+          // whatever it shared with an earlier quotation there, Accept included.
+          quoteThread={false}
           newThreadNote={`No earlier mail with ${to} on ${enquiry.ref} in your mailbox, so this starts a new conversation.`}
           initial={{
             to,

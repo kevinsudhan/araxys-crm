@@ -43,6 +43,7 @@ export default function ComposeMail({
   loadAttachables,
   attachments: initialAttachments,
   newThreadNote,
+  quoteThread = true,
   draft: editing,
   onDraftSaved,
 }: {
@@ -118,6 +119,14 @@ export default function ComposeMail({
    */
   newThreadNote?: string;
   /**
+   * Whether a reply carries the message it answers, quoted under it (the
+   * default, as any reply does). False for a letter complete in itself — a
+   * quotation — which still threads by its reply headers: quoted under a new
+   * quotation, the earlier one made Gmail fold everything the two have in
+   * common behind "•••", the Accept button first (1 Oct).
+   */
+  quoteThread?: boolean;
+  /**
    * A draft already in the mailbox, usually started in Outlook: opened here to
    * finish, and sent as itself so its attachments go too and Drafts is left
    * without it.
@@ -175,7 +184,7 @@ export default function ComposeMail({
     // A draft already carries whatever signature it was written with.
     editing
       ? ""
-      : replyTo
+      : replyTo && quoteThread
         ? `${sig}<div><br></div>${quoteHeaderHtml(replyTo)}${inlineForeign(quotedBodyHtml(replyTo))}`
         : sig
   );

@@ -777,8 +777,12 @@ repeated its buttons, terms and footer, so Accept went behind the dots. Hidden p
 (display:none) were tried and did nothing — Gmail compares what is visible — and were taken out.
 Each send now says when it was sent, visibly: "Sent 1 Oct 2026, 3:05 pm. Accepting ALG… asks…"
 under the buttons (same block) and "Quotation ALG… Rev 1 · sent …" as the footer's last line
-(`quotationMail.sentLine`, `letter({ stamp })`). Quotations still go into the customer's thread
-(the user does not want revisions split into new conversations). Not yet confirmed in Gmail.
+(`quotationMail.sentLine`, `letter({ stamp })`). That alone did not stop it either. The cause was
+the reply itself: ComposeMail put the message being answered — the earlier quotation — quoted under
+the new one, and Gmail folded from the first part the two shared. A quotation now goes without the
+quoted thread (`ComposeMail quoteThread={false}`, set by QuoteSend); it still threads by its reply
+headers (Graph createReply), and ordinary replies still quote. Quotations stay in the customer's
+thread (the user does not want revisions split into new conversations).
 
 ## 9. Open items
 
