@@ -1,7 +1,8 @@
 import { supabase } from "../lib/supabase";
-import { SECTIONS, asSection, chargesLayout, normalisePasted, quoteText, sectionsByHeading, withShares, type ChargesLayout, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
+import { SECTIONS, asSection, chargesLayout, normalisePasted, quoteText, sectionsByHeading, statedWeight, withShares, withStatedWeight, type ChargesLayout, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
 import { airTable, airText, type AirTable } from "../lib/airQuote";
 import { chargeableWeight } from "../lib/chargeableWeight";
+import { tableRows } from "../lib/pastedTable";
 import { addQuote, logEvent, type Enquiry, type Quote } from "./enquiries";
 import { addLines, type QuoteLine } from "./quoteLines";
 
@@ -12,8 +13,19 @@ import { addLines, type QuoteLine } from "./quoteLines";
  * to the customer as the desk's rate table, with GST (115, lib/airQuote.ts).
  */
 
-/** An air quotation is sent as the desk's rate table. */
+/** An air enquiry. */
 export const isAirQuote = (e: Pick<Enquiry, "transport_mode">) => e.transport_mode === "air";
+
+/**
+ * Whether a pasted quotation goes out as the desk's rate table (CHARGES |
+ * CURRENCY/QUANTUM | RATES | INR | GST | TOTAL VALUE IN INR, lib/airQuote)
+ * rather than as text under red headings: for an air enquiry, and for any
+ * rate pasted as a table, whatever the enquiry's mode (1 Oct) — a table
+ * pasted goes out as a table. Read from the paste the quotation keeps
+ * (`quotes.pasted_text`), so the choice holds at sending as it did at pasting.
+ */
+export const tableLayout = (e: Pick<Enquiry, "transport_mode">, pasted: string | null | undefined): boolean =>
+  isAirQuote(e) || !!tableRows(pasted ?? "");
 
 /** What the quotation is for, in one line, for the AI and for the mail's heading. */
 export function jobLine(e: Enquiry): string {
@@ -48,10 +60,14 @@ export async function readPastedQuote(e: Enquiry, text: string): Promise<PastedQ
   if (d?.error) throw new Error(d.detail ? `${d.error} ${d.detail}` : d.error);
   const q = normalisePasted(data);
   q.lines = sectionsByHeading(text, q.lines);
+  // Per kg, on the weight the rate states rather than the enquiry's (lib/pastedQuote `withStatedWeight`).
+  const chargeable = chargeableWeight(e.gross_weight_kg, e.volume_cbm, "air")?.value;
+  q.lines = withStatedWeight(q.lines, text, [e.gross_weight_kg, chargeable]);
+  q.weightKg = statedWeight(text);
   if (!q.lines.length) throw new Error("No charges could be read from that. Paste the rate with its figures — a line per charge is enough.");
-  // GST is shown and kept only where the mail shows it: the air table. A sea
-  // quotation's invoice charges GST as it always has.
-  if (!isAirQuote(e)) for (const l of q.lines) l.gst = null;
+  // GST is shown and kept only where the mail shows it: the rate table. A
+  // quotation set out as text is invoiced at GST as it always has been.
+  if (!tableLayout(e, text)) for (const l of q.lines) l.gst = null;
   else for (const l of q.lines) if (l.gst == null) l.gst = 18;
   return q;
 }
@@ -75,7 +91,7 @@ export async function applyPastedQuote(input: {
 }): Promise<void> {
   const { enquiry, live } = input;
   const pasted = withShares(input.pasted);
-  const air = isAirQuote(enquiry);
+  const air = tableLayout(enquiry, input.pastedText);
   let quoteId: string;
   let version: number;
   if (live && live.status === "draft") {
@@ -135,7 +151,7 @@ export async function applyPastedQuote(input: {
  * customer reads. A condition the paste kept on a charge ("Destination THC
  * (at actuals)", "CC charges (3% on OF+EXW)") is read back off its name.
  */
-export function pastedFromLines(lines: QuoteLine[], quote?: Pick<Quote, "routing" | "carrier" | "transit_time"> | null): PastedQuote {
+export function pastedFromLines(lines: QuoteLine[], quote?: Pick<Quote, "routing" | "carrier" | "transit_time" | "pasted_text"> | null): PastedQuote {
   const roe: Record<string, number> = {};
   for (const l of lines) if (l.currency !== "INR" && Number(l.fx_rate) > 0) roe[l.currency] = Number(l.fx_rate);
   return {
@@ -158,6 +174,7 @@ export function pastedFromLines(lines: QuoteLine[], quote?: Pick<Quote, "routing
     routing: quote?.routing ?? null,
     carrier: quote?.carrier ?? null,
     transitTime: quote?.transit_time ?? null,
+    weightKg: statedWeight(quote?.pasted_text ?? ""),
   };
 }
 
@@ -166,7 +183,7 @@ export function chargesLayoutFor(lines: QuoteLine[]): ChargesLayout {
   return chargesLayout(pastedFromLines(lines));
 }
 
-/** A pasted air quotation's charges for the letter, as the desk's rate table. */
+/** A pasted quotation's charges for the letter, as the desk's rate table (see `tableLayout`). */
 export function airTableFor(lines: QuoteLine[], enquiry: Enquiry, quote: Quote): AirTable {
   return airTable(pastedFromLines(lines, quote), enquiry);
 }

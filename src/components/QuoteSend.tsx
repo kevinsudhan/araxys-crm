@@ -21,7 +21,7 @@ import { quotationHtml, quotationMessage, quotationSubject } from "../lib/quotat
 import { MAIL_LOGO_PATH } from "../lib/company";
 import { acceptUrl, isReachable, issueLink } from "../services/publicQuote";
 import { threadWith } from "../services/customerThread";
-import { airTableFor, chargesLayoutFor, isAirQuote } from "../services/pasteQuote";
+import { airTableFor, chargesLayoutFor, tableLayout } from "../services/pasteQuote";
 import { quoteProblems } from "../lib/quoteChecks";
 import type { MailMessage } from "../services/backend";
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
@@ -626,12 +626,12 @@ export default function QuoteSend({
               logoSrc: `${window.location.origin}${MAIL_LOGO_PATH}`,
               /*
                 A pasted quotation (106): the same letter, its charges in the
-                desk's style — as text under red headings, or for air as the
+                desk's style — as text under red headings, or as the
                 desk's rate table with GST (115) — from the charges as they
                 are now. The PDF keeps its own tables.
               */
-              charges: quote.mail_text && !isAirQuote(enquiry) ? chargesLayoutFor(lines) : null,
-              airCharges: quote.mail_text && isAirQuote(enquiry) ? airTableFor(lines, enquiry, quote) : null,
+              charges: quote.mail_text && !tableLayout(enquiry, quote.pasted_text) ? chargesLayoutFor(lines) : null,
+              airCharges: quote.mail_text && tableLayout(enquiry, quote.pasted_text) ? airTableFor(lines, enquiry, quote) : null,
             }),
           }}
           /*

@@ -57,6 +57,8 @@ export interface PastedQuote {
   routing?: string | null;
   carrier?: string | null;
   transitTime?: string | null;
+  /** The weight the rate states it was quoted on (`statedWeight`), over the enquiry's. */
+  weightKg?: number | null;
 }
 
 export const PASTE_UNITS = ["W/M", "CBM", "Kg", "Container", "B/L", "Shipment", "Trip", "Lumpsum"];
@@ -161,6 +163,36 @@ export function sectionsByHeading(text: string, lines: PastedLine[]): PastedLine
     }
     return l;
   });
+}
+
+/**
+ * The weight a rate states it was quoted on — "GWT:578 KGS", "CHWT 600 kg",
+ * "gross weight 578 kg" — the chargeable weight when both are given; null
+ * when it states none.
+ */
+export function statedWeight(text: string): number | null {
+  const find = (label: string) => {
+    const m = text.match(new RegExp(`\\b(?:${label})\\s*[:.=-]?\\s*([\\d,]+(?:\\.\\d+)?)\\s*(?:kgs?|kilos?)\\b`, "i"));
+    const n = m ? Number(m[1].replace(/,/g, "")) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  return find("ch\\.?\\s*wt|chargeable\\s*weight|c\\.?w\\.?") ?? find("g\\.?\\s*wt|gross\\s*weight|g\\.?w\\.?");
+}
+
+/**
+ * A per-kg charge is charged on the weight the rate states, not the
+ * enquiry's: the AI, given both, took the enquiry's 2,520 kg over the
+ * sheet's "GWT:578 KGS" (1 Oct). Only a quantity that is the enquiry's own
+ * weight, or a bare 1, is replaced — a count the rate gives against the
+ * charge itself is left as it is.
+ */
+export function withStatedWeight(lines: PastedLine[], text: string, enquiryWeights: Array<number | null | undefined>): PastedLine[] {
+  const kg = statedWeight(text);
+  if (kg === null) return lines;
+  const theirs = enquiryWeights.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  return lines.map((l) =>
+    l.unit === "Kg" && l.percent == null && l.quantity !== kg && (l.quantity === 1 || theirs.some((w) => Math.abs(w - l.quantity) < 0.5)) ? { ...l, quantity: kg } : l
+  );
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

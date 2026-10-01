@@ -134,6 +134,7 @@ export default function QuoteCharges({
   lane,
   quoteCurrency = "INR",
   quoteFxRate = 1,
+  withGst: tableWithGst,
   onChanged,
 }: {
   quoteId: string;
@@ -157,6 +158,8 @@ export default function QuoteCharges({
   /** What the customer is quoted in, and what it converts at. */
   quoteCurrency?: string;
   quoteFxRate?: number;
+  /** The quotation goes out as the desk's rate table, which shows each charge's GST (services/pasteQuote `tableLayout`). */
+  withGst?: boolean;
   onChanged?: () => void;
 }) {
   const [lines, setLines] = useState<QuoteLine[]>([]);
@@ -250,7 +253,7 @@ export default function QuoteCharges({
     const before = new Set(lines.map((l) => l.id));
     try {
       // On a pasted quotation a new charge joins Other charges; on an air one, at GST 18 like the rest.
-      await addLine(quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...(lines.some((l) => l.section) ? { section: "other" as const, ...(lane?.mode === "air" ? { gst_rate: 18 } : {}) } : {}), ...line });
+      await addLine(quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...(lines.some((l) => l.section) ? { section: "other" as const, ...((tableWithGst ?? lane?.mode === "air") ? { gst_rate: 18 } : {}) } : {}), ...line });
       const next = await linesFor(quoteId);
       setLines(next);
       setFresh(next.find((l) => !before.has(l.id))?.id ?? null);
@@ -353,7 +356,7 @@ export default function QuoteCharges({
   /** A pasted quotation (106, 115) files its charges under Freight, Ex works, Destination or Other charges. */
   const anySection = lines.some((l) => l.section);
   /** A pasted air quotation goes out as the desk's rate table, which shows each charge's GST (115). */
-  const withGst = anySection && lane?.mode === "air";
+  const withGst = anySection && (tableWithGst ?? lane?.mode === "air");
 
   /** Every cell of one charge, for whichever arrangement the width allows. */
   function cells(l: QuoteLine) {

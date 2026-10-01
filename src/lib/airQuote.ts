@@ -66,7 +66,7 @@ const QUANTUM: Record<string, string> = {
 };
 
 /** The table's first line: what the rate is for, from the paste and the enquiry. */
-export function airTitle(e: JobFacts, q: Pick<PastedQuote, "lines" | "routing" | "carrier" | "transitTime">): string {
+export function airTitle(e: JobFacts, q: Pick<PastedQuote, "lines" | "routing" | "carrier" | "transitTime" | "weightKg">): string {
   const parts: string[] = [];
   const route = q.routing
     ? q.routing.split(/\s*(?:->|→|–|—|-|>)\s*/).filter(Boolean).join(" - ")
@@ -74,7 +74,8 @@ export function airTitle(e: JobFacts, q: Pick<PastedQuote, "lines" | "routing" |
   if (route) parts.push(`EX ${route}`);
   if (e.incoterm) parts.push(e.incoterm);
   if (e.piece_count) parts.push(`NO OF PKGS: ${e.piece_count}`);
-  const gross = Number(e.gross_weight_kg) || 0;
+  // The weight the rate was quoted on, where it says; the enquiry's otherwise.
+  const gross = Number(q.weightKg) || Number(e.gross_weight_kg) || 0;
   if (gross) parts.push(`GWT: ${figure(gross)} KGS`);
   // The weight the freight is charged on, where it is not the gross weight.
   const kg = q.lines.find((l) => l.section === "freight" && l.unit === "Kg" && l.quantity > 1) ?? q.lines.find((l) => l.unit === "Kg" && l.quantity > 1);

@@ -17,7 +17,7 @@ import {
 } from "../lib/pastedQuote";
 import { airTable } from "../lib/airQuote";
 import PasteInput from "./PasteInput";
-import { applyPastedQuote, isAirQuote, readPastedQuote } from "../services/pasteQuote";
+import { applyPastedQuote, isAirQuote, readPastedQuote, tableLayout } from "../services/pasteQuote";
 import { airTableHtml, chargesHtml } from "../lib/quotationMail";
 import type { Enquiry, Quote } from "../services/enquiries";
 
@@ -56,8 +56,10 @@ export default function PasteQuoteDialog({
   onClose: () => void;
   onApplied: () => void;
 }) {
-  const air = isAirQuote(enquiry);
+  const airEnquiry = isAirQuote(enquiry);
   const [text, setText] = useState(initialText ?? "");
+  /** Goes out as the desk's rate table, with GST: an air enquiry, or a rate pasted as a table. */
+  const air = tableLayout(enquiry, text);
   const [q, setQ] = useState<PastedQuote | null>(null);
   const [busy, setBusy] = useState<"read" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -350,11 +352,11 @@ export default function PasteQuoteDialog({
               <p className="mb-2 text-[12.5px] text-text-secondary">
                 Paste the rate as you have it — a table, a mail, a WhatsApp message. The AI sorts the charges into
                 <strong className="font-medium text-text-primary"> Freight, Ex works, Destination</strong> and <strong className="font-medium text-text-primary">Other charges</strong>; you check them next.
-                {air
+                {airEnquiry
                   ? " This is an air enquiry, so the mail carries them as your rate table, with GST, and the PDF goes with it."
                   : " The mail carries them in the quotation letter in your style, and the PDF goes with it."}
               </p>
-              <PasteInput value={text} onChange={setText} air={air} autoFocus />
+              <PasteInput value={text} onChange={setText} air={airEnquiry} autoFocus />
             </>
           ) : (
             <>
@@ -365,8 +367,8 @@ export default function PasteQuoteDialog({
               )}
               {!air && looksAir && (
                 <p className="mb-2 rounded-lg bg-bg-warning px-3 py-2 text-[12px] text-text-warning">
-                  This reads like an air rate, but the enquiry is {MODE_NAME[enquiry.transport_mode ?? ""] ?? "not marked as air"}, so the mail will set it out
-                  as a sea quotation. To send it as your air rate table, change the enquiry's mode to Air first.
+                  This reads like an air rate, but the enquiry is {MODE_NAME[enquiry.transport_mode ?? ""] ?? "not marked as air"} and it was pasted as text, so
+                  the mail will set it out as text. Paste it as a table, or change the enquiry's mode to Air, for your rate table.
                 </p>
               )}
               <p className="text-[12px] text-text-secondary">

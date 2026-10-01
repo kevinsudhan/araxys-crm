@@ -788,6 +788,15 @@ sat in a paragraph beside it). The caption is now a second row of the buttons' o
 button label ends in the send's time as a run of zero-width characters (`sendSignature`) — invisible,
 surviving `sanitise` and `forOutlook`, and different on every send.
 
+**A table pasted goes out as a table (1 Oct).** `services/pasteQuote` `tableLayout(enquiry,
+pasted_text)`: the desk's rate table (CHARGES | CURRENCY/QUANTUM | RATES | INR | GST | TOTAL VALUE
+IN INR) for an air enquiry **or any rate pasted as a table** (a tab in the kept paste), whatever the
+enquiry's mode; text pasted on a non-air enquiry keeps the red-heading text layout. GST is kept and
+shown (paste review, charges grid via `QuoteCharges withGst`) wherever the table goes. The weight a
+rate states ("GWT:578 KGS", chargeable over gross — `statedWeight`) now sets a per-kg charge's
+quantity when the AI put the enquiry's weight or 1 (`withStatedWeight`), and the table's first
+line's GWT.
+
 ## 9. Open items
 
 ### Waiting on the user

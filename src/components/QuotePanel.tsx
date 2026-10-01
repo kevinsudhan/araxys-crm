@@ -3,6 +3,7 @@ import { AlertCircle, Check, ClipboardPaste, IndianRupee, Loader2, Send, ThumbsD
 import PasteQuoteDialog from "./PasteQuoteDialog";
 import PasteInput from "./PasteInput";
 import { linesFor } from "../services/quoteLines";
+import { tableLayout } from "../services/pasteQuote";
 import {
   acceptQuote,
   addQuote,
@@ -426,6 +427,7 @@ export default function QuotePanel({
               */
               quoteCurrency={live.currency}
               quoteFxRate={live.fx_rate}
+              withGst={tableLayout(enquiry, live.pasted_text)}
               lane={{
                 origin: enquiry.origin,
                 destination: enquiry.destination,

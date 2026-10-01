@@ -1,4 +1,4 @@
-import { normalisePasted, withShares, chargesLayout, lineValue, sectionsByHeading, type PastedLine } from "../../src/lib/pastedQuote";
+import { normalisePasted, withShares, chargesLayout, lineValue, sectionsByHeading, statedWeight, withStatedWeight, type PastedLine } from "../../src/lib/pastedQuote";
 import { airTable, airText, airTitle } from "../../src/lib/airQuote";
 import { airTableHtml, quotationHtml } from "../../src/lib/quotationMail";
 import { tableRows } from "../../src/lib/pastedTable";
@@ -72,6 +72,18 @@ is("a charge line with figures is not a heading", sectionsByHeading("Destination
 
 is("a pasted table read as rows of cells", tableRows("TITLE\n\nAF CHARGES\tEURO/KGS\t3.2\n\t\tTOTAL\t306763.87"), [["TITLE"], ["AF CHARGES", "EURO/KGS", "3.2"], ["", "", "TOTAL", "306763.87"]]);
 is("text with no tab is not a table", tableRows("AF 3.2/kg\nEXW 795"), null);
+
+console.log("\nthe weight the rate states");
+is("GWT in the title line", statedWeight("EX. HEL - IST - MAA//EXW//NO OF PKGS:01//GWT:578 KGS//CARRIER:TK"), 578);
+is("the chargeable weight over the gross", statedWeight("Gross weight 520 kg, chargeable weight 600 kg"), 600);
+is("none stated", statedWeight("AF EUR 3.2/kg"), null);
+const perKg = (quantity: number): PastedLine => ({ section: "freight", description: "AF", currency: "EUR", unit: "Kg", quantity, rate: 3.2, note: null });
+is("the enquiry's weight gives way to the rate's", withStatedWeight([perKg(2520)], "GWT:578 KGS", [2520]).map((l) => l.quantity), [578]);
+is("so does a bare 1", withStatedWeight([perKg(1)], "GWT:578 KGS", [2520]).map((l) => l.quantity), [578]);
+is("a count the rate gives the charge stays", withStatedWeight([perKg(600)], "GWT:578 KGS", [2520]).map((l) => l.quantity), [600]);
+is("not per kg: untouched", withStatedWeight([{ ...perKg(1), unit: "Shipment" }], "GWT:578 KGS", [2520]).map((l) => l.quantity), [1]);
+
+is("the table's first line takes the rate's weight over the enquiry's", airTitle({ ...job, gross_weight_kg: 2520 }, { lines: [perKg(578)], routing: null, carrier: null, transitTime: null, weightKg: 578 }).includes("GWT: 578 KGS"), true);
 
 console.log("\nthe percentage worked out");
 const w = withShares(q);
