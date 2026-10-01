@@ -881,18 +881,13 @@ before acting on it.
 5. **The Gemini billing decision (§1).** On the free tier the mail reader sends live customer
    mail under Google's unpaid terms (a DPDP Act question), and on 28 Sep it stopped
    altogether: every model answered 503 or 404.
-6. **Mail.Send (application) for Live rates (101).** The Azure app
-   `efb90aa6-9404-40d2-be1b-3b6a3d5f5866` has only `Mail.ReadBasic.All`, so every Sunday send
-   is refused and logged, and the page says so (checked 26 Sep and again 1 Oct evening: an app-only
-   token for it carries `Mail.ReadBasic.All` only). The permission must be of type **Application**
-   (a Delegated Mail.Send, which the sign-in already has, does not count), with its status
-   "Granted for <organisation>". Azure portal
-   → App registrations → the app → API permissions → Add a permission → Microsoft Graph →
-   Application permissions → Mail.Send → Grant admin consent.
-   - Mail.Send (application) can send as any mailbox in the tenant. The CRM only ever sends
-     from a CRM login's mailbox (the table's trigger), and only an admin changes which. An
-     Exchange `ApplicationAccessPolicy` would narrow Microsoft's side too, and would limit the
-     mail copy (087) to the desk's mailboxes. That is the user's call.
+6. **Narrow what Mail.Send reaches (optional).** Mail.Send (application) was granted with admin
+   consent on 1 Oct (checked: the app-only token for `efb90aa6-9404-40d2-be1b-3b6a3d5f5866` now
+   carries `Mail.ReadBasic.All, Mail.Send`), so Live rates can send. It lets the app send as any
+   mailbox in the tenant. The CRM only ever sends from a CRM login's mailbox (the table's
+   trigger), and only an admin changes which. An Exchange `ApplicationAccessPolicy` would narrow
+   Microsoft's side too, and would limit the mail copy (087) to the desk's mailboxes. That is the
+   user's call. No Sunday request existed on 1 Oct, so nothing goes out until one is made.
 7. **The Azure client secret made on 25 Sep** (the mail copy, Outlook renewals, Live rates)
    expires on the date chosen in Azure. When it does, every mailbox shows "Microsoft rejected
    the CRM app's client secret" and Outlook stops renewing. Renew it as in §1; the date is worth
@@ -1385,7 +1380,7 @@ this was §9's "Product gaps"; it moved here unchanged except for the two lines 
     keeps both copies identical). The subject starts "Rate request", so Team oversight files it
     as one. It is sent from the request's mailbox (info@ by default), so replies land there and
     show under Partner mail.
-  - **Sending:** the `live-rates` function, app-only (nobody signed in), needs Mail.Send (§9).
+  - **Sending:** the `live-rates` function, app-only (nobody signed in), needs Mail.Send (application): granted 1 Oct (§9).
     Exchange takes about 30 mails a minute from a mailbox, so mails go 2 s apart. A run stops
     after 100 s and the next 10-minute run carries on. Each partner is claimed once per Sunday,
     so re-runs retry only failures and never mail twice. A refusal of the app itself (no
