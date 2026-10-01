@@ -1,5 +1,4 @@
 import type { Shipment } from "../../types";
-import type { RealRecord } from "../../services/backend";
 import { fieldDef, type RequestDetails } from "../../data/requestFields";
 import type { DataKey, DocumentData } from "./types";
 import { appliesTo, termsText, type FreeTimeTerms } from "../freeTime";

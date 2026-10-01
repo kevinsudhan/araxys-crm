@@ -52,7 +52,6 @@ const Enquiries = lazy(() => import("./pages/Enquiries"));
 const MyEnquiries = lazy(() => import("./pages/MyEnquiries"));
 const Oversight = lazy(() => import("./pages/Oversight"));
 const CaseFile = lazy(() => import("./pages/CaseFile"));
-const Complaints = lazy(() => import("./pages/Complaints"));
 // Accounts — one page per document, the way the desk's own menu reads.
 const AcInvoices   = accountsPage(() => import("./pages/accounts/Invoices"));
 const AcProformas  = accountsPage(() => import("./pages/accounts/Proformas"));
@@ -183,7 +182,8 @@ export default function App() {
             */}
             <Route path="/enquiries/:ref" element={<CaseFile />} />
             <Route path="/my-enquiries/:ref" element={<CaseFile />} />
-            <Route path="/complaints" element={<Complaints />} />
+            {/* Complaints was a placeholder with nothing behind it; removed 1 Oct. Old links land on the overview. */}
+            <Route path="/complaints" element={<Navigate to="/" replace />} />
             {/* Accounts. Each document its own page; raising one still happens
                 on the job, because a document is about a job.
 

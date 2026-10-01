@@ -19,7 +19,6 @@ import {
   PackageCheck,
   Layers,
   FileCheck2,
-  MessageSquareWarning,
   Receipt,
   HandCoins,
   FileDown,
@@ -97,7 +96,6 @@ const groups: NavGroup[] = [
       // never.
       { to: "/rates", label: "Rate master", icon: IndianRupee },
       { to: "/mail", label: "Mail", icon: Mail },
-      { to: "/complaints", label: "Complaints", icon: MessageSquareWarning },
     ],
   },
   {
