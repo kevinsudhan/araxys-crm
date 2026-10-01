@@ -154,9 +154,6 @@ export default function QuoteAccept() {
                   Revise this quote instead
                 </button>
               </div>
-              <div className="mt-8 border-t border-[#e5e7eb] pt-6">
-                <Summary quote={quote} />
-              </div>
             </>
           ) : (
             <>
