@@ -747,6 +747,15 @@ sent one's next version. "Lay it out" opens the review with the text already bei
 **Accept this quotation** and **Revise this quote** (outlined). Both open `/q/:token`; the second
 adds `?revise=1`, and the page opens with the "What would you like revised?" box ready.
 
+**A revision reads as one (1 Oct).** `lib/quoteRevision.ts`: version 1 is the quotation, version 2
+"Revision 1". A revision's mail is titled REVISED QUOTATION with "ALG09014-26 Rev 1" as its
+reference (three header facts, as a phone fits), its covering note says it replaces the earlier
+quotation, and a new-conversation subject reads "Revised quotation … (Rev 1)" (a reply keeps the
+thread's subject, which Gmail threads on). The PDF: REVISED QUOTATION, Quotation No "… Rev 1",
+file "Revised-Quotation-ALG09014-26-Rev1.pdf". The customer's page shows the same. `mail_log.
+has_attachments` is Outlook's flag and leaves out inline pictures (the logo), so true means a file
+(the PDF) went.
+
 ## 9. Open items
 
 ### Waiting on the user

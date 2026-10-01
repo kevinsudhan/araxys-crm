@@ -10,6 +10,7 @@ import {
 } from "./data";
 import { renderDocument } from "./render";
 import { renderQuotationPdf, type QuotationPdfInput } from "./quotation";
+import { quotationFileName } from "../quoteRevision";
 import type { DocSpec, DocumentData } from "./types";
 
 export {
@@ -100,9 +101,9 @@ export function quotationFile(input: QuotationPdfInput): {
   contentType: string;
   bytes: Uint8Array;
 } {
-  const version = input.quote.version > 1 ? `-v${input.quote.version}` : "";
   return {
-    name: `Quotation-${input.enquiry.ref}${version}.pdf`,
+    // "Revised-Quotation-ALG09014-26-Rev1.pdf" for a revision (lib/quoteRevision).
+    name: quotationFileName(input.enquiry.ref, input.quote.version),
     contentType: "application/pdf",
     bytes: new Uint8Array(renderQuotationPdf(input).output("arraybuffer") as ArrayBuffer),
   };

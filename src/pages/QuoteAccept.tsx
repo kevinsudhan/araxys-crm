@@ -12,6 +12,7 @@ import {
 } from "../services/publicQuote";
 import { SectionSkeleton } from "../components/Loading";
 import { COMPANY, MAIL_LOGO_PATH } from "../lib/company";
+import { quotationNumber, quotationTitle } from "../lib/quoteRevision";
 
 /**
  * The page a customer lands on from the quotation mail.
@@ -113,7 +114,7 @@ export default function QuoteAccept() {
         {/* The mail's header: the logo on the navy it was cut from, then the blue rule. */}
         <header className="bg-[#0F213A] px-6 pb-5 pt-6 text-white sm:px-7">
           <img src={MAIL_LOGO_PATH} alt={COMPANY.legalName} width={300} className="block h-auto w-[300px] max-w-full" />
-          <p className="mt-5 border-t border-[#24395a] pt-4 text-[20px] font-extrabold tracking-[0.16em]">QUOTATION</p>
+          <p className="mt-5 border-t border-[#24395a] pt-4 text-[20px] font-extrabold tracking-[0.16em]">{quote ? quotationTitle(quote.version) : "QUOTATION"}</p>
         </header>
         <div className="h-1 bg-[#1670b0]" />
 
@@ -267,8 +268,7 @@ function Summary({ quote }: { quote: PublicQuote }) {
         </div>
         <div className="text-right text-[12.5px] leading-relaxed text-[#6b7280]">
           <p>
-            <strong className="text-[#1f2937]">Ref</strong> {quote.reference}
-            {quote.version > 1 ? `/${quote.version}` : ""}
+            <strong className="text-[#1f2937]">Ref</strong> {quotationNumber(quote.reference, quote.version)}
           </p>
           <p>
             <strong className="text-[#1f2937]">Date</strong> {longDate(quote.issued_on)}

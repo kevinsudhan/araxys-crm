@@ -3,6 +3,7 @@ import type { QuoteLine } from "../services/quoteLines";
 import type { QuoteTerm } from "../services/quoteApproval";
 import type { ChargesLayout } from "./pastedQuote";
 import { roeText, rupees, type AirTable } from "./airQuote";
+import { isRevised, quotationNumber, quotationTitle, revisionOf } from "./quoteRevision";
 import {
   ACCENT,
   ACCENT_SOFT,
@@ -94,12 +95,22 @@ export interface QuotationMailInput {
 /** The subject line, carrying the reference so the reply files itself. */
 export function quotationSubject(i: { enquiry: Enquiry; quote: Quote }): string {
   const lane = [i.enquiry.origin, i.enquiry.destination].filter(Boolean).join(" – ");
-  return `Quotation ${i.enquiry.ref}${lane ? ` · ${lane}` : ""}`;
+  const what = isRevised(i.quote.version) ? `Revised quotation ${i.enquiry.ref} (Rev ${revisionOf(i.quote.version)})` : `Quotation ${i.enquiry.ref}`;
+  return `${what}${lane ? ` · ${lane}` : ""}`;
 }
 
 /** The default covering note, for the sender to edit rather than to send as is. */
 export function quotationMessage(i: QuotationMailInput): string {
   const lane = [i.enquiry.origin, i.enquiry.destination].filter(Boolean).join(" to ");
+  // A revision says so, and that it replaces what they were sent before.
+  if (isRevised(i.quote.version)) {
+    return (
+      `Please find our revised quotation${lane ? ` for ${lane}` : ""} (revision ${revisionOf(i.quote.version)}), set out below and attached as a PDF. ` +
+      `It replaces our earlier quotation.` +
+      (i.quote.valid_until ? ` The rates are valid until ${longDate(i.quote.valid_until)}.` : "") +
+      ` Please let us know if you would like us to proceed, or if anything needs adjusting.`
+    );
+  }
   return (
     `Thank you for your enquiry${lane ? ` for ${lane}` : ""}. ` +
     `Our quotation is set out below and attached as a PDF.` +
@@ -111,7 +122,8 @@ export function quotationMessage(i: QuotationMailInput): string {
 export function quotationHtml(i: QuotationMailInput): string {
   const { enquiry, customer, quote, lines, terms } = i;
   const text = i.message?.trim() || quotationMessage(i);
-  const ref = `${enquiry.ref}${quote.version > 1 ? `/${quote.version}` : ""}`;
+  // "ALG09014-26 Rev 1" on a revision: the header keeps to three facts, which is what a phone fits.
+  const ref = quotationNumber(enquiry.ref, quote.version);
 
   /*
     Three columns, not six.
@@ -208,7 +220,7 @@ export function quotationHtml(i: QuotationMailInput): string {
 
   return letter({
     logoSrc: i.logoSrc,
-    title: "QUOTATION",
+    title: quotationTitle(quote.version),
     meta: [
       ["Reference", esc(ref)],
       ["Date", longDate(quote.created_at)],

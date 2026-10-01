@@ -18,6 +18,7 @@ import type { QuoteLine } from "../../services/quoteLines";
 import type { QuoteTerm } from "../../services/quoteApproval";
 import { chargeableWeight, describeChargeable, volumeFromPieces } from "../chargeableWeight";
 import { SECTIONS, asSection } from "../pastedQuote";
+import { quotationNumber, quotationTitle } from "../quoteRevision";
 
 /**
  * The quotation, as a document rather than as a screen.
@@ -83,7 +84,7 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   set(INK);
-  doc.text("QUOTATION", PAGE_W / 2, y + 5, { align: "center" });
+  doc.text(quotationTitle(quote.version), PAGE_W / 2, y + 5, { align: "center" });
   y += 11;
 
   // ------------------------------------------------------- who, and when
@@ -119,7 +120,7 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
   pair("Phone", (customer?.phones?.[0] ?? "").trim(), MARGIN + 4, 2, 26);
   pair("Stackable", enquiry.stackable == null ? "" : enquiry.stackable ? "Yes" : "No", MARGIN + 4, 3, 26);
 
-  pair("Quotation No", `${enquiry.ref}${quote.version > 1 ? `/${quote.version}` : ""}`, mid + 4, 0, 26);
+  pair("Quotation No", quotationNumber(enquiry.ref, quote.version), mid + 4, 0, 26);
   pair("Quotation Date", docDate(quote.created_at), mid + 4, 1, 26);
   pair("Valid From", docDate(quote.created_at), mid + 4, 2, 26);
   pair("Valid To", docDate(quote.valid_until), mid + 4, 3, 26);
