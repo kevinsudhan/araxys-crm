@@ -756,6 +756,14 @@ file "Revised-Quotation-ALG09014-26-Rev1.pdf". The customer's page shows the sam
 has_attachments` is Outlook's flag and leaves out inline pictures (the logo), so true means a file
 (the PDF) went.
 
+**No totals on the quotation the customer sees (1 Oct).** The mail (built table, the desk's text
+layout, the air table), the PDF and the quotation page show each charge and its own figure, and no
+group or grand total; the rates of exchange stay. Totals stay inside the CRM (Billing, the paste
+review). The customer's page asks for nothing but the two buttons; accepting shows "Thanks for
+accepting — please provide the shipper details" and one box (`lib/shipperText.ts`: first line the
+name, the rest the address, an email kept as the email; a single line splits at its first comma),
+then "We have the shipper details". The faded copy of the quotation under it is gone.
+
 ## 9. Open items
 
 ### Waiting on the user

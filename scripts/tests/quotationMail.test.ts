@@ -1,6 +1,7 @@
 import { brandImages, imageType, withContentIds } from "../../src/lib/inlineBrand";
 import { quotationHtml, quotationMessage, quotationSubject } from "../../src/lib/quotationMail";
 import { quotationFileName, quotationNumber, quotationTitle } from "../../src/lib/quoteRevision";
+import { shipperFrom, shipperText } from "../../src/lib/shipperText";
 import { confirmationHtml, confirmationMessage, confirmationSubject } from "../../src/lib/confirmationMail";
 import type { Customer, Enquiry, Quote } from "../../src/services/enquiries";
 import type { QuoteLine } from "../../src/services/quoteLines";
@@ -69,7 +70,16 @@ is("mode and incoterm in words", html.includes("Air freight") && html.includes("
 is("packages, weight and volume", html.includes("12 cartons · 480 kg · 1.44 CBM"), true);
 is("markup in the cargo is escaped", html.includes("&lt;for solar&gt;"), true);
 is("each charge with its unit", html.includes("per kg") && html.includes("480 &times; USD&nbsp;4.1"), true);
-is("the total", html.includes("₹1,85,000"), true);
+is("each charge's amount, and no total", [html.includes("₹1,65,000"), html.includes("₹1,85,000"), html.includes("Total (INR)")], [true, false, false]);
+is("the shipper from one box: name, then the address", shipperFrom("ABC Exports Pvt Ltd\n12 Main Road, Tiruppur 641601\nRavi 98400 12345 ravi@abc.in"), {
+  name: "ABC Exports Pvt Ltd",
+  address: "12 Main Road, Tiruppur 641601\nRavi 98400 12345 ravi@abc.in",
+  contact: null,
+  email: "ravi@abc.in",
+});
+is("one line splits at its first comma", shipperFrom("ABC Exports, 12 Main Road, Tiruppur 641601")?.name, "ABC Exports");
+is("a name alone is not enough", [shipperFrom("ABC Exports"), shipperFrom(""), shipperFrom("AB\nx")], [null, null, null]);
+is("back in the box to correct, without saying the email twice", shipperText({ name: "ABC", address: "12 Main Road\nravi@abc.in", contact: null, email: "ravi@abc.in" }), "ABC\n12 Main Road\nravi@abc.in");
 is("accept only with a link", [html.includes("Accept this quotation"), quotationHtml(base).includes("Accept this quotation")], [true, false]);
 const v2 = { ...base, quote: { ...quote, version: 2 } as Quote };
 const revised = quotationHtml({ ...v2, message: quotationMessage(v2) });

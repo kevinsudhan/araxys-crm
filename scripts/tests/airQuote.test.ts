@@ -99,7 +99,8 @@ is("no routing: the enquiry's places", airTitle(job, { lines: [], routing: null,
 console.log("\nin the mail");
 const html = airTableHtml(t);
 is("the columns", ["CHARGES", "CURRENCY / QUANTUM", "RATES", ">INR<", ">GST<", "TOTAL VALUE IN INR"].every((h) => html.includes(h)), true);
-is("figures to the paisa, Indian grouping", ["2,06,600.32", "15,984.27", "3,24,793.31"].every((f) => html.includes(f)), true);
+is("figures to the paisa, Indian grouping", ["2,06,600.32", "15,984.27", "1,04,785.77"].every((f) => html.includes(f)), true);
+is("no TOTAL row: the quotation is its charges", [html.includes(">TOTAL</td>"), html.includes("3,06,763.87"), html.includes("3,24,793.31")], [false, false, false]);
 is("no GST is a dash", html.includes(">-</td>"), true);
 is("at receipted spans the four figure columns", html.includes('colspan="4"') && html.includes(">AT RECEIPTED</td>"), true);
 is("the rate of exchange on the yellow mark", html.includes("background:#ffff00") && html.includes("1 EUR = INR 111.70"), true);

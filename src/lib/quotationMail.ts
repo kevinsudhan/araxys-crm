@@ -6,7 +6,6 @@ import { roeText, rupees, type AirTable } from "./airQuote";
 import { isRevised, quotationNumber, quotationTitle, revisionOf } from "./quoteRevision";
 import {
   ACCENT,
-  ACCENT_SOFT,
   INK,
   LINE,
   MODE_WORD,
@@ -208,12 +207,6 @@ export function quotationHtml(i: QuotationMailInput): string {
             </tr>
           </thead>
           <tbody>${charges}</tbody>
-          <tfoot>
-            <tr>
-              <td colspan="2" align="right" bgcolor="${ACCENT_SOFT}" style="background:${ACCENT_SOFT};padding:14px 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:${NAVY};font-weight:700;">Total (INR)</td>
-              <td align="right" bgcolor="${ACCENT_SOFT}" style="background:${ACCENT_SOFT};padding:14px 8px;font-size:17px;color:${NAVY};font-weight:800;white-space:nowrap;">${money(quote.amount_inr)}</td>
-            </tr>
-          </tfoot>
         </table>`,
     24
   );
@@ -248,9 +241,10 @@ export function quotationHtml(i: QuotationMailInput): string {
  * A pasted quotation's charges in the letter, in the desk's own style (1 Oct):
  * each group under a red, underlined heading on a yellow mark, the way the
  * desk has always set "FREIGHT CHARGES :" in its mails; a line per charge in
- * capitals, the colons and figures lined up; a condition in red; the totals
- * in bold. Lined up with a borderless table, so it reads as text — there is
- * no grid to see.
+ * capitals, the colons and figures lined up; a condition in red. No totals,
+ * under a group or for the whole (1 Oct): the quotation is its charges. The
+ * rates of exchange stay, for the figures in other currencies. Lined up with
+ * a borderless table, so it reads as text — there is no grid to see.
  */
 const MARK = "#ffff00";
 const RED = "#c00000";
@@ -269,22 +263,19 @@ export function chargesHtml(c: ChargesLayout): string {
     <p style="margin:0 0 8px;"><span style="background:${MARK};color:${RED};font-size:14px;font-weight:700;text-decoration:underline;letter-spacing:.02em;padding:1px 4px;">${esc(g.title.toUpperCase())} :</span></p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 18px;">
       ${g.rows.map((r) => row(r.name, r.value, r.note)).join("")}
-      <tr><td colspan="3" style="height:4px;line-height:4px;font-size:0;">&nbsp;</td></tr>
-      ${row(g.totalLabel, g.total, null, true)}
     </table>`
     )
     .join("");
-  return `${groups}
-    <p style="margin:4px 0 0;font-size:15.5px;font-weight:800;color:${NAVY};">TOTAL : ${esc(c.total.toUpperCase())}${
-      c.rates ? ` <span style="font-size:12.5px;font-weight:400;color:${MUTED};">(${esc(c.rates)})</span>` : ""
-    }</p>`;
+  return `${groups}${c.rates ? `
+    <p style="margin:0;font-size:12.5px;color:${MUTED};">Rates of exchange: ${esc(c.rates)}</p>` : ""}`;
 }
 
 /**
  * A pasted air quotation's charges, as the desk's rate table (115): the line
  * of what it is for across the top, then CHARGES | CURRENCY/QUANTUM | RATES |
- * INR | GST | TOTAL VALUE IN INR, a row per group, the TOTAL row, and the rate
- * of exchange on the desk's yellow mark under it. Ruled like the desk's own
+ * INR | GST | TOTAL VALUE IN INR, a row per group, and the rate of exchange
+ * on the desk's yellow mark under it. No TOTAL row (1 Oct): the quotation is
+ * its charges. Ruled like the desk's own
  * sheet, its figures right-aligned to the paisa so the columns line up.
  */
 export function airTableHtml(t: AirTable): string {
@@ -314,10 +305,6 @@ export function airTableHtml(t: AirTable): string {
           .join("")
     )
     .join("");
-  const total = `<tr>${cell("TOTAL", `background:${TINT};font-weight:700;text-align:right;`, 3)}${cell(rupees(t.inr), `background:${TINT};font-weight:700;${fig}`)}${cell(
-    rupees(t.gst),
-    `background:${TINT};font-weight:700;${fig}`
-  )}${cell(rupees(t.value), `background:${TINT};font-weight:800;color:${NAVY};${fig}`)}</tr>`;
   const roe = t.roe.length
     ? `<p style="margin:10px 0 0;"><span style="background:${MARK};color:${INK};font-size:12.5px;font-weight:700;padding:3px 8px;">${esc(t.roe.map(roeText).join("   ·   "))}</span></p>`
     : "";
@@ -325,7 +312,6 @@ export function airTableHtml(t: AirTable): string {
       ${t.title ? `<tr>${cell(esc(t.title), `background:${NAVY};color:#ffffff;font-weight:700;font-size:12.5px;text-align:center;letter-spacing:.02em;`, 6)}</tr>` : ""}
       <tr>${head}</tr>
       ${body}
-      ${total}
     </table>${roe}`;
 }
 

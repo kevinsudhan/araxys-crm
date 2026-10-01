@@ -201,17 +201,16 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
   /*
     A pasted quotation (106, 115) files each charge under Freight, Ex works,
     Destination or Other charges, and the document prints them that way: each
-    group under its own title with its own total, then the whole. A quotation
-    built charge by charge has no groups and prints as one table, as before.
+    group under its own title. A quotation built charge by charge has no
+    groups and prints as one table, as before.
   */
   const bySection = lines.some((l) => l.section);
-  const groups: Array<{ title: string | null; totalLabel: string | null; lines: QuoteLine[] }> = bySection
+  const groups: Array<{ title: string | null; lines: QuoteLine[] }> = bySection
     ? SECTIONS.map((s) => ({
         title: s.title.toUpperCase(),
-        totalLabel: `${s.totalLabel} (INR)`,
         lines: lines.filter((l) => asSection(l.section) === s.key),
       })).filter((g) => g.lines.length)
-    : [{ title: null, totalLabel: null, lines }];
+    : [{ title: null, lines }];
 
   for (const g of groups) {
     if (g.title) {
@@ -260,31 +259,14 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
       y += h;
     }
 
-    if (g.totalLabel) {
-      const sub = g.lines.reduce((n, l) => n + Number(l.amount_inr || 0), 0);
-      if (y + 8 > FOOTER_Y - 6) {
-        doc.addPage();
-        y = MARGIN;
-      }
-      stroke(RULE);
-      doc.rect(MARGIN, y, CONTENT_W, 7.5);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      set(INK);
-      doc.text(g.totalLabel, tableRight - 34, y + 5, { align: "right" });
-      doc.text(amount(sub), tableRight - 2, y + 5, { align: "right" });
-      y += 7.5;
-    }
   }
 
-  // ------------------------------------------------------------- the total
-  y += 3;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  set(INK);
-  doc.text("Total in INR", tableRight - 34, y + 3, { align: "right" });
-  doc.text(amount(quote.amount_inr), tableRight - 2, y + 3, { align: "right" });
-  y += 9;
+  /*
+    No totals — under a group or for the whole (1 Oct). The quotation is its
+    charges, each with its own figure; what the job comes to is settled on
+    the invoice.
+  */
+  y += 7;
 
   // The rates the foreign lines were turned into rupees at. Without them the
   // rupee column is a figure the customer cannot check.
