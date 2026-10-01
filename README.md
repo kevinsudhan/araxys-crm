@@ -154,12 +154,17 @@ invisible on screen:
 
 | Suite | What it pins down |
 |---|---|
-| `test:space` | Cargo fitting in three dimensions, including the tall crate volume maths gets wrong |
+| `test:quotechecks` | A quotation that cannot be right does not go: no charges, a total of nothing, a nameless charge, a foreign charge at a rate of exchange of 1 |
+| `test:icegatecsn` | The CSN file for ICEGATE, checked against CBIC's own schema and Customs' sample files |
+| `test:pnl` | A job's profit: issued invoices less credit notes, foreign bills converted, before GST |
 | `test:web` | Reading a website form submission without inventing a field |
 | `test:fwd` | The forward chain, and refusing to call an ordinary reply a forward |
 | `test:apply` | Applying a reading to a queued row fills blanks and never overwrites |
 | `test:greet` | Addressing somebody correctly — titles, initials, particles, surname-first |
-| `test:scene`, `test:fields` | 3D projection, and the field catalogue |
+| `test:fields` | The field catalogue |
+
+Those are a few of the 59; `npm test` runs every one, and each is also its own `test:…`
+script in `package.json`.
 
 ## Layout
 

@@ -1,30 +1,52 @@
-# Handoff — Araxys CRM v2
+# Handoff — the freight forwarding and console CRM (v2)
 
-The freight desk for **Aashish Logistics Global**. This file covers `araxys-crm-v2` only.
+The freight desk for **Aashish Logistics Global**, built by Araxys. This file covers v2 only:
+the local checkout `araxys-crm-v2`, deployed from `github.com/kevinsudhan/logistics-v3`.
 v1 (`../araxys-crm`) is a separate, older codebase on a different Supabase project and a
 different branch; it is not to be touched from here.
 
-Written 14 September 2026, revised 21 and 24 September, **last revised 28 September 2026**
-(customer milestones, 102; the audit and its fixes, 103; signatures and pictures, 104). A new
+Written 14 September 2026, revised 21, 24 and 28 September, **last revised 1 October 2026**
+(§0, §9 and §11 rewritten to match the code at the head; the feature write-ups that had
+collected under §9 moved to §13, their open points gathered into §9). Dated notes in §8 run to 1 October. A new
 session should read this whole file before changing anything. §0 is the short version.
 
 ---
 
 ## 0. Start here (new session)
 
-- **Live site:** https://logisticsdemosif.netlify.app. It is **in real use**, with real
-  enquiries and shipments created by the desk. Treat the database as production.
-- **Deploy:** `git push logistics-v3 v2:main`. Netlify builds `main` of
-  `github.com/kevinsudhan/logistics-v3` on every push. There is no other deploy step.
-- **Before every push:** `npm test` (58 suites) and `npm run build` (typecheck, bundle and
+- **The desk is closed for maintenance, and has been since 29 September** (`eea5b5a`).
+  `netlify.toml` sets `VITE_MAINTENANCE = "on"`, so the live build at
+  https://logisticsdemosif.netlify.app answers only the customers' two pages, `/q/:token`
+  (accept or revise a quotation) and `/t/:token` (tracking). Every other path shows "Under
+  maintenance", and the sign-in page is not in the bundle at all (checked on the live chunks,
+  1 Oct). Everything built from 29 Sep on (pasting a quotation, the DSR, the Revise button,
+  the rate table) has not yet been used by the desk. **Reopening is the user's decision:** set
+  it to `"off"` and push. §9 lists what should be settled first.
+- **The database is production all the same.** It holds the desk's real enquiries, shipments
+  and customers, and customers can still open their links. The maintenance flag only changes
+  the front end's build: the crons (mail copy, backups, tracking, Sunday rates) live in the
+  database and are not touched by it. Checks must not change real data (§10).
+- **Deploy:** from `araxys-crm-v2`, `git push logistics-v3 v2:main`. Netlify builds `main`
+  of `github.com/kevinsudhan/logistics-v3` on every push; there is no other deploy step. A
+  fresh clone of logistics-v3 has the branch as `main` and the remote as `origin` instead
+  (`git push origin main`). Never push v2 to the `origin` of `araxys-crm-v2`, which is v1's
+  repository (§11).
+- **Before every push:** `npm test` (59 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
   migration filename (§6). The last migration is **115**, so the next one is `116-….sql`.
-- **Where things stand:** the code is at the head in §11, everything is pushed and live, and
-  §9 lists what is open.
+  Reads of production may need the user's permission in a session; ask rather than work
+  around a refusal.
+- **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
+  1 Oct). Nothing secret is in them or their history, but staff addresses, the project ref and
+  this file are. Never commit anything that should not be read by strangers (§8). Making them
+  private is the user's action (§9).
+- **Where things stand:** §11 for the repository, §9 for what is open, in order.
 - **How the user works:** they want short, direct replies and a push after each feature.
   Verify on the running system (preview screenshots, then grep the deployed chunks) before
-  saying something is done. §7 covers how.
+  saying something is done. §7 covers how. While the desk is in maintenance, a change to a
+  signed-in screen cannot be seen on the live site at all: check it on the dev server or a
+  preview harness, and say that is where it was checked.
 
 ---
 
@@ -94,9 +116,10 @@ v2 has its own Supabase project, `izgbrdeybhbepftloxgk`. v1's project is
 - `scripts/check-bundle-secrets.mjs` fails the build if a service-role key reaches the bundle.
 - `WORKSPACE-V2.md` still says "v2 has no backend". **That is stale.** It dates from 28
   August, when everything ran on the in-memory mock.
-- `services/backend.ts` still routes a handful of legacy paths (the space and records
-  surface) to `mockBackend.ts`. `netlify.toml` keeps `VITE_MOCK_BACKEND=on` and
-  deliberately leaves `VITE_API_BASE` unset, so nothing can reach v1.
+- `services/backend.ts` is now only the mail client: Graph once Outlook is connected, the
+  in-memory mailbox in `mockBackend.ts` before that (sending into it is refused outside
+  `vite dev`). The voice era's calls, records and space board, and the `VITE_MOCK_BACKEND`
+  and `VITE_API_BASE` switches, were removed on 1 Oct; nothing called them.
 
 ### Edge Functions (8)
 
@@ -130,12 +153,13 @@ Functions → Secrets. Nothing in the repo reads them.
 |---|---|---|
 | `VITE_ACCOUNTS_DESK` | off | `on` |
 | `VITE_CASE_FILE` | mail only | `full` |
+| `VITE_MAINTENANCE` | off | **`on`** since 29 Sep: only `/q` and `/t` answer (§0) |
 
 **Check `netlify.toml` before saying a feature is off in production.**
 
 ---
 
-## 3. Routes — 57 page components
+## 3. Routes — 58 page components
 
 ### Sidebar, in order
 
@@ -144,7 +168,7 @@ Functions → Secrets. Nothing in the repo reads them.
 | (top) | Overview |
 | Pipeline | **Enquiries** `/intake` · Inbound enquiries `/enquiries` · My enquiries · Quote approvals `/approvals` · In-process shipments · Completed shipments |
 | (separate item) | **Job closing** `/job-closing` |
-| Operations | **Sailing schedule** `/sailing-schedule` · Consoles · Documentation · Rate master `/rates` · Mail · Complaints |
+| Operations | **Sailing schedule** `/sailing-schedule` · Consoles · Documentation · Rate master `/rates` · Mail |
 | Customers | Directory `/customers` |
 | Agents & partners | Partner mail · Live rates `/partners/live-rates` · Directory `/partners` |
 | Accounts (flag) | 14 pages under `/accounts/*` |
@@ -160,7 +184,7 @@ Functions → Secrets. Nothing in the repo reads them.
 
 - `/q/:token`: the customer accepts a quotation.
 - `/t/:token`: the customer tracking page. Since 102 it shows only the booking's details and
-  the milestones the desk recorded on the job's Tracking tab (§9, "Customer milestones").
+  the milestones the desk recorded on the job's Tracking tab (§13, "Customer milestones").
 
 ### The shipment job file
 
@@ -170,7 +194,7 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 107 migrations
+## 4. Data model — 115 migrations
 
 `supabase-v2/001…115`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
@@ -198,29 +222,29 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
-| `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
-| `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
-| `113` | **Rates find the enquiry's lane.** `rates_for` matched places by exact text, so a rate for "Chennai" never met an enquiry reading "Chennai (MAA)". `place_words` / `place_matches`: every word of one place is among the other's, either way round ("Dubai" matches "Jebel Ali / Dubai, UAE"; "MAA" matches "Chennai (MAA)"; "Chennai" does not match "Kochi"). Ranking unchanged. Checked rolled back |
-| `112` | **What can go on a console.** `attach_to_console` took an air job onto a sea console, an import onto an export console, cancelled and signed-off jobs; a move between consoles was logged as a plain "Put on". Now sea only, directions must agree (cross-trade takes either), not cancelled or signed off, the same console again is a no-op, and a move says "Moved from X to Y" (the old console's master bill leaves with it). Checked rolled back |
-| `111` | **Revert only an untouched booking.** `revert_shipment` deletes the shipment, and everything cascades with it (milestones, receipts, pickups, customs, issued house bills) while vendor `bills` went to no job (ON DELETE SET NULL). Now refused when signed off, cancelled, past booked, with a bill recorded, a house bill or HAWB issued, cargo received into the warehouse, or a pickup/delivery done — cancel instead. Checked rolled back |
-| `110` | **Enquiry and intake fixes.** `create_customer` takes an advisory lock and counts only ids shaped `C0001` (a `DEMO-` id made the cast fail and every new customer with it); `create_enquiry` sets `received_at` (a manual enquiry had none; `promote_intake` still sets the intake's); `promote_intake` logs `mail_linked` only when the conversation was actually bound, and `mail_elsewhere` naming the enquiry it stays on when it was already filed. Checked rolled back: sequences and `reference_series` unchanged afterwards |
-| `109` | **A quotation that cannot be right does not go.** `quote_problems(quote)` lists, in sentences: no charges; adds up to nothing; a charge with no name; a foreign charge (or the quotation itself) in a foreign currency at a rate of exchange of 1, 0 or none. `quote_ready_or_raise` refuses with that list from `submit_quote_for_approval`, `self_approve_quote` and `require_approval_to_send` (new rule 4: draft → sent/accepted, whoever sends). A charge at nothing is allowed when the whole adds up to something. Both helpers internal (no grant). Checked rolled back on the real drafts |
-| `108` | **The customer's DSR.** `shipment_dsr_notes` (per shipment: the REASON and STATUS the desk writes for the report; its own table because a signed-off shipment is locked; stamped with who and when; staff read, insert, update, never delete) and `customer_dsr_sends` (every DSR mailed: to, cc, subject, the shipments on it; staff add as themselves, nothing rewritten). Both on realtime. Checked rolled back: forged sender, edit or delete of the log, delete of a note and anon all refused |
-| `107` | **Rate requests per partner, for chosen services.** `partner_quotes.services` (what that partner was asked to price), `sent_from` (the sender's mailbox: the thread and reply are there), `source` ('case_file' / 'live_rates'). `record_rfq_sent` takes `p_services` and `p_source` (old calls still work) and, in the same transaction, binds the conversation to the enquiry (`enquiry_threads`), adds the partner to `enquiry_parties` under their directory role unless that address is already there, and logs `partner_asked` once per partner per batch. Staff only; anon refused. Checked rolled back |
-| `106` | **A pasted quotation.** `quote_lines.section` ('ex_works' / 'other'; the PDF prints each group under its title with a subtotal), `quotes.mail_text` (set on a pasted quotation: it goes out as plain text) and `quotes.pasted_text` (the source). `require_approval_to_send` also un-approves on a change to `mail_text`. Checked rolled back: a bad section refused, the total still from the lines, approval reset |
-| `105` | **Mail snooze.** `mail_snoozes`: one row per snoozed message (its id in the Snoozed folder, when it comes back, `returned_at`, `seen_at`), visible and changeable only by its owner (RLS checked as two employees, rolled back). Outlook's snooze is not in Graph, so `services/snooze.ts` moves the message to a Snoozed folder and the Mail page brings due ones back on open and on its minute refresh |
-| `104` | **Your own profile: the signature, and nothing else.** 103's `(select auth.uid())` in `profiles_select_own`, together with 003's self-update policy that read `profiles` to pin the role, made every signature save fail with "infinite recursion detected in policy for relation profiles" (28 Sep, about a day). The self-update policy now only says "your own row"; the trigger `profiles_guard_self_update` refuses a browser (`current_user = 'authenticated'`) changing anything but `signature`. That also closes a hole older than 103: the pin covered `role` only, so an employee could set their own `can_approve_quotes` / `can_assign` through the API. Staff accounts (service role) and migrations are not held to it |
-| `103` | **The audit's fixes.** `shipment_margin` and `console_margin` count **before GST**, as Job closing does (`invoice_net_inr`, `bill_net_inr`: lines in rupees, else the taxable value; credit notes negative). **Cancel and reopen a shipment:** `cancel_shipment(id, reason)` / `reopen_shipment(id, reason)`, with `shipments.cancelled_at/by`, `cancel_reason`; refused on a signed-off job; reopening goes back to where the milestones say; both on the timeline. `set_shipment_stage` dropped. Voice-era `capture_call_as_intake` and `forget_call` dropped, and `promote_intake`'s `public.calls` branch removed. Ten policies read `(select auth.uid())` once per query; every foreign key in `public` has an index (`…_fkx`) |
-| `102` | **Customer milestones.** `milestone_templates` (per mode; customs per direction) and `shipment_milestones` (per job: day, time as told, where, a note for the customer, hidden, `added` for the desk's own updates). Staff read; written only by `save_shipment_milestone`, `add_shipment_update`, `delete_shipment_update`. A milestone that marks a stage ticks that workflow step (`milestone_to_step`), and **a stage step can be ticked no other way** (`guard_milestone_step`, flag `app.milestone_write`). The warehouse-receipt trigger is dropped; movements no longer tick stage steps; `apply_tracking_event` needs a person and records the milestone (`set_shipment_stage` went in 103). `shipment_tracking` rebuilt to the booking plus visible milestones; `shipment_track_points` and `shipment_customs_public` dropped, so the anonymous key reaches three functions. Seeded on every new booking (booked reached on creation) and backfilled from the ticked stage steps |
-| `101` | Live rates: `live_rate_requests` (service, what to quote, mailbox, running), `live_rate_recipients` (partners), `live_rate_sends` (every mail, sent or refused; the function writes it, staff read it). A partner is claimed once per Sunday (unique index). Trigger: the mailbox must be a CRM login and only an admin changes it. Cron `araxys-v2-live-rates` `0,10,20,30,40,50 17 * * 0` (22:30–23:20 IST) with the scheduler's Vault secrets |
-| `100` | ICEGATE's replies: `csn_files.reply_status` (accepted / rejected / failed), `reply` (as read), `replied_at/by`; `csn_file_reply(job, status, reply)` writes them (staff; the table stays read-only); `shipment_customs.cin_type/cin_no` for each house's CIN |
-| `099` | CSN amendments: `csn_files.draft` keeps the form each file was made from; `csn_file_new` takes it as a fifth argument (the four-argument version is dropped) and accepts the event SCA |
-| `098` | `icegate_settings.iec`: the desk's IEC for the export CSN, when it is not the PAN (the CSN uses the PAN when blank) |
-| `097` | the CSN for ICEGATE: `icegate_settings` (one row: ICEGATE ID, desk PAN, authorised person's PAN, port of reporting; staff read, admins update), `consoles.csn_draft` (the form as saved), `csn_files` (every file made, job number from `csn_job_seq`, never reused) and `csn_file_new(console, event, indicator, houses)` which numbers and names the file `F_SACHM22_<event>_<ICEGATE ID>_<job>_<yyyymmdd>_DEC.json` on India's date |
-| `096` | the last security-advisor findings: the 13 functions without a fixed `search_path` get `''` (each read first: built-ins and `public.`-qualified names only); the 14 reporting views get **`security_invoker = true`**, so they read as the person asking and the tables' RLS holds. Only `partner_reply_log` changed in effect: employees now see their own replies, as 045 and replyLog.ts intended (through the owner-rights view they saw everyone's). Verified by snapshotting every view as each of the 5 staff before and after: no other difference |
-| `095` | Connect Outlook from inside the CRM: `private.outlook_pending` (a one-time note per connect: state hash, sign-in, PKCE verifier, page to return to; deleted with its sign-in, refused after 15 minutes, taken once); `outlook_pending_put / _take`, service role only |
-| `094` | Outlook stays connected: `private.outlook_links` (one row per Supabase sign-in, keyed by `auth.sessions.id` **on delete cascade**, so a sign-out deletes it; the refresh token sealed by the function); `outlook_link_put / _get / _drop`, service role only; cron `araxys-v2-outlook-links-prune` (22:30 UTC) drops rows unused for 3 days (tabs closed without signing out). The `private` schema is outside the API and the backup |
 | `093` | nightly backups: `backup_export()` / `backup_export_text()` (service role only) write every public table, the accounts without passwords and the file list; the private bucket `backups`; `backup_runs` (admins read); cron `araxys-v2-db-backup` at 21:30 UTC (03:00 IST) |
+| `094` | Outlook stays connected: `private.outlook_links` (one row per Supabase sign-in, keyed by `auth.sessions.id` **on delete cascade**, so a sign-out deletes it; the refresh token sealed by the function); `outlook_link_put / _get / _drop`, service role only; cron `araxys-v2-outlook-links-prune` (22:30 UTC) drops rows unused for 3 days (tabs closed without signing out). The `private` schema is outside the API and the backup |
+| `095` | Connect Outlook from inside the CRM: `private.outlook_pending` (a one-time note per connect: state hash, sign-in, PKCE verifier, page to return to; deleted with its sign-in, refused after 15 minutes, taken once); `outlook_pending_put / _take`, service role only |
+| `096` | the last security-advisor findings: the 13 functions without a fixed `search_path` get `''` (each read first: built-ins and `public.`-qualified names only); the 14 reporting views get **`security_invoker = true`**, so they read as the person asking and the tables' RLS holds. Only `partner_reply_log` changed in effect: employees now see their own replies, as 045 and replyLog.ts intended (through the owner-rights view they saw everyone's). Verified by snapshotting every view as each of the 5 staff before and after: no other difference |
+| `097` | the CSN for ICEGATE: `icegate_settings` (one row: ICEGATE ID, desk PAN, authorised person's PAN, port of reporting; staff read, admins update), `consoles.csn_draft` (the form as saved), `csn_files` (every file made, job number from `csn_job_seq`, never reused) and `csn_file_new(console, event, indicator, houses)` which numbers and names the file `F_SACHM22_<event>_<ICEGATE ID>_<job>_<yyyymmdd>_DEC.json` on India's date |
+| `098` | `icegate_settings.iec`: the desk's IEC for the export CSN, when it is not the PAN (the CSN uses the PAN when blank) |
+| `099` | CSN amendments: `csn_files.draft` keeps the form each file was made from; `csn_file_new` takes it as a fifth argument (the four-argument version is dropped) and accepts the event SCA |
+| `100` | ICEGATE's replies: `csn_files.reply_status` (accepted / rejected / failed), `reply` (as read), `replied_at/by`; `csn_file_reply(job, status, reply)` writes them (staff; the table stays read-only); `shipment_customs.cin_type/cin_no` for each house's CIN |
+| `101` | Live rates: `live_rate_requests` (service, what to quote, mailbox, running), `live_rate_recipients` (partners), `live_rate_sends` (every mail, sent or refused; the function writes it, staff read it). A partner is claimed once per Sunday (unique index). Trigger: the mailbox must be a CRM login and only an admin changes it. Cron `araxys-v2-live-rates` `0,10,20,30,40,50 17 * * 0` (22:30–23:20 IST) with the scheduler's Vault secrets |
+| `102` | **Customer milestones.** `milestone_templates` (per mode; customs per direction) and `shipment_milestones` (per job: day, time as told, where, a note for the customer, hidden, `added` for the desk's own updates). Staff read; written only by `save_shipment_milestone`, `add_shipment_update`, `delete_shipment_update`. A milestone that marks a stage ticks that workflow step (`milestone_to_step`), and **a stage step can be ticked no other way** (`guard_milestone_step`, flag `app.milestone_write`). The warehouse-receipt trigger is dropped; movements no longer tick stage steps; `apply_tracking_event` needs a person and records the milestone (`set_shipment_stage` went in 103). `shipment_tracking` rebuilt to the booking plus visible milestones; `shipment_track_points` and `shipment_customs_public` dropped, so the anonymous key reaches three functions. Seeded on every new booking (booked reached on creation) and backfilled from the ticked stage steps |
+| `103` | **The audit's fixes.** `shipment_margin` and `console_margin` count **before GST**, as Job closing does (`invoice_net_inr`, `bill_net_inr`: lines in rupees, else the taxable value; credit notes negative). **Cancel and reopen a shipment:** `cancel_shipment(id, reason)` / `reopen_shipment(id, reason)`, with `shipments.cancelled_at/by`, `cancel_reason`; refused on a signed-off job; reopening goes back to where the milestones say; both on the timeline. `set_shipment_stage` dropped. Voice-era `capture_call_as_intake` and `forget_call` dropped, and `promote_intake`'s `public.calls` branch removed. Ten policies read `(select auth.uid())` once per query; every foreign key in `public` has an index (`…_fkx`) |
+| `104` | **Your own profile: the signature, and nothing else.** 103's `(select auth.uid())` in `profiles_select_own`, together with 003's self-update policy that read `profiles` to pin the role, made every signature save fail with "infinite recursion detected in policy for relation profiles" (28 Sep, about a day). The self-update policy now only says "your own row"; the trigger `profiles_guard_self_update` refuses a browser (`current_user = 'authenticated'`) changing anything but `signature`. That also closes a hole older than 103: the pin covered `role` only, so an employee could set their own `can_approve_quotes` / `can_assign` through the API. Staff accounts (service role) and migrations are not held to it |
+| `105` | **Mail snooze.** `mail_snoozes`: one row per snoozed message (its id in the Snoozed folder, when it comes back, `returned_at`, `seen_at`), visible and changeable only by its owner (RLS checked as two employees, rolled back). Outlook's snooze is not in Graph, so `services/snooze.ts` moves the message to a Snoozed folder and the Mail page brings due ones back on open and on its minute refresh |
+| `106` | **A pasted quotation.** `quote_lines.section` ('ex_works' / 'other'; the PDF prints each group under its title with a subtotal), `quotes.mail_text` (set on a pasted quotation: it goes out as plain text) and `quotes.pasted_text` (the source). `require_approval_to_send` also un-approves on a change to `mail_text`. Checked rolled back: a bad section refused, the total still from the lines, approval reset |
+| `107` | **Rate requests per partner, for chosen services.** `partner_quotes.services` (what that partner was asked to price), `sent_from` (the sender's mailbox: the thread and reply are there), `source` ('case_file' / 'live_rates'). `record_rfq_sent` takes `p_services` and `p_source` (old calls still work) and, in the same transaction, binds the conversation to the enquiry (`enquiry_threads`), adds the partner to `enquiry_parties` under their directory role unless that address is already there, and logs `partner_asked` once per partner per batch. Staff only; anon refused. Checked rolled back |
+| `108` | **The customer's DSR.** `shipment_dsr_notes` (per shipment: the REASON and STATUS the desk writes for the report; its own table because a signed-off shipment is locked; stamped with who and when; staff read, insert, update, never delete) and `customer_dsr_sends` (every DSR mailed: to, cc, subject, the shipments on it; staff add as themselves, nothing rewritten). Both on realtime. Checked rolled back: forged sender, edit or delete of the log, delete of a note and anon all refused |
+| `109` | **A quotation that cannot be right does not go.** `quote_problems(quote)` lists, in sentences: no charges; adds up to nothing; a charge with no name; a foreign charge (or the quotation itself) in a foreign currency at a rate of exchange of 1, 0 or none. `quote_ready_or_raise` refuses with that list from `submit_quote_for_approval`, `self_approve_quote` and `require_approval_to_send` (new rule 4: draft → sent/accepted, whoever sends). A charge at nothing is allowed when the whole adds up to something. Both helpers internal (no grant). Checked rolled back on the real drafts |
+| `110` | **Enquiry and intake fixes.** `create_customer` takes an advisory lock and counts only ids shaped `C0001` (a `DEMO-` id made the cast fail and every new customer with it); `create_enquiry` sets `received_at` (a manual enquiry had none; `promote_intake` still sets the intake's); `promote_intake` logs `mail_linked` only when the conversation was actually bound, and `mail_elsewhere` naming the enquiry it stays on when it was already filed. Checked rolled back: sequences and `reference_series` unchanged afterwards |
+| `111` | **Revert only an untouched booking.** `revert_shipment` deletes the shipment, and everything cascades with it (milestones, receipts, pickups, customs, issued house bills) while vendor `bills` went to no job (ON DELETE SET NULL). Now refused when signed off, cancelled, past booked, with a bill recorded, a house bill or HAWB issued, cargo received into the warehouse, or a pickup/delivery done — cancel instead. Checked rolled back |
+| `112` | **What can go on a console.** `attach_to_console` took an air job onto a sea console, an import onto an export console, cancelled and signed-off jobs; a move between consoles was logged as a plain "Put on". Now sea only, directions must agree (cross-trade takes either), not cancelled or signed off, the same console again is a no-op, and a move says "Moved from X to Y" (the old console's master bill leaves with it). Checked rolled back |
+| `113` | **Rates find the enquiry's lane.** `rates_for` matched places by exact text, so a rate for "Chennai" never met an enquiry reading "Chennai (MAA)". `place_words` / `place_matches`: every word of one place is among the other's, either way round ("Dubai" matches "Jebel Ali / Dubai, UAE"; "MAA" matches "Chennai (MAA)"; "Chennai" does not match "Kochi"). Ranking unchanged. Checked rolled back |
+| `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
+| `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 
 **Everything on an enquiry or a job is live (084).** Whoever has a page open sees another
 person's change as it is made.
@@ -280,7 +304,7 @@ admin role and the oversight password.
 
 ## 5. Services and libraries
 
-`src/services/` holds 47 modules. The ones added since 21 September are:
+`src/services/` holds 59 modules. The ones added since 21 September are:
 
 - `attachments` · `autoFill` · `charges` · `checkpoints` · `customers` · `customs`
 - `enquiryDimensions` · `enquiryRegister` · `geocode` · `hawb` · `jobPnl` · `liveTracking`
@@ -306,7 +330,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 58 suites, pure logic
+npm test                             # 59 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -323,7 +347,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 58 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 59 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -803,74 +827,257 @@ Your booking has been confirmed.", the shipment details and the sign-off. The "R
 
 ## 9. Open items
 
-### Waiting on the user
+Figures here are as last recorded: 28 Sep for the counts and the mailboxes, 1 Oct for the
+Operations tables. They were not re-read for the 1 Oct revision; check one with `run-sql.mjs`
+before acting on it.
 
-- Rotating credentials and the Gemini billing decision (§1).
-- **Hapag-Lloyd tracking API:** deferred by the user (`HLAG_CLIENT_ID`/`HLAG_CLIENT_SECRET`).
-- **AeroDataBox rejects the key as "Invalid or inactive".** Direct plans have no free tier.
-  The free Basic plan is only on RapidAPI (`AERODATABOX_VIA=rapidapi`) or API.market
-  (`apimarket`), each with its own key. **The assistant must not sign up for accounts.**
-- **aisstream works but hears almost nothing.** It has no shore receivers near India or the
-  Gulf.
-- **The server's mail copy (087)** runs on the Azure app
-  `efb90aa6-9404-40d2-be1b-3b6a3d5f5866` with application permission `Mail.ReadBasic.All`
-  (admin-consented) and the client secret made on 25 September.
-  - The secret expires on whatever date was chosen in Azure. When it does, every mailbox
-    shows "Microsoft rejected the CRM app's client secret". Renew it as in §1.
-  - Optional: an Exchange `ApplicationAccessPolicy` can limit the app to the desk's
-    mailboxes. That is the user's call.
-- **Live rates need Microsoft's permission to send (101).** The Azure app above has only
-  `Mail.ReadBasic.All`. Add **Mail.Send (application)** and grant admin consent: Azure portal →
-  App registrations → the app → API permissions → Add a permission → Microsoft Graph →
-  Application permissions → Mail.Send → Grant admin consent. Checked 26 Sep: `canSend` false.
-  Until it is granted every Sunday send is refused and logged, and the page says so.
-  - Mail.Send (application) can send as any mailbox in the tenant. The CRM only ever sends from
-    a CRM login's mailbox (the table's trigger), and only an admin changes which. The
-    `ApplicationAccessPolicy` above would narrow Microsoft's side too.
-- **Microsoft licences (answered 28 Sep):** Exchange Online Plan 1 per mailbox is enough;
-  no separate Entra licence is needed. Entra ID Free comes with the tenant and covers the app
-  registration, its secret, delegated sign-in (Connect Outlook), application permissions and
-  admin consent. Every mailbox that signs in to the CRM needs its own Plan 1; Live rates only
-  sends from a CRM login's mailbox, so that one is licensed anyway. Entra ID P1 is only for
-  extras like Conditional Access, which the CRM does not use.
-- The voice-era secrets above: remove them in the dashboard.
-- (Done 26 Sep: `server/`, the first version's Express backend with the voice-agent import
-  code, was removed with `scripts/seed-space.ts` and the packages only it used: express, cors,
-  dotenv, cloudflared. The live app never called it. It is in git history.)
-- (Done 26 Sep: the test quotation on ALG09004-26, ₹3 against ₹24.6 lakh, was deleted after a
-  backup, with its 2 lines and customer link. The rest of that test chain is still there: the
-  "TEST EMAIL" enquiry ALG09004-26, its booked shipment ARX-SHP-0004, and the customer
-  "kevin imports" (C0004), which is the user's own test address.)
-- The old v1 project (`wremiarcmppuncgfzrqb`), which the live voice agents still share: keep it,
-  or retire it together with the agents. That is the user's call. Do not touch it until then.
-- (Done 26 Sep: the unused 3D planner, `ContainerPlanView`, `ContainerScene`, `lib/scene3d`,
-  was removed. It is in git history if it is ever wanted again.)
+### Waiting on the user, most urgent first
 
-### Audit findings (28 Sep, `npm run audit` and the UI harness)
+1. **Make both GitHub repositories private** (`logistics-v3`, `araxys-crm`). Still public on
+   1 Oct: an anonymous clone of logistics-v3 worked. The history holds no working secret
+   (scanned on 25 Sep and again on 1 Oct: only the shortened prefixes quoted in §1), but it
+   publishes every staff address including the admin's, the Supabase project ref, the Azure app
+   id, the schema with its policies, and this file, which names every open gap below.
+2. **Rotate the credentials in §1**, the Supabase personal access token first: it is issued
+   against the account, so it reaches v1 as well.
+3. **Decide when to reopen the desk** (§0). Settle 4 and 5 before it does, or the desk comes
+   back to sends that fail and a mail reader that does not answer.
+4. **Three mailboxes stopped working at 07:45 IST on 28 Sep:** aarathy@, imports@ and parasu@
+   answer "No Exchange Online mailbox at this address" to the server's copy (087) every five
+   minutes. parasu@ sent 438 of the first copy's 510 mails, so most of the desk's mail is
+   missing from Team oversight, and sending from the CRM as any of the three will fail. Most
+   likely their Exchange Online licences changed that morning: the Microsoft 365 admin centre.
+   - Licences (answered 28 Sep): Exchange Online Plan 1 per mailbox that signs in to the CRM
+     is enough; no separate Entra licence is needed. Entra ID Free comes with the tenant and
+     covers the app registration, its secret, delegated sign-in (Connect Outlook), application
+     permissions and admin consent. Entra ID P1 is only for extras like Conditional Access,
+     which the CRM does not use.
+5. **The Gemini billing decision (§1).** On the free tier the mail reader sends live customer
+   mail under Google's unpaid terms (a DPDP Act question), and on 28 Sep it stopped
+   altogether: every model answered 503 or 404.
+6. **Mail.Send (application) for Live rates (101).** The Azure app
+   `efb90aa6-9404-40d2-be1b-3b6a3d5f5866` has only `Mail.ReadBasic.All`, so every Sunday send
+   is refused and logged, and the page says so (checked 26 Sep: `canSend` false). Azure portal
+   → App registrations → the app → API permissions → Add a permission → Microsoft Graph →
+   Application permissions → Mail.Send → Grant admin consent.
+   - Mail.Send (application) can send as any mailbox in the tenant. The CRM only ever sends
+     from a CRM login's mailbox (the table's trigger), and only an admin changes which. An
+     Exchange `ApplicationAccessPolicy` would narrow Microsoft's side too, and would limit the
+     mail copy (087) to the desk's mailboxes. That is the user's call.
+7. **The Azure client secret made on 25 Sep** (the mail copy, Outlook renewals, Live rates)
+   expires on the date chosen in Azure. When it does, every mailbox shows "Microsoft rejected
+   the CRM app's client secret" and Outlook stops renewing. Renew it as in §1; the date is worth
+   a calendar entry.
+8. **Remove the voice-era function secrets** under Supabase → Edge Functions → Secrets:
+   `SNAPSERVE_API_KEY`, `SNAPSERVE_BASE_URL`, `ANTHROPIC_API_KEY` and `EXTRACTION_DISABLED`
+   (§2). Nothing reads them, and the session was not allowed to delete secrets.
+9. **Tracking feeds.**
+   - AeroDataBox rejects the key as "Invalid or inactive". Direct plans have no free tier; the
+     free Basic plan is only on RapidAPI (`AERODATABOX_VIA=rapidapi`) or API.market
+     (`apimarket`), each with its own key. **The assistant must not sign up for accounts.**
+   - aisstream works but hears almost nothing: it has no shore receivers near India or the Gulf.
+   - The Hapag-Lloyd API is deferred by the user (`HLAG_CLIENT_ID` / `HLAG_CLIENT_SECRET`).
+10. **The Supabase plan.** The Free plan has no managed backups (the nightly export, §13
+    "Backups", is the only copy; run `backup-download.mjs` regularly, since a lost project takes
+    its bucket with it) and no leaked-password check. Pro, about $25 a month, adds both.
+11. **v1's project** (`wremiarcmppuncgfzrqb`), which the live voice agents still share: keep it,
+    or retire it together with the agents. Do not touch it until the user decides.
+12. **The git identity on the desk machine.** Commits in `araxys-crm-v2` are authored "Your Name
+    <your.email@example.com>", git's placeholder. Set `user.name` and `user.email` for the
+    repository if the history should say who wrote it.
 
-Fixed in 103 the same day: the margin counting GST, the missing cancel, the voice-era functions
-and `countCalls()`, the per-row `auth.uid()` policies, the unindexed foreign keys, and the rate
-card's one-request-per-line insert. What is left:
+### On the live data, by hand (the desk's call, not a code change)
 
-- **Three mailboxes stopped copying at 07:45 IST on 28 Sep:** aarathy@, imports@ and parasu@
-  answer "No Exchange Online mailbox at this address" to the server's copy (087) every five
-  minutes. Most likely their Microsoft 365 licences (Exchange Online) changed that morning. Until
-  it is put back, Team oversight misses their mail, and sending from the CRM as them will fail.
-  The user's action in the Microsoft 365 admin centre.
-- Smaller, not done: `btree_gist` and `pg_net` live in `public`; no Content-Security-Policy
-  header on the site; `classify-enquiry` and `track-shipment` take 1–2 s to cold-start; five
-  tables have two permissive SELECT policies.
-- ALG09004-26 is `accepted` with no accepted quote: the test chain whose ₹3 quote was deleted.
+- ALG09001, 09003, 09010 and 09011 are marked read with no lane: the reader missed lanes given
+  only in the subject before 110. Press "Read the mail again" on each.
+- ALG09010-26's thread is still filed on ALG09008-26 (moved by one click on 28 Sep, before 110
+  made a move ask first). The desk decides where it belongs.
+- The test chain: the "TEST EMAIL" enquiry ALG09004-26 (`accepted` with no accepted quote,
+  since its ₹3 quotation was deleted on 26 Sep), its booked shipment ARX-SHP-0004, and the
+  customer "kevin imports" (C0004), the user's own test address. Remove them after a backup, or
+  keep them as the test case.
+- Older intake mails are still waiting on the Enquiries page.
 
-### Live data worth knowing (28 September)
+### Not done yet
 
-- Totals: 10 enquiries, 2 shipments (both at stage `booked`), 3 quotes, 0 invoices, 0 bills.
-- The ₹3 test quote on ALG09004-26 was deleted on 26 Sep (see above); the rest of that test
-  chain is still there.
-- Older intake mails are still waiting on the Enquiries page. Clearing them is the desk's
-  job, not a code change.
+- **A full job on the live system, end to end, by the people who will use it.** Every flow
+  since 102 was checked in rolled-back transactions (the business flow in `npm run audit`) and
+  in preview harnesses with stubbed data; none has been run by a signed-in person on a real
+  job. A dummy enquiry mail was written for it: send it in, push it to inbound, then quote,
+  approve, accept, book, record the milestones, invoice and sign off. It is the first thing to
+  do after reopening. §7 "Not verified yet" lists what else only a real session can show.
+- **The first real ICEGATE files.** The export CSN (SCX), amendments (SCA) and the reply reader
+  follow Customs' samples where the v1.6 guide is silent or they disagree. Make the first of
+  each a test file (T) and read the reply closely (§13, "The CSN for ICEGATE").
 
-### Product gaps
+### Gaps in the product
+
+- The customer is not mailed when a milestone is recorded; they see it when they open the
+  link. A "tell the customer" mail per milestone would be the next step if the desk wants it.
+- **Free time (083)** is counted in `lib/freeTime.ts` from dates the desk types per box.
+  Nothing fills those dates yet: tracking's `discharged` / `gate_out` events (072) and the
+  pickup/delivery moves (079) could suggest them. The tariff is one rate per day; slab tariffs
+  and holiday rules are not modelled. LCL (CFS storage) is not counted.
+- Live rates: the rates that come back are not read into the Rate master.
+- On air, the HAWB form's MAWB boxes do not write `shipments.mainline_no`, so an air pre-alert
+  has no MAWB unless one is recorded some other way.
+- Shipment row ids are still `ARX-SHP-0004`. Nothing printed or mailed shows them any more
+  (documents are numbered `BKG-ALG09004-26`, see `documentNo` in `lib/documents/data.ts`),
+  but the job file header and the enquiry register's booking-number fallback still do.
+- The house B/L is issued under a partner's MTO registration. When Aashish has its own, add it
+  as a partner-like source or a company setting (§13, "House B/L document").
+- Complaints has no store and no page: the placeholder that said so was removed on 1 Oct.
+- The quotation mail's buttons end in a run of zero-width characters, different on every send,
+  so that Gmail does not fold them away in a thread (§8, "Gmail folding the Accept button"). If
+  quotations start landing in spam, look here first.
+- `docs/submission-answers.md` and `docs/presentation-prompt.md` describe v1's voice agents,
+  not this CRM. README.md's "Where the intelligence is" names three uses of the model;
+  `classify-enquiry` now has seven modes (reading a mail, `draft`, `quote`, `rfq`, `tracking`,
+  `hbl`, `paste_quote`).
+
+### Smaller, from the 28 Sep audit
+
+- `btree_gist` and `pg_net` live in `public`.
+- No Content-Security-Policy header on the site (still none on the live response, 1 Oct).
+- `classify-enquiry` and `track-shipment` take 1–2 s to cold-start.
+- Five tables have two permissive SELECT policies.
+- Leaked-password protection is off (it needs the Pro plan, item 10).
+
+### Live data as last recorded
+
+- 28 Sep: 10 enquiries, 2 shipments (both at stage `booked`), 3 quotes, 0 invoices, 0 bills.
+- 1 Oct: no sailing schedules, boxes, consoles or rate cards yet (§8, "Operations sweep").
+- 25 Sep, the server copy's first run: 510 mails (parasu@ 438, info@ 69, aashish@ 3, aarathy@
+  and imports@ none in 31 days).
+
+Done, for the record (all in git history): on 26 Sep, `server/` (v1's Express backend with the
+voice-agent import code) went with `scripts/seed-space.ts` and the packages only it used
+(express, cors, dotenv, cloudflared); the unused 3D planner (`ContainerPlanView`,
+`ContainerScene`, `lib/scene3d`) went; the ₹3 test quotation on ALG09004-26 (against ₹24.6
+lakh) was deleted after a backup, with its 2 lines and customer link. On 1 Oct the voice era's
+client calls and their in-memory answers (`services/backend.ts`, `mockBackend.ts`) and the
+Complaints placeholder went.
+
+---
+
+## 10. Standing constraints
+
+- **Do not touch v1** (`../araxys-crm`, project `wremiarcmppuncgfzrqb`). It shares a
+  SnapServe account with live voice agents answering real calls.
+- **Priya and Arun's prompts** (in v1's `snapserve-setup/`) are the user's own work. Do not
+  edit them without an explicit instruction.
+- **The service-role key stays in gitignored files** (`server-v2/.keys.json`), never in the
+  bundle. Never print secret values.
+- **Checks against the database must not change real data.** Roll back or restore. The
+  database is now in real use.
+- **The assistant does not create accounts, sign up for API keys, or type passwords.**
+- **Remove temporary tokens, preview routes and harness files** after testing, and before
+  any commit.
+- **No dummy data** beyond what `seed-showcase.mjs` creates, which is prefixed `DEMO-`.
+
+---
+
+## 11. Repository state
+
+- **The desk machine's checkout is `araxys-crm-v2`, branch `v2`, with two remotes:**
+  - `logistics-v3` (`github.com/kevinsudhan/logistics-v3`): **the deploy.** Push with
+    `git push logistics-v3 v2:main`; Netlify builds `main` on every push.
+  - `origin` (`github.com/kevinsudhan/araxys-crm`): v1's repository. `v2` tracks `origin/v2`,
+    which has been kept level with the deploy (both at `31479ad` on 1 Oct), so a bare
+    `git push` goes there and **does not deploy**. **Never push v2 to `origin/main`,** which
+    is v1's branch.
+- **A fresh clone** of logistics-v3 checks out `main` with logistics-v3 as `origin`: there the
+  deploy is `git push origin main`, and there is no v1 remote to push to by mistake. It has no
+  `server-v2/.keys.json` (gitignored); copy it from the desk machine to run the database
+  scripts.
+- **At the head (1 Oct 2026):** the quotation work through 115 (§8's dated notes), then three
+  commits from the 1 Oct revision: September dates in the quotation mail, the voice era's
+  leftover code and the Complaints placeholder removed, and this file. Pushed to
+  `logistics-v3/main`. The live build is in maintenance (§0), so only `/q` and `/t` show any of
+  it.
+- **Migrations:** the last in the repository is `115-air-quote-table.sql`, and the next is
+  `116-….sql`. Each row in §4 records its rolled-back dry run, and this file has treated every
+  one as applied; the 1 Oct revision could not re-read the live catalogue to confirm 115.
+  Before relying on its columns: `select column_name from information_schema.columns where
+  table_name = 'quote_lines'` should list `gst_rate`.
+- **Checked at the head (1 Oct):** `npm test` (59 suites) passing, `npm run build` clean with
+  its bundle secret scan, `node scripts/audit/routes.mjs` with no dead links. The full
+  `npm run audit` was last run on 28 Sep.
+- Nothing temporary is committed: no `__Preview` routes, no `src/__audit.ts` harness, no
+  tokens.
+- Commit style: a sentence-case subject that describes what the user can now do, a body
+  explaining why, and the `Co-Authored-By` trailer.
+
+---
+
+## 12. What changed since 21 September
+
+This covers 21 to 28 September: 63 commits, up to 104. For 105–115 see the §4 table and §8's
+dated notes; `git log` has the rest. Grouped:
+
+| Area | Commits | What the user can now do |
+|---|---|---|
+| Inbound desk | `fc00d4e` → `71b42ce` | Consol details, rate master, quoting with approval, a customer directory, service details, cargo dimensions. Editing an approved quote sends it back for approval |
+| Quote approvals | `b51a843`, `24f6104` | Sale, buy and profit per quote. **Approvals appear live** for users with lower access |
+| In-process job | `fa520d5` → `d6b7de4` | A tabbed job file with a progress model, warehouse, and sign-off with a checklist and lock |
+| Tracking | `2a76afd` → `997c132` | Live flight, vessel and container tracking; a customer tracking page with a route map; the link emailed from the job |
+| HAWB, customs, pre-alert | `82183f9`, `16a8e18`, `1a87a3d` | The house air waybill as a form; export and import clearance; a pre-alert to the destination agent |
+| Worklist | `5fa9346` | In-process search, filters, a table view, Excel export, badges |
+| Pickup & delivery | `35f6c1c` | Several movements per job, with attempts, LR, e-way bill, handover, proof and cost, plus a transport order by mail |
+| Sailings | `f9d22f0`, `b909da9` | **One sailing schedule page.** Containers sit under their departure |
+| Enquiry register | `6b50cd7`, `669cc75` | An Excel report in the style of their `ENQUIRY FILES.xlsx`, with sheets for inbound, in process and completed |
+| Enquiries overview | `669cc75` | `/intake` shows the counts per stage, the download, and the mails waiting to be sent to inbound |
+| Branded mail | `83bebd7`, `3904a0c` | Quotation and booking confirmation on a navy letterhead with the logo |
+| Job closing | `f40ed51` | P&L per job, and per day, week, month, quarter and financial year, with a chart and an Excel export |
+| Loading states | `3aa303a` | Skeletons, a start-up screen with the app icon, inline dots |
+| Mail | `565c878` | The message list stays in view while a long thread scrolls |
+| iPhone app | `24f6104` | Add to Home Screen gives a standalone app with the user's logo as the icon |
+| Realtime desk (081) | `a15f629` | Enquiries, shipments, intake and job steps update live on every list and file page |
+| Printed documents | `763a153` | PDFs numbered `BKG-ALG09004-26` (no `ARX-`), on the navy letterhead with the mail's logo |
+| House B/L (085) | see `git log` | The house B/L as a form on the Bill tab: release mode, originals, issued under a partner's MTO, numbered, locked when issued, history, and a printed draft, originals or copy |
+| Live everywhere (084) | see `git log` | Every change on an enquiry or a job, by anybody, shows on everybody's open page: every tab of the job file, every panel of the case file, the boards, Job closing and Consoles |
+| Dates | see `git log` | "Sep", never "Sept", on every screen, mail and PDF (`lib/dates.ts`) |
+| Free time (083) | see `git log` | Free days and D&D rates per job; each box's clocks on the Containers tab; an alert on the job file header and the worklist (badge, "Free time running out" filter, urgency sort, Excel column); the terms on the arrival notice |
+| Team oversight (086, 087) | see `git log` | A live view of the desk: every mail each mailbox sent and to whom (from Outlook too), enquiries taken on, quoted and booked, job steps ticked, per person and per period. A server copy of every mailbox every 5 minutes |
+| Sign-ups closed, staff accounts, backups (093) | see `git log` | Only an admin adds staff (Staff accounts); the leaked starter password is dead; a tested nightly backup with a status card, downloads and a restore script |
+| Customer milestones (102) | see `git log` | The customer's tracking page shows only what the desk records on the job's Tracking tab: each milestone with its day, time, place and a note, the desk's own updates, nothing from feeds or internal steps. The job's records are offered as "Use this"; the stage follows the milestones |
+| Live rates (101) | see `git log` | Name a service, pick the partners: every Sunday 10:30 pm IST each gets their own mail asking for the coming week's rates, from info@, replies under Partner mail. Send now, a test to yourself, preview, pause; every send and Microsoft's reason for any refusal on the page |
+| Customer DSR (108) | see `git log` | Each customer's daily status report on their page: live shipments in the desk's columns, REASON/STATUS written there, Excel download, emailed to the customer with the sheet attached (no agent column), every send recorded |
+| Live rates for a shipment (107) | see `git log` | Choose a job and partners, and per partner the services to price; one mail each from your Outlook, filed on the job as a thread under Partners, with the partner added to its parties. The case file's Ask partners uses the same form |
+| ICEGATE replies (100) | see `git log` | "Read a reply" takes ICEGATE's ACK or SFL, finds the file by job number, shows each error on its house and container in the desk's words, and on an accepted live file records the CSN number and date and the MCIN/PCINs; a rejected file stops being the amendment baseline |
+| CSN amendments (SCA, 099) | see `git log` | Once the CSN number is recorded, the panel lists what changed since the last live file and makes the amendment with only that, flagged U/S/D, pointing back at the CSN; houses keep their sub-lines across amendments; checked against CBIC's SCA schema |
+| CSN for exports (SCX, 098) | see `git log` | An export console makes the CSN on exit: the desk as shipper with its IEC, each house pointing at its exporter's shipping bill by PCIN, shaped by cargo movement as the guide's table says; checked against CBIC's schema |
+| CSN for ICEGATE (097) | see `git log` | An import console makes the CSN file in CBIC's format, checked against the official schema, numbered and named as ICEGATE expects, for the desk to sign and upload; the CSN number is recorded back on every job |
+| Mail editor with Outlook's formatting | see `git log` | Font, size, colours, highlight, lists, alignment, links, pictures, tables; the editor shows exactly what the recipient's Outlook shows; paste from Word/Excel/Outlook keeps its look; Reply all, Forward (with the attachments) and Bcc |
+| Connect Outlook to your own mailbox (095) | see `git log` | Password logins connect Outlook from the Mail page without signing in again, and only to their own mailbox: info@ cannot connect aashish@ |
+| Outlook stays connected (094) | see `git log` | No more "sign in again" an hour after signing in: the server renews the Microsoft token silently for as long as the person stays signed in |
+| Quote self-approval (091) | see `git log` | Approve a quotation yourself with a reason; the reason goes to the admins' review list with a sidebar count; admins accept or withdraw while unsent |
+| iPad sign-in | see `git log` | The sign-in no longer scrolls or bounces on iPad (dvh) |
+| Console manifest (090) | see `git log` | Every house B/L under a console on one PDF and Excel sheet, mailed to the destination agent; provisional until every B/L is final; flags house bills added since it was sent |
+| Our B/L's release (089) | see `git log` | After issue: charges received, originals handed over and to whom, the full set back for a telex release, the telex release written to the destination agent and sent, released at destination; each on the history and the timeline, with the rules held by the database |
+| Received house B/L (088) | see `git log` | The origin agent's B/L read in from their PDF, checked against the job, corrections for the agent, the job's blanks filled; the CSN with its ETA − 72h countdown; the release checklist and our DO against their number. Our own B/L gained IEC/GSTIN, said to contain, a freight table and cargo insurance |
+| Sea master bill (082) | see `git log` | The console's MBL reaches its jobs; master typed on the Bill tab off a console; printed on the arrival notice, DO and B/L particulars |
+
+### Details of the iPhone app (`24f6104`)
+
+- `public/manifest.webmanifest` sets `display: standalone`, a navy background and a white
+  theme.
+- `public/icons/` holds apple-touch-icon 180, 192, 512, a maskable 512 and a favicon, all made
+  from the user's logo (`63.webp`, 2000×2000).
+- `public/sw.js` is network-first for pages and cache-first for `/assets/`. It is registered
+  in `main.tsx` for production builds only.
+- `netlify.toml` serves `sw.js` and the manifest with `no-cache`, so a deploy reaches
+  installed apps the next time they open.
+- **Bump `VERSION` in `sw.js`** if a change to its caching must replace old caches.
+- The safe-area padding lives in `index.css` under `@media (display-mode: standalone)`.
+
+---
+
+## 13. Feature notes
+
+How the larger features work and what was decided with the user about them. Until 1 Oct
+this was §9's "Product gaps"; it moved here unchanged except for the two lines marked in
+"Security", and the open points it held are now listed in §9.
 
 - **Customer milestones (102, user's instruction 28 Sep: "the tracking page the customer
   receives should not be automatic; all milestones updated by an employee within the
@@ -902,10 +1109,7 @@ card's one-request-per-line insert. What is left:
   the job file says when, by whom and why, with **Reopen** (a reason again), which puts it back at
   the stage its milestones say. The case file's state switch shows "Cancelled" and links to the
   job. "Send back to the enquiry" is still the way to undo a booking made too early.
-- The customer is not mailed when a milestone is recorded; they see it when they open the
-  link. A "tell the customer" mail per milestone would be the next step if the desk wants it.
 
-- **Free time (083)** is counted in `lib/freeTime.ts` from dates the desk types per box. Nothing fills those dates yet: tracking's `discharged`/`gate_out` events (072) and the pickup/delivery moves (079) could suggest them. The tariff is one rate per day; slab tariffs and holiday rules are not modelled. LCL (CFS storage) is not counted.
 - **Sea bills (082).** The master B/L is entered once on the console and the database copies it
   to every job on it (`shipments.mainline_no`). A job not on a console has its master typed on
   the Bill tab. The pre-alert, tracking, the worklist search and the arrival notice, delivery
@@ -1256,8 +1460,6 @@ card's one-request-per-line insert. What is left:
      When all are done, "Issue the DO" dates it with a validity period. The DO and the arrival
      notice print their number (`documentDataFromBooking` reads `forwarders_bl_no` when
      `bl_type` is `forwarder`).
-- On air, the HAWB form's MAWB boxes do not write `shipments.mainline_no`, so an air pre-alert
-  has no MAWB unless one is recorded some other way.
 - **Security: closed on 25 Sep (092); what is left.**
   - With the public anon key alone, anyone could read the 14 reporting views (customer
     balances, margins) and call 88 `SECURITY DEFINER` functions, 24 of them with no caller
@@ -1273,105 +1475,10 @@ card's one-request-per-line insert. What is left:
       remains in the git history, where it no longer works.
     - Aashish, Parasu and info@ sign in with Microsoft. Imports@ and Aarathy need Microsoft
       sign-in or a password set on Staff accounts.
-    - **Make the repositories private** (the user's action on GitHub). No other secret is
-      in the history; the history was scanned on 25 Sep.
-  - Also: minimum password length 6, leaked-password protection off, 13 functions without
-    a fixed `search_path`, and the 14 views are still security definer (staff-only now).
-- Shipment row ids are still `ARX-SHP-0004`. Nothing printed or mailed shows them any more
-  (documents are numbered `BKG-ALG09004-26`, see `documentNo` in `lib/documents/data.ts`),
-  but the job file header and the enquiry register's booking-number fallback still do.
-- No full end-to-end demo has been run yet. A dummy enquiry mail was written for one: send
-  it in, push it to inbound, then quote, approve, accept and book.
-
----
-
-## 10. Standing constraints
-
-- **Do not touch v1** (`../araxys-crm`, project `wremiarcmppuncgfzrqb`). It shares a
-  SnapServe account with live voice agents answering real calls.
-- **Priya and Arun's prompts** (in v1's `snapserve-setup/`) are the user's own work. Do not
-  edit them without an explicit instruction.
-- **The service-role key stays in gitignored files** (`server-v2/.keys.json`), never in the
-  bundle. Never print secret values.
-- **Checks against the database must not change real data.** Roll back or restore. The
-  database is now in real use.
-- **The assistant does not create accounts, sign up for API keys, or type passwords.**
-- **Remove temporary tokens, preview routes and harness files** after testing, and before
-  any commit.
-- **No dummy data** beyond what `seed-showcase.mjs` creates, which is prefixed `DEMO-`.
-
----
-
-## 11. Repository state
-
-- Branch **`v2`**. There are two remotes:
-  - `logistics-v3` (`github.com/kevinsudhan/logistics-v3`): **the deploy.** Push with
-    `git push logistics-v3 v2:main`.
-  - `origin` (`github.com/kevinsudhan/araxys-crm`): v1's repo. `origin/v2` is 100 commits
-    behind and nothing reads it. **Do not push v2 to `origin/main`,** which is v1's branch.
-- The code is at the commit that fixes signatures and pictures (104), pushed to
-  `logistics-v3/main` and live, with 104 applied.
-- Commit style: a sentence-case subject that describes what the user can now do, a body
-  explaining why, and the `Co-Authored-By` trailer.
-
----
-
-## 12. What changed since 21 September
-
-There are 63 commits. Grouped:
-
-| Area | Commits | What the user can now do |
-|---|---|---|
-| Inbound desk | `fc00d4e` → `71b42ce` | Consol details, rate master, quoting with approval, a customer directory, service details, cargo dimensions. Editing an approved quote sends it back for approval |
-| Quote approvals | `b51a843`, `24f6104` | Sale, buy and profit per quote. **Approvals appear live** for users with lower access |
-| In-process job | `fa520d5` → `d6b7de4` | A tabbed job file with a progress model, warehouse, and sign-off with a checklist and lock |
-| Tracking | `2a76afd` → `997c132` | Live flight, vessel and container tracking; a customer tracking page with a route map; the link emailed from the job |
-| HAWB, customs, pre-alert | `82183f9`, `16a8e18`, `1a87a3d` | The house air waybill as a form; export and import clearance; a pre-alert to the destination agent |
-| Worklist | `5fa9346` | In-process search, filters, a table view, Excel export, badges |
-| Pickup & delivery | `35f6c1c` | Several movements per job, with attempts, LR, e-way bill, handover, proof and cost, plus a transport order by mail |
-| Sailings | `f9d22f0`, `b909da9` | **One sailing schedule page.** Containers sit under their departure |
-| Enquiry register | `6b50cd7`, `669cc75` | An Excel report in the style of their `ENQUIRY FILES.xlsx`, with sheets for inbound, in process and completed |
-| Enquiries overview | `669cc75` | `/intake` shows the counts per stage, the download, and the mails waiting to be sent to inbound |
-| Branded mail | `83bebd7`, `3904a0c` | Quotation and booking confirmation on a navy letterhead with the logo |
-| Job closing | `f40ed51` | P&L per job, and per day, week, month, quarter and financial year, with a chart and an Excel export |
-| Loading states | `3aa303a` | Skeletons, a start-up screen with the app icon, inline dots |
-| Mail | `565c878` | The message list stays in view while a long thread scrolls |
-| iPhone app | `24f6104` | Add to Home Screen gives a standalone app with the user's logo as the icon |
-| Realtime desk (081) | `a15f629` | Enquiries, shipments, intake and job steps update live on every list and file page |
-| Printed documents | `763a153` | PDFs numbered `BKG-ALG09004-26` (no `ARX-`), on the navy letterhead with the mail's logo |
-| House B/L (085) | see `git log` | The house B/L as a form on the Bill tab: release mode, originals, issued under a partner's MTO, numbered, locked when issued, history, and a printed draft, originals or copy |
-| Live everywhere (084) | see `git log` | Every change on an enquiry or a job, by anybody, shows on everybody's open page: every tab of the job file, every panel of the case file, the boards, Job closing and Consoles |
-| Dates | see `git log` | "Sep", never "Sept", on every screen, mail and PDF (`lib/dates.ts`) |
-| Free time (083) | see `git log` | Free days and D&D rates per job; each box's clocks on the Containers tab; an alert on the job file header and the worklist (badge, "Free time running out" filter, urgency sort, Excel column); the terms on the arrival notice |
-| Team oversight (086, 087) | see `git log` | A live view of the desk: every mail each mailbox sent and to whom (from Outlook too), enquiries taken on, quoted and booked, job steps ticked, per person and per period. A server copy of every mailbox every 5 minutes |
-| Sign-ups closed, staff accounts, backups (093) | see `git log` | Only an admin adds staff (Staff accounts); the leaked starter password is dead; a tested nightly backup with a status card, downloads and a restore script |
-| Customer milestones (102) | see `git log` | The customer's tracking page shows only what the desk records on the job's Tracking tab: each milestone with its day, time, place and a note, the desk's own updates, nothing from feeds or internal steps. The job's records are offered as "Use this"; the stage follows the milestones |
-| Live rates (101) | see `git log` | Name a service, pick the partners: every Sunday 10:30 pm IST each gets their own mail asking for the coming week's rates, from info@, replies under Partner mail. Send now, a test to yourself, preview, pause; every send and Microsoft's reason for any refusal on the page |
-| Customer DSR (108) | see `git log` | Each customer's daily status report on their page: live shipments in the desk's columns, REASON/STATUS written there, Excel download, emailed to the customer with the sheet attached (no agent column), every send recorded |
-| Live rates for a shipment (107) | see `git log` | Choose a job and partners, and per partner the services to price; one mail each from your Outlook, filed on the job as a thread under Partners, with the partner added to its parties. The case file's Ask partners uses the same form |
-| ICEGATE replies (100) | see `git log` | "Read a reply" takes ICEGATE's ACK or SFL, finds the file by job number, shows each error on its house and container in the desk's words, and on an accepted live file records the CSN number and date and the MCIN/PCINs; a rejected file stops being the amendment baseline |
-| CSN amendments (SCA, 099) | see `git log` | Once the CSN number is recorded, the panel lists what changed since the last live file and makes the amendment with only that, flagged U/S/D, pointing back at the CSN; houses keep their sub-lines across amendments; checked against CBIC's SCA schema |
-| CSN for exports (SCX, 098) | see `git log` | An export console makes the CSN on exit: the desk as shipper with its IEC, each house pointing at its exporter's shipping bill by PCIN, shaped by cargo movement as the guide's table says; checked against CBIC's schema |
-| CSN for ICEGATE (097) | see `git log` | An import console makes the CSN file in CBIC's format, checked against the official schema, numbered and named as ICEGATE expects, for the desk to sign and upload; the CSN number is recorded back on every job |
-| Mail editor with Outlook's formatting | see `git log` | Font, size, colours, highlight, lists, alignment, links, pictures, tables; the editor shows exactly what the recipient's Outlook shows; paste from Word/Excel/Outlook keeps its look; Reply all, Forward (with the attachments) and Bcc |
-| Connect Outlook to your own mailbox (095) | see `git log` | Password logins connect Outlook from the Mail page without signing in again, and only to their own mailbox: info@ cannot connect aashish@ |
-| Outlook stays connected (094) | see `git log` | No more "sign in again" an hour after signing in: the server renews the Microsoft token silently for as long as the person stays signed in |
-| Quote self-approval (091) | see `git log` | Approve a quotation yourself with a reason; the reason goes to the admins' review list with a sidebar count; admins accept or withdraw while unsent |
-| iPad sign-in | see `git log` | The sign-in no longer scrolls or bounces on iPad (dvh) |
-| Console manifest (090) | see `git log` | Every house B/L under a console on one PDF and Excel sheet, mailed to the destination agent; provisional until every B/L is final; flags house bills added since it was sent |
-| Our B/L's release (089) | see `git log` | After issue: charges received, originals handed over and to whom, the full set back for a telex release, the telex release written to the destination agent and sent, released at destination; each on the history and the timeline, with the rules held by the database |
-| Received house B/L (088) | see `git log` | The origin agent's B/L read in from their PDF, checked against the job, corrections for the agent, the job's blanks filled; the CSN with its ETA − 72h countdown; the release checklist and our DO against their number. Our own B/L gained IEC/GSTIN, said to contain, a freight table and cargo insurance |
-| Sea master bill (082) | see `git log` | The console's MBL reaches its jobs; master typed on the Bill tab off a console; printed on the arrival notice, DO and B/L particulars |
-
-### Details of the iPhone app (`24f6104`)
-
-- `public/manifest.webmanifest` sets `display: standalone`, a navy background and a white
-  theme.
-- `public/icons/` holds apple-touch-icon 180, 192, 512, a maskable 512 and a favicon, all made
-  from the user's logo (`63.webp`, 2000×2000).
-- `public/sw.js` is network-first for pages and cache-first for `/assets/`. It is registered
-  in `main.tsx` for production builds only.
-- `netlify.toml` serves `sw.js` and the manifest with `no-cache`, so a deploy reaches
-  installed apps the next time they open.
-- **Bump `VERSION` in `sw.js`** if a change to its caching must replace old caches.
-- The safe-area padding lives in `index.css` under `@media (display-mode: standalone)`.
+    - **Make the repositories private** (the user's action on GitHub; still public on
+      1 Oct, §9). No other secret is in the history: scanned on 25 Sep, and again on 1 Oct
+      (only the shortened prefixes quoted in §1).
+  - Since then: passwords need at least 10 characters with letters and a number (26 Sep,
+    "Passwords" below); the 13 functions have a fixed `search_path` and the 14 views read as
+    the person asking (096). Leaked-password protection is still off: it needs the Pro plan.
+    *(Corrected 1 Oct; this line had said all four were still open.)*
