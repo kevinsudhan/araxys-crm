@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ArrowDownUp, ClipboardPaste, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { PASTE_CURRENCIES, PASTE_UNITS, chargesText, figure, isStrongLine, totalInInr, type PastedLine, type PastedQuote, type Section } from "../lib/pastedQuote";
+import { PASTE_CURRENCIES, PASTE_UNITS, chargesLayout, figure, totalInInr, type PastedLine, type PastedQuote, type Section } from "../lib/pastedQuote";
 import { applyPastedQuote, readPastedQuote } from "../services/pasteQuote";
+import { chargesHtml } from "../lib/quotationMail";
 import type { Enquiry, Quote } from "../services/enquiries";
 
 /**
@@ -68,7 +69,8 @@ export default function PasteQuoteDialog({
   );
   const foreign = useMemo(() => [...new Set((q?.lines ?? []).map((l) => l.currency).filter((c) => c !== "INR"))], [q]);
   const missingRoe = foreign.filter((c) => !(q?.roe[c] && q.roe[c] > 0));
-  const preview = current ? chargesText(current) : "";
+  // The charges exactly as the mail will show them (lib/quotationMail `chargesHtml`).
+  const preview = current ? chargesHtml(chargesLayout(current)) : "";
 
   const setLine = (i: number, patch: Partial<PastedLine>) =>
     setQ((prev) => (prev ? { ...prev, lines: prev.lines.map((l, k) => (k === i ? { ...l, ...patch } : l)) } : prev));
@@ -261,14 +263,11 @@ export default function PasteQuoteDialog({
                 </div>
                 <div className="min-w-0">
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">The charges, as the mail shows them</p>
-                  {/* As they go in the quotation letter: text, headings and totals in bold, no table. */}
-                  <div className="max-h-[22rem] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 text-[12px] leading-relaxed text-text-primary">
-                    {preview.split("\n").map((l, i) => (
-                      <div key={i} className={isStrongLine(l) ? "font-semibold" : undefined}>
-                        {l || "\u00a0"}
-                      </div>
-                    ))}
-                  </div>
+                  {/* Our own markup, every value in it escaped (lib/quotationMail.ts). */}
+                  <div
+                    className="max-h-[22rem] overflow-auto rounded-lg border border-border bg-white p-3"
+                    dangerouslySetInnerHTML={{ __html: preview }}
+                  />
                   <p className="mt-1 text-[11px] text-text-muted">In the quotation letter as usual, with the PDF attached.</p>
                 </div>
               </div>

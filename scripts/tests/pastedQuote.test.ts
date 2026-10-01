@@ -1,5 +1,5 @@
-import { chargesText, isStrongLine, lineText, normalisePasted, quoteText, sumByCurrency, totalInInr } from "../../src/lib/pastedQuote";
-import { quotationHtml } from "../../src/lib/quotationMail";
+import { chargesLayout, chargesText, lineText, normalisePasted, quoteText, sumByCurrency, totalInInr } from "../../src/lib/pastedQuote";
+import { chargesHtml, quotationHtml } from "../../src/lib/quotationMail";
 
 /** A pasted quotation, laid out for the mail with totals the app works out (29 Sep 2026). */
 
@@ -57,27 +57,32 @@ is("the whole in rupees with its rates", lines.find((l) => l.startsWith("Total:"
 is("validity in words", lines.includes("Valid until 14 Oct 2026."), true);
 is("terms as a list", lines.slice(-2), ["Terms", "• Rates subject to space availability."]);
 is("without every rate, the total stays by currency", quoteText(q, "Q").split("\n").find((l) => l.startsWith("Total:")), "Total: INR 8,500 + USD 2,300 + AED 450");
-is("bold: both headings, the three totals and Terms", lines.filter(isStrongLine).length, 6);
-is("not bold: the greeting, or a charge that happens to be called Total", [isStrongLine("Dear Meena,"), isStrongLine("• Total: INR 5")], [false, false]);
 
 console.log("\nthe charges in the quotation letter");
 const charges = chargesText({ ...q, roe: { ...q.roe, AED: 22.9 } });
 is("the charges alone: no title, validity or terms (the letter has its own)", [charges.split("\n")[0], charges.includes("Valid until"), charges.includes("Rates subject")], ["Ex Works Charges", false, false]);
 is("ending on the whole", charges.split("\n").pop(), "Total: INR 2,12,005 (USD at 84, AED at 22.90)");
-const letterFor = (chargesTextIn: string | null) =>
+const layout = chargesLayout({ ...q, roe: { ...q.roe, AED: 22.9 } });
+const letterFor = (withCharges: boolean) =>
   quotationHtml({
     enquiry: { ref: "TEST-0001", origin: "Chennai", destination: "Hamburg" } as never,
     customer: { id: "c", name: "Meena Rajan", company: "Test Exports", phones: [], emails: [] },
     quote: { id: "q", version: 1, amount_inr: 212005, created_at: "2026-09-30T10:00:00Z", valid_until: "2026-10-14" } as never,
     lines: [{ description: "Ocean freight", unit: "Container", quantity: 2, rate: 1150, currency: "USD", amount_inr: 193200 }] as never,
     terms: [{ scope: "general", text: "Rates subject to space availability." }],
-    chargesText: chargesTextIn,
+    charges: withCharges ? layout : null,
   });
-const pastedLetter = letterFor(charges);
-const builtLetter = letterFor(null);
+const pastedLetter = letterFor(true);
+const builtLetter = letterFor(false);
 is("the same letter: its header, who it is for, its terms", ["QUOTATION", "Test Exports", "Rates subject to space availability."].map((t) => pastedLetter.includes(t)), [true, true, true]);
-is("the charges as text in it, a heading in bold", pastedLetter.includes("font-weight:700;color:") && pastedLetter.includes(">Ex Works Charges</p>"), true);
-is("a charge as a bulleted line", pastedLetter.includes(">• Ocean freight: USD 1,150 per container × 2 = USD 2,300</p>"), true);
+is("the layout and the text agree", [layout.groups.map((g) => g.title), layout.total, layout.rates], [["Ex Works Charges", "Other Charges"], "INR 2,12,005", "USD at 84, AED at 22.90"]);
+const html = chargesHtml(layout);
+is("headings in the desk's style: red, underlined, on yellow, in capitals with a colon", html.includes("background:#ffff00;color:#c00000") && html.includes("text-decoration:underline") && html.includes(">EX WORKS CHARGES :</span>"), true);
+is("a charge in capitals, its figure beside a colon", html.includes(">OCEAN FREIGHT</td>") && html.includes(">USD 1,150 PER CONTAINER × 2 = USD 2,300</td>"), true);
+is("a condition in red", html.includes('<span style="color:#c00000;">(AT ACTUALS)</span>'), true);
+is("the group total and the whole in bold", html.includes(">EX WORKS TOTAL</td>") && html.includes("TOTAL : INR 2,12,005"), true);
+is("in the letter", pastedLetter.includes(">EX WORKS CHARGES :</span>"), true);
+is("a name typed with markup is escaped", chargesHtml({ groups: [{ title: "A<b>", totalLabel: "T", rows: [{ name: "x<y", value: "1", note: null }], total: "1" }], total: "1", rates: null }).includes("X&lt;Y"), true);
 is("no charges table in it", [pastedLetter.includes("Qty &times; rate"), builtLetter.includes("Qty &times; rate")], [false, true]);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);

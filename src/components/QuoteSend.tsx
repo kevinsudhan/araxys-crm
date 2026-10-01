@@ -21,7 +21,7 @@ import { quotationHtml, quotationMessage, quotationSubject } from "../lib/quotat
 import { MAIL_LOGO_PATH } from "../lib/company";
 import { acceptUrl, isReachable, issueLink } from "../services/publicQuote";
 import { threadWith } from "../services/customerThread";
-import { chargesTextFor } from "../services/pasteQuote";
+import { chargesLayoutFor } from "../services/pasteQuote";
 import { quoteProblems } from "../lib/quoteChecks";
 import type { MailMessage } from "../services/backend";
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
@@ -627,7 +627,7 @@ export default function QuoteSend({
                 whole in rupees — from the charges as they are now. The PDF
                 keeps the tables.
               */
-              chargesText: quote.mail_text ? chargesTextFor(lines) : null,
+              charges: quote.mail_text ? chargesLayoutFor(lines) : null,
             }),
           }}
           /*

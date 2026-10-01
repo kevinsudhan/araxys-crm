@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { chargesText, normalisePasted, quoteText, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
+import { chargesLayout, normalisePasted, quoteText, type ChargesLayout, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
 import { addQuote, logEvent, type Enquiry, type Quote } from "./enquiries";
 import { addLines, type QuoteLine } from "./quoteLines";
 
@@ -104,25 +104,27 @@ export async function applyPastedQuote(input: {
 }
 
 /**
- * A pasted quotation's charges as text for the quotation letter, from its
- * charges as they are now — rebuilt at sending, so an edit in the charges
- * grid after the paste is what the customer reads.
+ * A pasted quotation's charges for the quotation letter, from its charges as
+ * they are now — rebuilt at sending, so an edit in the charges grid after the
+ * paste is what the customer reads. A condition the paste kept on a charge
+ * ("Destination THC (at actuals)") is read back off its name as its note.
  */
-export function chargesTextFor(lines: QuoteLine[]): string {
+export function chargesLayoutFor(lines: QuoteLine[]): ChargesLayout {
   const roe: Record<string, number> = {};
   for (const l of lines) if (l.currency !== "INR" && Number(l.fx_rate) > 0) roe[l.currency] = Number(l.fx_rate);
-  return chargesText({
-    lines: lines.map(
-      (l): PastedLine => ({
+  return chargesLayout({
+    lines: lines.map((l): PastedLine => {
+      const m = l.description.match(/^(.*\S)\s*\(([^()]+)\)$/);
+      return {
         section: l.section === "ex_works" ? "ex_works" : "other",
-        description: l.description,
+        description: m ? m[1] : l.description,
         currency: l.currency,
         unit: l.unit,
         quantity: Number(l.quantity),
         rate: Number(l.rate),
-        note: null,
-      })
-    ),
+        note: m ? m[2] : null,
+      };
+    }),
     terms: [],
     validUntil: null,
     roe,

@@ -693,6 +693,14 @@ stay reachable in maintenance mode (App.tsx).
 ignores — every reply (a quotation in the customer's thread included) went without its files and
 its inline logo. Each file is now posted onto the draft, as forwards already were.
 
+**Pasted charges in the desk's format (1 Oct).** A pasted quotation's charges, in the mail and in
+the paste dialog's preview, follow the desk's own layout: each group's heading in red, underlined, on
+a yellow highlight ("EX WORKS CHARGES :", "OTHER CHARGES :"); lines in capitals with the colons
+aligned ("OCEAN FREIGHT … : USD 42 PER W/M × 8 = USD 336"); a trailing "(…)" note in red; each
+group's total in bold, then "TOTAL : INR …" with the exchange rates. `chargesLayout` (lib/pastedQuote)
+groups the lines and `chargesHtml` (lib/quotationMail) draws them; `chargesText` (the plain-text
+part) is built from the same layout. The branded letter around the charges is unchanged.
+
 ## 9. Open items
 
 ### Waiting on the user

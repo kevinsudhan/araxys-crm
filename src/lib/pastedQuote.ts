@@ -88,14 +88,18 @@ const UNIT_WORD: Record<string, string | null> = {
   Lumpsum: null,
 };
 
-/** One charge as a line of the mail. */
-export function lineText(l: PastedLine): string {
+/** One charge's figure: "USD 42 per W/M × 8 = USD 336", "INR 3,500". */
+export function lineValue(l: PastedLine): string {
   const per = UNIT_WORD[l.unit] ?? null;
-  let s = `${l.description}: ${l.currency} ${figure(l.rate)}${per ? ` per ${per}` : ""}`;
+  let s = `${l.currency} ${figure(l.rate)}${per ? ` per ${per}` : ""}`;
   // A count is a count: "× 6.5", not "× 6.50" as money would be written.
   if (l.quantity !== 1) s += ` × ${l.quantity.toLocaleString("en-IN", { maximumFractionDigits: 3 })} = ${l.currency} ${figure(l.rate * l.quantity)}`;
-  if (l.note) s += ` (${l.note})`;
   return s;
+}
+
+/** One charge as a line of the mail. */
+export function lineText(l: PastedLine): string {
+  return `${l.description}: ${lineValue(l)}${l.note ? ` (${l.note})` : ""}`;
 }
 
 /** A group's total, currency by currency: "USD 2,300 + INR 1,500". */
@@ -135,12 +139,54 @@ function longDate(iso: string): string {
  * (`isStrongLine`); the charges are a bulleted list.
  */
 export function chargesText(q: PastedQuote): string {
+  const c = chargesLayout(q);
   const out: string[] = [];
+  for (const g of c.groups) {
+    out.push(g.title);
+    for (const r of g.rows) out.push(`${BULLET}${r.name}: ${r.value}${r.note ? ` (${r.note})` : ""}`);
+    out.push(`${g.totalLabel}: ${g.total}`, "");
+  }
+  out.push(`Total: ${c.total}${c.rates ? ` (${c.rates})` : ""}`);
+  return out.join("\n").trim();
+}
+
+/** One charge in the layout: its name, its figure, and a condition on it ("at actuals"). */
+export interface ChargeRow {
+  name: string;
+  value: string;
+  note: string | null;
+}
+
+export interface ChargeGroup {
+  title: string;
+  totalLabel: string;
+  rows: ChargeRow[];
+  total: string;
+}
+
+/**
+ * The charges laid out once — groups, rows, totals — for both renderings:
+ * the plain text above (kept on the quotation) and the mail's
+ * (lib/quotationMail.ts `chargesHtml`, in the desk's own style).
+ */
+export interface ChargesLayout {
+  groups: ChargeGroup[];
+  /** "INR 2,12,005", or by currency when a rate of exchange is missing. */
+  total: string;
+  /** "USD at 84, AED at 22.90", when the total was converted. */
+  rates: string | null;
+}
+
+export function chargesLayout(q: PastedQuote): ChargesLayout {
+  const groups: ChargeGroup[] = [];
   const group = (title: string, totalLabel: string, lines: PastedLine[]) => {
     if (!lines.length) return;
-    out.push(title);
-    for (const l of lines) out.push(`${BULLET}${lineText(l)}`);
-    out.push(`${totalLabel}: ${sumText(sumByCurrency(lines))}`, "");
+    groups.push({
+      title,
+      totalLabel,
+      rows: lines.map((l) => ({ name: l.description, value: lineValue(l), note: l.note })),
+      total: sumText(sumByCurrency(lines)),
+    });
   };
   group("Ex Works Charges", "Ex works total", q.lines.filter((l) => l.section === "ex_works"));
   group("Other Charges", "Other charges total", q.lines.filter((l) => l.section === "other"));
@@ -149,11 +195,9 @@ export function chargesText(q: PastedQuote): string {
   const foreign = [...new Set(q.lines.map((l) => l.currency).filter((c) => c !== "INR"))];
   if (inr !== null) {
     const at = foreign.map((c) => `${c} at ${figure(q.roe[c])}`).join(", ");
-    out.push(`Total: INR ${figure(inr)}${at ? ` (${at})` : ""}`);
-  } else {
-    out.push(`Total: ${sumText(sumByCurrency(q.lines))}`);
+    return { groups, total: `INR ${figure(inr)}`, rates: at || null };
   }
-  return out.join("\n").trim();
+  return { groups, total: sumText(sumByCurrency(q.lines)), rates: null };
 }
 
 /**
@@ -173,10 +217,3 @@ export function quoteText(q: PastedQuote, heading: string): string {
 
 const BULLET = "• ";
 
-/**
- * The lines of the charges text set in bold: the two headings and the totals.
- * Charges are bulleted, so none of them can be taken for one.
- */
-export function isStrongLine(line: string): boolean {
-  return /^(Ex Works Charges$|Other Charges$|Terms$|Ex works total:|Other charges total:|Total:)/.test(line.trim());
-}

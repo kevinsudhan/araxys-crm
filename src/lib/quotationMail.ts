@@ -1,7 +1,7 @@
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
 import type { QuoteLine } from "../services/quoteLines";
 import type { QuoteTerm } from "../services/quoteApproval";
-import { isStrongLine } from "./pastedQuote";
+import type { ChargesLayout } from "./pastedQuote";
 import {
   ACCENT,
   ACCENT_SOFT,
@@ -76,12 +76,12 @@ export interface QuotationMailInput {
    */
   logoSrc?: string | null;
   /**
-   * A pasted quotation's charges as text (lib/pastedQuote `chargesText`).
-   * Given, the letter carries them as text — headings, a bulleted list, the
-   * totals — where it would otherwise draw the charges table. Everything
-   * around them is the same letter. The PDF keeps its tables.
+   * A pasted quotation's charges (lib/pastedQuote `chargesLayout`). Given, the
+   * letter carries them in the desk's own style (`chargesHtml`) where it would
+   * otherwise draw the charges table. Everything around them is the same
+   * letter. The PDF keeps its tables.
    */
-  chargesText?: string | null;
+  charges?: ChargesLayout | null;
 }
 
 /** The subject line, carrying the reference so the reply files itself. */
@@ -170,7 +170,7 @@ export function quotationHtml(i: QuotationMailInput): string {
       )
     : "";
 
-  const table = i.chargesText ? section(chargesAsText(i.chargesText), 24) : section(
+  const table = i.charges ? section(chargesHtml(i.charges), 24) : section(
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           <thead>
             <tr>
@@ -217,22 +217,39 @@ export function quotationHtml(i: QuotationMailInput): string {
 }
 
 /**
- * A pasted quotation's charges, as text in the letter: headings in the
- * letter's navy, each charge a line of its own, the totals in bold, the whole
- * a size up. No table.
+ * A pasted quotation's charges in the letter, in the desk's own style (1 Oct):
+ * each group under a red, underlined heading on a yellow mark, the way the
+ * desk has always set "FREIGHT CHARGES :" in its mails; a line per charge in
+ * capitals, the colons and figures lined up; a condition in red; the totals
+ * in bold. Lined up with a borderless table, so it reads as text — there is
+ * no grid to see.
  */
-function chargesAsText(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .map((raw) => {
-      const l = raw.trim();
-      if (!l) return `<div style="height:14px;line-height:14px;font-size:14px;">&nbsp;</div>`;
-      if (l.startsWith("Total:")) return `<p style="margin:2px 0 0;font-size:16px;font-weight:800;color:${NAVY};line-height:1.5;">${esc(l)}</p>`;
-      if (/ total:/.test(l) && isStrongLine(l)) return `<p style="margin:4px 0 0;font-size:13.5px;font-weight:700;color:${INK};line-height:1.5;">${esc(l)}</p>`;
-      if (isStrongLine(l)) return `<p style="margin:0 0 6px;font-size:14.5px;font-weight:700;color:${NAVY};line-height:1.4;">${esc(l)}</p>`;
-      return `<p style="margin:0 0 3px;font-size:13.5px;color:${INK};line-height:1.5;">${esc(l)}</p>`;
-    })
+const MARK = "#ffff00";
+const RED = "#c00000";
+
+export function chargesHtml(c: ChargesLayout): string {
+  const cell = (inner: string, extra = "") =>
+    `<td valign="top" style="padding:3px 0;font-size:13.5px;line-height:1.45;color:${INK};${extra}">${inner}</td>`;
+  const row = (name: string, value: string, note: string | null, bold = false) =>
+    `<tr>${cell(esc(name.toUpperCase()), `width:46%;padding-right:12px;${bold ? "font-weight:700;" : ""}`)}${cell(":", "width:10px;padding-right:8px;")}${cell(
+      esc(value.toUpperCase()) + (note ? ` <span style="color:${RED};">(${esc(note.toUpperCase())})</span>` : ""),
+      bold ? "font-weight:700;" : ""
+    )}</tr>`;
+  const groups = c.groups
+    .map(
+      (g) => `
+    <p style="margin:0 0 8px;"><span style="background:${MARK};color:${RED};font-size:14px;font-weight:700;text-decoration:underline;letter-spacing:.02em;padding:1px 4px;">${esc(g.title.toUpperCase())} :</span></p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 18px;">
+      ${g.rows.map((r) => row(r.name, r.value, r.note)).join("")}
+      <tr><td colspan="3" style="height:4px;line-height:4px;font-size:0;">&nbsp;</td></tr>
+      ${row(g.totalLabel, g.total, null, true)}
+    </table>`
+    )
     .join("");
+  return `${groups}
+    <p style="margin:4px 0 0;font-size:15.5px;font-weight:800;color:${NAVY};">TOTAL : ${esc(c.total.toUpperCase())}${
+      c.rates ? ` <span style="font-size:12.5px;font-weight:400;color:${MUTED};">(${esc(c.rates)})</span>` : ""
+    }</p>`;
 }
 
 /**
