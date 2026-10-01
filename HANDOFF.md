@@ -797,6 +797,10 @@ rate states ("GWT:578 KGS", chargeable over gross — `statedWeight`) now sets a
 quantity when the AI put the enquiry's weight or 1 (`withStatedWeight`), and the table's first
 line's GWT.
 
+**Booking confirmation mail, plain (1 Oct).** `lib/confirmationMail.ts`: the letterhead, "Dear …,
+Your booking has been confirmed.", the shipment details and the sign-off. The "Rate agreed" block
+(with the quotation's total) and "What happens next" / "keep the reference in the subject" are gone.
+
 ## 9. Open items
 
 ### Waiting on the user
