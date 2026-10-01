@@ -720,6 +720,14 @@ charges grid (air only). Sea quotations keep the red-heading text layout, now wi
 groups (freight first, as the desk writes it). Tests: `scripts/tests/airQuote.test.ts` on the desk's
 HEL - IST - MAA sheet (totals 3,06,763.87 / 3,24,793.31).
 
+**A table pasted as a table (1 Oct).** A table copied from Gmail (or Outlook, Word, a page) is on
+the clipboard as HTML and as plain text; Gmail's plain text has one cell per line. The paste box
+(`PasteQuoteDialog`) now takes the HTML (`lib/pastedTable.ts` `tableTextFromHtml`): a line per row,
+cells tab-separated, text around the table kept, a layout table read through to the tables inside
+it. The box then shows what was pasted as a grid ("Edit as text" / "Paste something else"). Should
+the cell-per-line text arrive anyway, it still reads: `sectionsByHeading` no longer takes a line
+that is a charge's own name ("EXW CHARGES" alone on a line) for a heading.
+
 ## 9. Open items
 
 ### Waiting on the user

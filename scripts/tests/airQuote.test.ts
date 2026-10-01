@@ -1,6 +1,7 @@
 import { normalisePasted, withShares, chargesLayout, lineValue, sectionsByHeading, type PastedLine } from "../../src/lib/pastedQuote";
 import { airTable, airText, airTitle } from "../../src/lib/airQuote";
 import { airTableHtml, quotationHtml } from "../../src/lib/quotationMail";
+import { tableRows } from "../../src/lib/pastedTable";
 
 /** A pasted air quotation as the desk's rate table (115), on the desk's own HEL - IST - MAA sheet (1 Oct 2026). */
 
@@ -64,8 +65,13 @@ is(
   ]).map((l) => l.section),
   ["freight", "ex_works"]
 );
+const cellPerLine = "FREIGHT CHARGES\n \nAF CHARGES\nEURO/KGS\n3.2\nEXW CHARGES\nEURO/SHPT\n795\n \nDESTINATION CHARGES\n \nCC CHARGES\nINR/SHIPMENT\n3% ON OF+EXW";
+is("a table pasted a cell per line: EXW CHARGES on its own line is the charge, not a heading", sectionsByHeading(cellPerLine, read.slice(0, 3)).map((l) => l.section), ["freight", "freight", "destination"]);
 is("no headings: as read", sectionsByHeading("AF 3.2/kg\nEXW 795", read).map((l) => l.section), read.map((l) => l.section));
 is("a charge line with figures is not a heading", sectionsByHeading("Destination charges INR 4500\nAF charges 3.2", read.slice(0, 1)).map((l) => l.section), ["freight"]);
+
+is("a pasted table read as rows of cells", tableRows("TITLE\n\nAF CHARGES\tEURO/KGS\t3.2\n\t\tTOTAL\t306763.87"), [["TITLE"], ["AF CHARGES", "EURO/KGS", "3.2"], ["", "", "TOTAL", "306763.87"]]);
+is("text with no tab is not a table", tableRows("AF 3.2/kg\nEXW 795"), null);
 
 console.log("\nthe percentage worked out");
 const w = withShares(q);

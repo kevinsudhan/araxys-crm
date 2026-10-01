@@ -139,10 +139,13 @@ const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
  */
 export function sectionsByHeading(text: string, lines: PastedLine[]): PastedLine[] {
   const rows = text.split(/\r?\n/).map((r) => r.replace(/\t+/g, " ").trim());
+  // A line that is a charge's own name is that charge — "EXW CHARGES" alone on
+  // a line, as a table copied as plain text puts every cell — not a heading.
+  const names = new Set(lines.map((l) => words(l.description)));
   const headings = new Map<number, Section>();
   rows.forEach((r, i) => {
     const m = r.match(/^([a-z][a-z .-]*?)\s*charges?\s*:?$/i);
-    const hit = m && HEADINGS.find(([re]) => re.test(m[1].trim()));
+    const hit = m && !names.has(words(r)) && HEADINGS.find(([re]) => re.test(m[1].trim()));
     if (hit) headings.set(i, hit[1]);
   });
   if (!headings.size) return lines;
