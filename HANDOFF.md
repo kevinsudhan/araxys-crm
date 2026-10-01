@@ -728,6 +728,15 @@ it. The box then shows what was pasted as a grid ("Edit as text" / "Paste someth
 the cell-per-line text arrive anyway, it still reads: `sectionsByHeading` no longer takes a line
 that is a charge's own name ("EXW CHARGES" alone on a line) for a heading.
 
+**Charges grid made plain (1 Oct).** `QuoteCharges` is one row per charge — Charge | Cur. | Rate |
+Per | Qty | ROE (only while a charge is foreign, and only on that charge) | GST (pasted air
+quotations) | Amount ₹ — under group headings with subtotals on a pasted quotation. The buy side,
+code, minimum, group and vendor sit on a line under each charge behind **Costs & details**
+(remembered per browser, `quoteCharges:costs`). A card per charge below the row's least width.
+The paste dialog warns when the rate reads as air (freight by the kilo, "AF") on an enquiry not
+marked air — the mail follows the enquiry's mode. The reader now takes a per-kg quantity from the
+weight the rate itself states (GWT in the title line) before the enquiry's.
+
 ## 9. Open items
 
 ### Waiting on the user

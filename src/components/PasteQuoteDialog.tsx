@@ -33,6 +33,8 @@ import type { Enquiry, Quote } from "../services/enquiries";
  * misread figure is one wrong line on this screen, not a wrong total in a
  * customer's inbox.
  */
+const MODE_NAME: Record<string, string> = { sea_fcl: "Sea FCL", sea_lcl: "Sea LCL", road: "Road" };
+
 let fresh = 0;
 const newId = () => `n${++fresh}`;
 
@@ -315,6 +317,8 @@ export default function PasteQuoteDialog({
   };
 
   const inr = current ? totalInInr(current.lines, current.roe) : null;
+  // An air rate pasted on an enquiry that is not marked air: freight by the kilo, or air freight by name.
+  const looksAir = !!q?.lines.some((l) => (l.section === "freight" && l.unit === "Kg") || /\b(af|air\s*freight)\b/i.test(l.description));
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-6">
@@ -408,6 +412,12 @@ export default function PasteQuoteDialog({
               {live?.status === "draft" && liveCount > 0 && (
                 <p className="mb-2 rounded-lg bg-bg-warning px-3 py-2 text-[12px] text-text-warning">
                   Saving replaces the {liveCount} charge{liveCount === 1 ? "" : "s"} on version {live.version}.
+                </p>
+              )}
+              {!air && looksAir && (
+                <p className="mb-2 rounded-lg bg-bg-warning px-3 py-2 text-[12px] text-text-warning">
+                  This reads like an air rate, but the enquiry is {MODE_NAME[enquiry.transport_mode ?? ""] ?? "not marked as air"}, so the mail will set it out
+                  as a sea quotation. To send it as your air rate table, change the enquiry's mode to Air first.
                 </p>
               )}
               <p className="text-[12px] text-text-secondary">

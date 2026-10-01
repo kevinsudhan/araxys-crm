@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Loader2, Plus, Trash2, Wand2 } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Loader2, Plus, Trash2, Wand2 } from "lucide-react";
 import Select from "./Select";
 import { CHARGE_HEADS, LINE_CURRENCIES, UNITS, money } from "../services/charges";
 import { missingRate, rateInUse } from "../lib/quoteChecks";
@@ -171,14 +171,31 @@ export default function QuoteCharges({
    * sideways scroller, so on a laptop it was a thin strip that scrolled both
    * ways — and the currency and unit menus opened inside that strip, clipped
    * to one option. The layout now follows the room: one row per charge where
-   * it fits, the sell line over the buy line where it does not, and a card per
-   * charge on a phone. Nothing scrolls inside the panel; it grows.
+   * it fits, and a card per charge where it does not. Nothing scrolls inside
+   * the panel; it grows.
    */
   const gridRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [filling, setFilling] = useState(false);
   /** What the rate master offered, and what was done with it. */
   const [filled, setFilled] = useState<{ used: ResolvedRate[]; skipped: string[] } | null>(null);
+  /** The buy side, codes and minimums, shown on request; remembered on this browser. */
+  const [showCosts, setShowCosts] = useState(() => {
+    try {
+      return localStorage.getItem("quoteCharges:costs") === "on";
+    } catch {
+      return false;
+    }
+  });
+  const toggleCosts = () =>
+    setShowCosts((v) => {
+      try {
+        localStorage.setItem("quoteCharges:costs", v ? "off" : "on");
+      } catch {
+        /* not kept: shown for this visit only */
+      }
+      return !v;
+    });
 
   const load = useCallback(async () => {
     try {
@@ -340,50 +357,31 @@ export default function QuoteCharges({
 
   /** Every cell of one charge, for whichever arrangement the width allows. */
   function cells(l: QuoteLine) {
-    const group = asSection(l.section);
-    const tag = "h-6 shrink-0 cursor-pointer appearance-none rounded-md px-1.5 text-[10px] font-semibold tracking-wide disabled:cursor-default";
     return {
-      name: anySection ? (
-        <div className="flex min-w-0 items-center gap-1">
-          {/* Its group on the PDF and in the mail. */}
-          <select
-            value={group}
-            disabled={locked}
-            onChange={(e) => void run(() => updateLine(l.id, { section: asSection(e.target.value) }))}
-            title={`${SECTIONS.find((s) => s.key === group)?.title} — change its group`}
-            aria-label="Group"
-            className={`${tag} ${group === "other" ? "bg-surface-2 text-text-secondary" : "bg-bg-accent text-text-accent"}`}
-          >
-            {SECTIONS.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.short}
-              </option>
-            ))}
-          </select>
-          {withGst && (
-            // Its GST in the air table (and on the invoice made from it); "—" is not stated, charged at 18.
-            <select
-              value={l.gst_rate == null ? "" : String(Number(l.gst_rate))}
-              disabled={locked}
-              onChange={(e) => void run(() => updateLine(l.id, { gst_rate: e.target.value === "" ? null : Number(e.target.value) }))}
-              title="GST on this charge"
-              aria-label="GST"
-              className={`${tag} bg-surface-2 text-text-secondary`}
-            >
-              {l.gst_rate == null && <option value="">GST —</option>}
-              {GST_RATES.map((g) => (
-                <option key={g} value={g}>
-                  {g ? `GST ${g}%` : "No GST"}
-                </option>
-              ))}
-            </select>
-          )}
-          <div className="min-w-0 flex-1">
-            <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void run(() => updateLine(l.id, { description: v }))} />
-          </div>
-        </div>
+      name: <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void run(() => updateLine(l.id, { description: v }))} />,
+      // Its group on the PDF and in the mail.
+      group: locked ? (
+        <span className="text-text-secondary">{SECTIONS.find((x) => x.key === asSection(l.section))?.title}</span>
       ) : (
-        <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void run(() => updateLine(l.id, { description: v }))} />
+        <Select
+          label="Group"
+          className="w-full"
+          value={asSection(l.section)}
+          options={SECTIONS.map((x) => ({ value: x.key, label: x.title.replace(/ Charges$/, "") }))}
+          onChange={(v) => void run(() => updateLine(l.id, { section: asSection(v) }))}
+        />
+      ),
+      // Its GST in the air table, and on the invoice made from it; "—" is not stated, invoiced at 18.
+      gst: locked ? (
+        <span className="block px-2 text-right tabular-nums text-text-secondary">{l.gst_rate == null ? "—" : Number(l.gst_rate) ? `${Number(l.gst_rate)}%` : "None"}</span>
+      ) : (
+        <Select
+          label="GST"
+          className="w-full"
+          value={l.gst_rate == null ? "" : String(Number(l.gst_rate))}
+          options={[...(l.gst_rate == null ? [{ value: "", label: "—" }] : []), ...GST_RATES.map((g) => ({ value: String(g), label: g ? `${g}%` : "None" }))]}
+          onChange={(v) => void run(() => updateLine(l.id, { gst_rate: v === "" ? null : Number(v) }))}
+        />
       ),
       code: (
         <Cell
@@ -551,21 +549,17 @@ export default function QuoteCharges({
   // Guarded: a zero or missing rate would divide the totals into infinity.
   const fx = Number(quoteFxRate) > 0 ? Number(quoteFxRate) : 1;
   /*
-    Whether either rate-of-exchange column is worth a column.
+    Whether the rate of exchange is worth a column.
 
-    A rate of exchange means nothing on a line priced in rupees — it is always
-    1, and a column of 1.0000 down a fourteen-column grid is width spent saying
-    nothing. The two sides are asked separately because they move
-    independently: a charge sold in rupees is routinely bought in dollars, and
-    hiding the cost rate because the selling side is domestic would hide the one
-    figure that explains what the cost actually is.
-
-    Derived from the lines, so switching a currency to USD brings its column
-    back on the spot. The quote's own currency counts too — a quotation
-    presented in USD needs its rate visible even before a line uses one.
+    It means nothing on a line priced in rupees — it is always 1 — so the
+    column is there only while a charge is in another currency, and only that
+    charge shows one. Derived from the lines, so switching a currency to USD
+    brings it back on the spot. The quote's own currency counts too — a
+    quotation presented in USD needs its rate visible even before a line uses
+    one. The buy side's rate sits with the costs, on the charge whose cost is
+    foreign.
   */
   const anyFx = quoteCurrency !== "INR" || lines.some((l) => l.currency !== "INR");
-  const anyCostFx = lines.some((l) => l.cost_currency !== "INR");
 
   /** Replies carrying a figure, which are the only ones worth offering. */
   const quoted = (partnerQuotes ?? []).filter(
@@ -581,10 +575,24 @@ export default function QuoteCharges({
         </div>
       )}
 
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-[11px] font-medium uppercase tracking-wide text-text-secondary">
           Charges
         </h3>
+        <div className="flex items-center gap-2">
+        {lines.length > 0 && (
+          <button
+            type="button"
+            onClick={toggleCosts}
+            aria-pressed={showCosts}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] transition-colors ${
+              showCosts ? "border-text-accent bg-bg-accent text-text-accent" : "border-border bg-surface-1 text-text-secondary hover:border-border-strong hover:text-text-primary"
+            }`}
+          >
+            {showCosts ? <EyeOff size={13} /> : <Eye size={13} />}
+            Costs &amp; details
+          </button>
+        )}
         {!locked && (
           <div ref={addRef} className="relative">
             {lane && (
@@ -652,6 +660,7 @@ export default function QuoteCharges({
             )}
           </div>
         )}
+        </div>
       </div>
 
       {filled && (
@@ -699,169 +708,115 @@ export default function QuoteCharges({
       ) : (
         (() => {
           /*
-            The same cells in three arrangements (see `width` above). What we
-            sell comes first, what it costs us after it, tinted, and the vendor
-            it is bought from last.
+            One row per charge, read like the line on the quotation: the charge,
+            its rate, what it is per and how many, and what that comes to in
+            rupees. The rate of exchange and the GST take a column only when a
+            charge needs one. What it costs us — the code, the minimum, the buy
+            side and the vendor — sits on a line under it, shown on request
+            ("Costs & details"), so the sell side reads on its own.
+
+            On a pasted quotation the charges sit under their groups, as the
+            customer reads them.
           */
-          const layout = width >= 1240 + (anyFx ? 70 : 0) + (anyCostFx ? 70 : 0) ? "row" : width >= 820 ? "two" : "card";
-          const sellCols = [
-            "24px",
-            "minmax(120px,2fr)",
-            "minmax(56px,0.8fr)",
+          const cols = [
+            "minmax(150px,2.6fr)",
+            "76px",
             "minmax(76px,1fr)",
-            anyFx ? "minmax(56px,0.8fr)" : "",
-            "minmax(84px,1.1fr)",
-            "minmax(52px,0.7fr)",
-            "minmax(76px,1fr)",
-            "minmax(84px,1fr)",
-            "minmax(64px,0.8fr)",
+            "minmax(96px,1.1fr)",
+            "minmax(60px,0.7fr)",
+            anyFx ? "minmax(70px,0.8fr)" : "",
+            withGst ? "84px" : "",
+            "minmax(100px,1.1fr)",
+            locked ? "" : "28px",
           ].filter(Boolean);
-          const costCols = [
-            "minmax(76px,1fr)",
-            anyCostFx ? "minmax(56px,0.8fr)" : "",
-            "minmax(76px,1fr)",
-            "minmax(84px,1fr)",
-            "minmax(130px,2.4fr)",
-          ].filter(Boolean);
-          const end = locked ? [] : ["28px"];
-          // "Code", not "Charge": headed "Charge", the column was being read as the
-          // charge's amount, and prices were typed into it.
-          const sellHead = ["#", "Charge name", "Code", "Currency", ...(anyFx ? ["ROE"] : []), "Unit", "Units", "Sell / unit", "Local amt.", "Min amt."];
-          const costHead = ["Cost cur.", ...(anyCostFx ? ["ROE"] : []), "Cost / unit", "Local amt.", "Vendor"];
-          const right = new Set(["#", "ROE", "Units", "Sell / unit", "Local amt.", "Min amt.", "Cost / unit"]);
+          const head = ["Charge", "Cur.", "Rate", "Per", "Qty", ...(anyFx ? ["ROE"] : []), ...(withGst ? ["GST"] : []), "Amount ₹", ...(locked ? [] : [""])];
+          const right = new Set(["Rate", "Qty", "ROE", "Amount ₹"]);
+          // Each column's least width and the gaps between them: below that, a card per charge.
+          const least = cols.reduce((n, c) => n + Number(c.match(/(\d+)px/)?.[1] ?? 0), 0) + 8 * (cols.length - 1) + 16;
+          const asRows = width >= least;
 
-          if (layout === "card") {
-            return (
-              <div className="space-y-2">
-                {lines.map((l, i) => {
-                  const c = cells(l);
-                  return (
-                    <div key={l.id} data-line={l.id} className="rounded-lg border border-border bg-surface-1 p-2.5">
-                      <div className="mb-2 flex items-center gap-2">
-                        <span className="text-[11.5px] tabular-nums text-text-muted">{i + 1}</span>
-                        <div className="min-w-0 flex-1">{c.name}</div>
-                        {c.remove}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        <CardField label="Code">{c.code}</CardField>
-                        <CardField label="Currency">{c.currency}</CardField>
-                        {anyFx && <CardField label="ROE">{c.roe}</CardField>}
-                        <CardField label="Unit">{c.unit}</CardField>
-                        <CardField label="Units">{c.units}</CardField>
-                        <CardField label="Sell / unit">{c.rate}</CardField>
-                        <CardField label="Local amt.">{c.amount}</CardField>
-                        <CardField label="Min amt.">{c.min}</CardField>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 rounded-md bg-surface-2 p-2 sm:grid-cols-3">
-                        <CardField label="Cost cur.">{c.costCurrency}</CardField>
-                        {anyCostFx && <CardField label="ROE">{c.costRoe}</CardField>}
-                        <CardField label="Cost / unit">{c.costRate}</CardField>
-                        <CardField label="Local amt.">{c.costAmount}</CardField>
-                        <CardField label="Vendor" wide>
-                          {c.vendor}
-                        </CardField>
-                      </div>
-                    </div>
-                  );
-                })}
+          const details = (l: QuoteLine, c: ReturnType<typeof cells>) =>
+            showCosts && (
+              <div className="mt-1.5 flex flex-wrap items-end gap-2 rounded-md bg-surface-2 px-2 py-1.5">
+                {anySection && <Mini label="Group" className="w-36">{c.group}</Mini>}
+                <Mini label="Code" className="w-24">{c.code}</Mini>
+                <Mini label="Min amt." className="w-24">{c.min}</Mini>
+                <Mini label="Cost cur." className="w-24">{c.costCurrency}</Mini>
+                {l.cost_currency !== "INR" && <Mini label="Cost ROE" className="w-20">{c.costRoe}</Mini>}
+                <Mini label="Cost / unit" className="w-28">{c.costRate}</Mini>
+                <Mini label="Cost ₹" className="w-28">{c.costAmount}</Mini>
+                <Mini label="Vendor" className="min-w-[10rem] flex-1">{c.vendor}</Mini>
               </div>
             );
-          }
 
-          if (layout === "two") {
-            return (
-              <div>
-                <HeadRow labels={[...sellHead, ...(locked ? [] : [""])]} cols={[...sellCols, ...end]} right={right} />
-                {/* The buy line's names, under the sell line's, as its cells sit under them. */}
-                <div className="mb-1 flex items-center gap-2 px-4">
-                  <span className="w-9 shrink-0" />
-                  <div className="grid min-w-0 flex-1 gap-2 rounded bg-surface-2 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted" style={{ gridTemplateColumns: costCols.join(" ") }}>
-                    {costHead.map((h, k) => (
-                      <span key={k} className={`truncate ${right.has(h) ? "text-right" : ""}`}>
-                        {h}
-                      </span>
-                    ))}
+          const row = (l: QuoteLine) => {
+            const c = cells(l);
+            const foreign = l.currency !== "INR";
+            if (!asRows) {
+              return (
+                <div key={l.id} data-line={l.id} className="border-b border-border py-2.5 last:border-b-0">
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="min-w-0 flex-1">{c.name}</div>
+                    {c.remove}
                   </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Mini label="Cur.">{c.currency}</Mini>
+                    <Mini label="Rate">{c.rate}</Mini>
+                    <Mini label="Per">{c.unit}</Mini>
+                    <Mini label="Qty">{c.units}</Mini>
+                    {foreign && <Mini label="ROE">{c.roe}</Mini>}
+                    {withGst && <Mini label="GST">{c.gst}</Mini>}
+                    <Mini label="Amount ₹">{c.amount}</Mini>
+                  </div>
+                  {details(l, c)}
                 </div>
-                <div className="space-y-2">
-                  {lines.map((l, i) => {
-                    const c = cells(l);
-                    return (
-                      <div key={l.id} data-line={l.id} className="rounded-lg border border-border bg-surface-1 p-2">
-                        <div className="grid items-center gap-2" style={{ gridTemplateColumns: [...sellCols, ...end].join(" ") }}>
-                          <span className="text-right text-[11.5px] tabular-nums text-text-muted">{i + 1}</span>
-                          {c.name}
-                          {c.code}
-                          {c.currency}
-                          {anyFx && c.roe}
-                          {c.unit}
-                          {c.units}
-                          {c.rate}
-                          {c.amount}
-                          {c.min}
-                          {!locked && c.remove}
-                        </div>
-                        {/* What it costs us, under what we sell it for. */}
-                        <div className="mt-1.5 flex items-center gap-2 rounded-md bg-surface-2 py-1.5 pl-2 pr-2">
-                          <span className="w-9 shrink-0 text-[10.5px] font-medium uppercase tracking-wide text-text-muted">Buy</span>
-                          <div className="grid min-w-0 flex-1 items-center gap-2" style={{ gridTemplateColumns: costCols.join(" ") }}>
-                            {c.costCurrency}
-                            {anyCostFx && c.costRoe}
-                            {c.costRate}
-                            {c.costAmount}
-                            {c.vendor}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+              );
+            }
+            return (
+              <div key={l.id} data-line={l.id} className="border-b border-border px-1 py-1.5 last:border-b-0">
+                <div className="grid items-center gap-2" style={{ gridTemplateColumns: cols.join(" ") }}>
+                  {c.name}
+                  {c.currency}
+                  {c.rate}
+                  {c.unit}
+                  {c.units}
+                  {/* A rupee charge has no rate of exchange to show. */}
+                  {anyFx && (foreign ? c.roe : <span />)}
+                  {withGst && c.gst}
+                  {c.amount}
+                  {!locked && c.remove}
                 </div>
+                {details(l, c)}
               </div>
             );
-          }
+          };
 
-          // Room for everything on one line: a charge reads straight across,
-          // sell 4,500 · cost 3,000 · A2C Forwarders.
-          const all = [...sellCols, ...costCols, ...end];
+          const groups = anySection
+            ? SECTIONS.map((g) => ({ title: g.title, lines: lines.filter((l) => asSection(l.section) === g.key) })).filter((g) => g.lines.length)
+            : [{ title: null as string | null, lines }];
+
           return (
             <div>
-              <div className="grid gap-2 px-2 pb-1" style={{ gridTemplateColumns: all.join(" ") }}>
-                {[...sellHead, ...costHead, ...(locked ? [] : [""])].map((h, k) => (
-                  <span
-                    key={k}
-                    className={`truncate text-[10.5px] font-medium uppercase tracking-wide text-text-secondary ${right.has(h) ? "text-right" : ""} ${
-                      k >= sellHead.length && k < sellHead.length + costHead.length ? "rounded bg-surface-2 px-1" : ""
-                    }`}
-                  >
-                    {h}
-                  </span>
-                ))}
-              </div>
-              <div className="space-y-1">
-                {lines.map((l, i) => {
-                  const c = cells(l);
-                  return (
-                    <div key={l.id} data-line={l.id} className="grid items-center gap-2 rounded-lg px-2 py-1 hover:bg-surface-2/50" style={{ gridTemplateColumns: all.join(" ") }}>
-                      <span className="text-right text-[11.5px] tabular-nums text-text-muted">{i + 1}</span>
-                      {c.name}
-                      {c.code}
-                      {c.currency}
-                      {anyFx && c.roe}
-                      {c.unit}
-                      {c.units}
-                      {c.rate}
-                      {c.amount}
-                      {c.min}
-                      {c.costCurrency}
-                      {anyCostFx && c.costRoe}
-                      {c.costRate}
-                      {c.costAmount}
-                      {c.vendor}
-                      {!locked && c.remove}
+              {asRows && (
+                <div className="grid gap-2 px-1 pb-1.5 text-[10.5px] font-medium uppercase tracking-wide text-text-muted" style={{ gridTemplateColumns: cols.join(" ") }}>
+                  {head.map((h, k) => (
+                    <span key={k} className={`truncate ${right.has(h) ? "text-right" : ""}`}>
+                      {h}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {groups.map((g) => (
+                <div key={g.title ?? "all"} className={g.title ? "mt-2 first:mt-0" : ""}>
+                  {g.title && (
+                    <div className="flex items-baseline justify-between border-b border-border-strong px-1 pb-1 pt-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-text-primary">{g.title}</span>
+                      <span className="text-[11.5px] tabular-nums text-text-muted">{money(g.lines.reduce((n, l) => n + Number(l.amount_inr || 0), 0))}</span>
                     </div>
-                  );
-                })}
-              </div>
+                  )}
+                  {g.lines.map(row)}
+                </div>
+              ))}
             </div>
           );
         })()
@@ -922,23 +877,10 @@ export default function QuoteCharges({
   );
 }
 
-/** Column labels over a grid of charges. */
-function HeadRow({ labels, cols, right }: { labels: string[]; cols: string[]; right: Set<string> }) {
+/** One labelled field: a charge on a phone, and the costs and details under a charge. */
+function Mini({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className="grid gap-2 px-2 pb-1 text-[10.5px] font-medium uppercase tracking-wide text-text-secondary" style={{ gridTemplateColumns: cols.join(" ") }}>
-      {labels.map((h, i) => (
-        <span key={i} className={`truncate ${right.has(h) ? "text-right" : ""}`}>
-          {h}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/** One labelled field of a charge on a phone. */
-function CardField({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <label className={`block min-w-0 ${wide ? "col-span-2 sm:col-span-3" : ""}`}>
+    <label className={`block min-w-0 ${className}`}>
       <span className="mb-0.5 block text-[10.5px] uppercase tracking-wide text-text-muted">{label}</span>
       {children}
     </label>
