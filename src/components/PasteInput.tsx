@@ -83,12 +83,12 @@ export default function PasteInput({
       autoFocus={autoFocus}
       rows={rows}
       aria-label="The rate, as pasted"
-      placeholder={
+      placeholder={`Paste the rate here (Ctrl+V) — a table, a mail or a WhatsApp message. For example:\n\n${
         air
           ? "HEL - IST - MAA, carrier TK, TT 2-3 days\nAF EUR 3.20/kg\nEXW EUR 795/shpt\nCC charges 3% on OF+EXW\nDO INR 2,500\nAirline DO at receipted\nROE 1 EUR = 111.70"
           : "EXW charges\nPickup from factory – INR 4,500\nExport customs clearance – 2,500\n\nOcean freight USD 1,150 per 40HC × 2\nBL fee 1,500 per BL\n\nValidity 15 days. Duties extra."
-      }
-      className="w-full resize-y font-mono text-[12.5px] leading-relaxed"
+      }`}
+      className="w-full resize-y bg-surface-1 font-mono text-[12.5px] leading-relaxed"
     />
   );
 }

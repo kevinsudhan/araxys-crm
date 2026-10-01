@@ -147,170 +147,55 @@ export default function QuotePanel({
         </div>
       )}
 
-      {/* ---- outstanding quote ---- */}
-      {live && !accepted && (
-        <div className="rounded-lg border border-border bg-surface-2 px-3 py-3">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <p className="text-[15px] font-semibold text-text-primary">
-                ₹{Number(live.amount_inr).toLocaleString("en-IN")}
-              </p>
-              <p className="text-[12px] text-text-secondary">
-                Version {live.version} · {live.status}
-                {live.basis ? ` · ${live.basis}` : ""}
-                {live.sailing_date ? ` · sailing ${day(live.sailing_date)}` : ""}
-                {live.valid_until ? ` · valid to ${day(live.valid_until)}` : ""}
-              </p>
-              {live.status === "draft" ? (
-                <QuoteCurrency quoteId={live.id} currency={live.currency} fxRate={Number(live.fx_rate)} onChanged={onChanged} />
-              ) : (
-                live.currency !== "INR" && (
-                  <p className="text-[12px] text-text-secondary">
-                    Quoted in {live.currency} at ₹{Number(live.fx_rate).toLocaleString("en-IN")}
-                  </p>
-                )
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              {live.status === "sent" && (
-                <>
-                  <button
-                    onClick={() =>
-                      run("accept", () =>
-                        acceptQuote(live.id, enquiry.ref, Number(live.amount_inr))
-                      )
-                    }
-                    disabled={busy !== null}
-                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-[12px] font-medium"
-                  >
-                    {busy === "accept" ? (
-                      <Loader2 size={13} className="animate-spin" />
-                    ) : (
-                      <Check size={13} />
-                    )}
-                    Customer accepted
-                  </button>
-                  <button
-                    onClick={() =>
-                      run("decline", () => declineQuote(live.id, enquiry.ref, "Customer declined"))
-                    }
-                    disabled={busy !== null}
-                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary"
-                  >
-                    <ThumbsDown size={13} />
-                    Declined
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/*
-            The charges the figure above is the sum of. A draft is still being
-            built so they are editable; once it is sent the arithmetic is what
-            the customer was shown, and once accepted the database refuses to
-            change it at all.
-          */}
-          <div className="mt-3 border-t border-border pt-3">
-            <QuoteCharges
-              key={`${live.id}:${pasted}`}
-              quoteId={live.id}
-              locked={live.status !== "draft"}
-              partnerQuotes={partnerQuotes}
-              /*
-                What the rate master is asked about. `transport_mode` is the
-                asked field from 047 rather than a guess: the ratios and the
-                rates both differ by mode, and a sea rate offered on an air job
-                is worse than no rate at all.
-              */
-              quoteCurrency={live.currency}
-              quoteFxRate={live.fx_rate}
-              lane={{
-                origin: enquiry.origin,
-                destination: enquiry.destination,
-                mode: enquiry.transport_mode,
-                direction: enquiry.trade_direction ?? null,
-              }}
-              onChanged={() => {
-                setEdits((n) => n + 1);
-                onChanged();
-              }}
-            />
-          </div>
-
-          {/*
-            Everything between "the figures are right" and "the customer has
-            it": the terms, the approval, and the three ways it can leave.
-          */}
-          <QuoteSend
-            key={`${live.id}:${pasted}`}
-            enquiry={enquiry}
-            customer={customer ?? null}
-            quote={live}
-            chargesVersion={edits}
-            onChanged={onChanged}
-          />
-        </div>
-      )}
-
       {/* ---- new quote ---- */}
       {!accepted && (
-        <div className="mt-3">
+        <div className="mb-3">
           {!drafting ? (
-            !live ? (
-              /*
-                Pasting is how a quotation starts: the rate as the desk already
-                has it — a table, a mail, a WhatsApp message — read by the AI
-                and checked before anything is saved (106). Building one charge
-                by charge is still there, a step aside.
-              */
-              <div className="rounded-lg border border-border p-3">
-                <p className="mb-2 text-[12.5px] text-text-secondary">
-                  Paste the rate as you have it — a table, a mail, a WhatsApp message. The AI lays it out and you check it before anything is saved.
-                </p>
-                <PasteInput value={pasteText} onChange={setPasteText} air={enquiry.transport_mode === "air"} rows={7} />
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPasting({ count: 0, text: pasteText })}
-                    disabled={!pasteText.trim()}
-                    className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
-                  >
-                    <ClipboardPaste size={13} />
-                    Lay it out
-                  </button>
-                  {/*
-                    Never disabled. A desk quotes on partial information
-                    constantly; what is missing is said above and printed as
-                    TBD, and the person quoting decides.
-                  */}
-                  <button type="button" onClick={() => setDrafting(true)} className="text-[12px] text-text-secondary hover:text-text-primary hover:underline">
-                    or build it charge by charge
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                {/* A new rate pasted: into the draft when there is one, as a new version otherwise. */}
+            /*
+              Pasting is how a quotation is made: the rate as the desk already
+              has it — a table, a mail, a WhatsApp message — read by the AI
+              and checked before anything is saved (106). So it sits at the top
+              of the quotation, whatever state it is in: it starts one, replaces
+              a draft's charges, or makes a sent one's next version. Building
+              charge by charge is still there, a step aside.
+            */
+            <div className="rounded-lg border border-text-accent/30 bg-bg-accent/40 p-3">
+              <p className="mb-2 flex items-center gap-1.5 text-[12.5px] font-medium text-text-primary">
+                <ClipboardPaste size={14} className="text-text-accent" />
+                {!live ? "Paste a quotation" : live.status === "draft" ? "Paste a new rate" : "Paste a revised rate"}
+                <span className="font-normal text-text-secondary">
+                  {!live
+                    ? " — the AI lays it out and you check it before anything is saved."
+                    : live.status === "draft"
+                      ? ` — it replaces the charges of version ${live.version} once you have checked it.`
+                      : ` — it becomes version ${live.version + 1} once you have checked it.`}
+                </span>
+              </p>
+              <PasteInput value={pasteText} onChange={setPasteText} air={enquiry.transport_mode === "air"} rows={12} />
+              <div className="mt-2 flex flex-wrap items-center gap-3">
                 <button
+                  type="button"
                   onClick={() => {
-                    if (live.status === "draft") void linesFor(live.id).then((l) => setPasting({ count: l.length }), () => setPasting({ count: 0 }));
-                    else setPasting({ count: 0 });
+                    const text = pasteText;
+                    if (live?.status === "draft") void linesFor(live.id).then((l) => setPasting({ count: l.length, text }), () => setPasting({ count: 0, text }));
+                    else setPasting({ count: 0, text });
                   }}
-                  className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark"
+                  disabled={!pasteText.trim()}
+                  className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
                 >
                   <ClipboardPaste size={13} />
-                  {live.status === "draft" ? "Paste a quotation" : "Paste a revised quotation"}
+                  Lay it out
                 </button>
-                <button
-                  onClick={() => setDrafting(true)}
-                  className="h-8 rounded-lg border border-border bg-surface-1 px-3 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary"
-                >
-                  Revise charge by charge
+                {/*
+                  Never disabled. A desk quotes on partial information
+                  constantly; what is missing is said above and printed as
+                  TBD, and the person quoting decides.
+                */}
+                <button type="button" onClick={() => setDrafting(true)} className="text-[12px] text-text-secondary hover:text-text-primary hover:underline">
+                  {live ? "or revise it charge by charge" : "or build it charge by charge"}
                 </button>
               </div>
-            )
+            </div>
           ) : (
             <div className="rounded-lg border border-border p-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -459,6 +344,113 @@ export default function QuotePanel({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ---- outstanding quote ---- */}
+      {live && !accepted && (
+        <div className="rounded-lg border border-border bg-surface-2 px-3 py-3">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-[15px] font-semibold text-text-primary">
+                ₹{Number(live.amount_inr).toLocaleString("en-IN")}
+              </p>
+              <p className="text-[12px] text-text-secondary">
+                Version {live.version} · {live.status}
+                {live.basis ? ` · ${live.basis}` : ""}
+                {live.sailing_date ? ` · sailing ${day(live.sailing_date)}` : ""}
+                {live.valid_until ? ` · valid to ${day(live.valid_until)}` : ""}
+              </p>
+              {live.status === "draft" ? (
+                <QuoteCurrency quoteId={live.id} currency={live.currency} fxRate={Number(live.fx_rate)} onChanged={onChanged} />
+              ) : (
+                live.currency !== "INR" && (
+                  <p className="text-[12px] text-text-secondary">
+                    Quoted in {live.currency} at ₹{Number(live.fx_rate).toLocaleString("en-IN")}
+                  </p>
+                )
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {live.status === "sent" && (
+                <>
+                  <button
+                    onClick={() =>
+                      run("accept", () =>
+                        acceptQuote(live.id, enquiry.ref, Number(live.amount_inr))
+                      )
+                    }
+                    disabled={busy !== null}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-[12px] font-medium"
+                  >
+                    {busy === "accept" ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Check size={13} />
+                    )}
+                    Customer accepted
+                  </button>
+                  <button
+                    onClick={() =>
+                      run("decline", () => declineQuote(live.id, enquiry.ref, "Customer declined"))
+                    }
+                    disabled={busy !== null}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-[12px] text-text-secondary hover:text-text-primary"
+                  >
+                    <ThumbsDown size={13} />
+                    Declined
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/*
+            The charges the figure above is the sum of. A draft is still being
+            built so they are editable; once it is sent the arithmetic is what
+            the customer was shown, and once accepted the database refuses to
+            change it at all.
+          */}
+          <div className="mt-3 border-t border-border pt-3">
+            <QuoteCharges
+              key={`${live.id}:${pasted}`}
+              quoteId={live.id}
+              locked={live.status !== "draft"}
+              partnerQuotes={partnerQuotes}
+              /*
+                What the rate master is asked about. `transport_mode` is the
+                asked field from 047 rather than a guess: the ratios and the
+                rates both differ by mode, and a sea rate offered on an air job
+                is worse than no rate at all.
+              */
+              quoteCurrency={live.currency}
+              quoteFxRate={live.fx_rate}
+              lane={{
+                origin: enquiry.origin,
+                destination: enquiry.destination,
+                mode: enquiry.transport_mode,
+                direction: enquiry.trade_direction ?? null,
+              }}
+              onChanged={() => {
+                setEdits((n) => n + 1);
+                onChanged();
+              }}
+            />
+          </div>
+
+          {/*
+            Everything between "the figures are right" and "the customer has
+            it": the terms, the approval, and the three ways it can leave.
+          */}
+          <QuoteSend
+            key={`${live.id}:${pasted}`}
+            enquiry={enquiry}
+            customer={customer ?? null}
+            quote={live}
+            chargesVersion={edits}
+            onChanged={onChanged}
+          />
         </div>
       )}
 
