@@ -50,7 +50,7 @@ import {
  *   price; sent now from the sender's Outlook and filed on the job
  *   (components/LiveRatesForShipment.tsx).
  * - Every Sunday (101): the services the desk asks its partners to price,
- *   mailed to them every Sunday at 10:30 pm IST — below.
+ *   mailed to them every Sunday at 8:30 pm IST (117) — below.
  *
  * ---------------------------------------------------------------------------
  * The desk names a service ("FCL 20'/40' · Chennai → Jebel Ali"), says what to
@@ -152,8 +152,8 @@ function WeeklyRates() {
   return (
     <div>
       <p className="mb-3 max-w-prose text-[12px] text-text-secondary">
-        Name a service and pick the partners: every Sunday at 10:30 pm IST each of them gets their own mail asking for the coming week's
-        rates on it. Replies come back to the sending mailbox and show under Partner mail.
+        Pick the partners by country and name a service: {SCHEDULE_LABEL.replace("Every Sunday, ", "every Sunday at ")} each of them gets
+        their own mail asking for the coming week's rates on it. Replies come back to the sending mailbox and show under Partner mail.
       </p>
 
       {/* ---- when, and whether Microsoft lets it ---- */}
@@ -595,49 +595,10 @@ function Editor({
   return (
     <div className="card mb-3 space-y-3 p-4">
       <p className="text-[13px] font-medium text-text-primary">{request ? "Edit the rate request" : "New rate request"}</p>
-      <label className="block text-[12px] text-text-secondary">
-        Service to ask about
-        <input
-          value={service}
-          maxLength={200}
-          onChange={(e) => setService(e.target.value)}
-          placeholder="e.g. FCL 20' / 40' · Chennai → Jebel Ali"
-          className="mt-1 h-9 w-full text-[13px]"
-          autoFocus
-        />
-      </label>
-      <label className="block text-[12px] text-text-secondary">
-        What to quote <span className="text-text-muted">(optional, one line each)</span>
-        <textarea
-          value={details}
-          maxLength={2000}
-          onChange={(e) => setDetails(e.target.value)}
-          rows={3}
-          placeholder={"Ocean freight per container\nOrigin and destination charges\nTransit time and free days"}
-          className="mt-1 w-full py-2 text-[13px]"
-        />
-      </label>
-      <div className="text-[12px] text-text-secondary">
-        Sent from
-        {admin ? (
-          <select value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 block h-9 w-full max-w-sm text-[13px]">
-            {mailboxes.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <p className="mt-1 text-[13px] text-text-primary">
-            {from} <span className="text-[11px] text-text-muted">· an administrator can change this</span>
-          </p>
-        )}
-      </div>
-
       <div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2">
           <p className="text-[12px] text-text-secondary">
-            Partners to ask, by country <span className="text-text-muted">· {picked.size} picked</span>
+            1 · Partners to ask, by country <span className="text-text-muted">· {picked.size} picked</span>
           </p>
           {picked.size > 0 && (
             <button type="button" className="ml-auto text-[12px] text-text-muted hover:text-text-primary" onClick={() => setPicked(new Set())}>
@@ -658,6 +619,44 @@ function Editor({
             disabled={busy}
             history={(inCountry, country) => <SundaySendsTo partners={inCountry} country={country} sends={sends} requests={requests} />}
           />
+        )}
+      </div>
+
+      <label className="block text-[12px] text-text-secondary">
+        2 · Service to ask about
+        <input
+          value={service}
+          maxLength={200}
+          onChange={(e) => setService(e.target.value)}
+          placeholder="e.g. FCL 20' / 40' · Chennai → Jebel Ali"
+          className="mt-1 h-9 w-full text-[13px]"
+        />
+      </label>
+      <label className="block text-[12px] text-text-secondary">
+        What to quote <span className="text-text-muted">(optional, one line each)</span>
+        <textarea
+          value={details}
+          maxLength={2000}
+          onChange={(e) => setDetails(e.target.value)}
+          rows={3}
+          placeholder={"Ocean freight per container\nOrigin and destination charges\nTransit time and free days"}
+          className="mt-1 w-full py-2 text-[13px]"
+        />
+      </label>
+      <div className="text-[12px] text-text-secondary">
+        3 · Sent from
+        {admin ? (
+          <select value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 block h-9 w-full max-w-sm text-[13px]">
+            {mailboxes.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <p className="mt-1 text-[13px] text-text-primary">
+            {from} <span className="text-[11px] text-text-muted">· an administrator can change this</span>
+          </p>
         )}
       </div>
 

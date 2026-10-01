@@ -19,13 +19,15 @@ const is = (label: string, got: unknown, want: unknown) => {
 const ist = (s: string) => new Date(`${s}+05:30`);
 
 console.log("when it goes");
-is("from a Saturday: the Sunday after, 10:30 pm IST", nextSendAt(ist("2026-09-26T12:00:00")).toISOString(), "2026-09-27T17:00:00.000Z");
-is("a minute before, on the Sunday: that evening", nextSendAt(ist("2026-09-27T22:29:00")).toISOString(), "2026-09-27T17:00:00.000Z");
-is("at 10:30 pm exactly: the next Sunday", nextSendAt(ist("2026-09-27T22:30:00")).toISOString(), "2026-10-04T17:00:00.000Z");
-is("from a Monday: six days on", nextSendAt(ist("2026-09-28T09:00:00")).toISOString(), "2026-10-04T17:00:00.000Z");
-is("10:30 pm IST is 17:00 GMT, the cron's clock", [nextSendAt(new Date("2026-09-26T00:00:00Z")).getUTCHours(), nextSendAt(new Date("2026-09-26T00:00:00Z")).getUTCMinutes(), nextSendAt(new Date("2026-09-26T00:00:00Z")).getUTCDay()], [17, 0, 0]);
-const migration = readFileSync("supabase-v2/101-live-rates.sql", "utf8");
-is("the cron runs at 17:00 GMT on Sundays, then every ten minutes to 17:50", migration.includes("'0,10,20,30,40,50 17 * * 0'"), true);
+is("from a Saturday: the Sunday after, 8:30 pm IST", nextSendAt(ist("2026-09-26T12:00:00")).toISOString(), "2026-09-27T15:00:00.000Z");
+is("a minute before, on the Sunday: that evening", nextSendAt(ist("2026-09-27T20:29:00")).toISOString(), "2026-09-27T15:00:00.000Z");
+is("at 8:30 pm exactly: the next Sunday", nextSendAt(ist("2026-09-27T20:30:00")).toISOString(), "2026-10-04T15:00:00.000Z");
+is("later that Sunday evening: the next Sunday", nextSendAt(ist("2026-09-27T22:30:00")).toISOString(), "2026-10-04T15:00:00.000Z");
+is("from a Monday: six days on", nextSendAt(ist("2026-09-28T09:00:00")).toISOString(), "2026-10-04T15:00:00.000Z");
+is("8:30 pm IST is 15:00 GMT, the cron's clock", [nextSendAt(new Date("2026-09-26T00:00:00Z")).getUTCHours(), nextSendAt(new Date("2026-09-26T00:00:00Z")).getUTCMinutes(), nextSendAt(new Date("2026-09-26T00:00:00Z")).getUTCDay()], [15, 0, 0]);
+// 117 moved the schedule from 101's 17:00 GMT; the screen and the cron must agree.
+const migration = readFileSync("supabase-v2/117-live-rates-8-30.sql", "utf8");
+is("the cron runs at 15:00 GMT on Sundays, then every ten minutes to 15:50", migration.includes("'0,10,20,30,40,50 15 * * 0'"), true);
 is("India's date, not the server's: 00:15 IST on Monday is Monday", istDate(new Date("2026-09-27T18:45:00Z")), "2026-09-28");
 
 console.log("\nthe week it asks about");

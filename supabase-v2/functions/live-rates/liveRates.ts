@@ -5,7 +5,7 @@
  * ---------------------------------------------------------------------------
  * WHEN
  *
- * Every Sunday at 10:30 pm IST (17:00 GMT, pg_cron's clock), so the rates are
+ * Every Sunday at 8:30 pm IST (15:00 GMT, pg_cron's clock; 117, it was 10:30 pm), so the rates are
  * in the mailbox when the desk opens on Monday. The week asked about is the
  * one starting the next morning. A mail sent by hand on any other day asks
  * from that day to the coming Sunday instead, so it never asks about days
@@ -23,9 +23,9 @@
  */
 
 export const SEND_WEEKDAY = 0; // Sunday
-export const SEND_HOUR_IST = 22;
+export const SEND_HOUR_IST = 20;
 export const SEND_MINUTE_IST = 30;
-export const SCHEDULE_LABEL = "Every Sunday, 10:30 pm IST";
+export const SCHEDULE_LABEL = "Every Sunday, 8:30 pm IST";
 
 const IST_MS = 5.5 * 3600 * 1000;
 const DAY_MS = 86400000;
@@ -37,7 +37,7 @@ export function istDate(at: Date): string {
   return new Date(at.getTime() + IST_MS).toISOString().slice(0, 10);
 }
 
-/** The next Sunday 10:30 pm IST strictly after `now`. */
+/** The next Sunday 8:30 pm IST strictly after `now`. */
 export function nextSendAt(now: Date): Date {
   const ist = new Date(now.getTime() + IST_MS);
   const ahead = (SEND_WEEKDAY - ist.getUTCDay() + 7) % 7;

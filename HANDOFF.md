@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **116**, so the next one is `117-….sql`.
+  migration filename (§6). The last migration is **117**, so the next one is `118-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -132,7 +132,7 @@ v2 has its own Supabase project, `izgbrdeybhbepftloxgk`. v1's project is
 | `outlook-token` | Keeps Outlook connected past Microsoft's hour (094). `link`: the browser hands over the Microsoft refresh token once after the Microsoft sign-in; it is redeemed and the rotated one kept, sealed, against that Supabase sign-in. `token`: a fresh access token from it. 409 `{reconnect}` when Microsoft has ended the connection | `OUTLOOK_TOKEN_KEY` (`set-outlook-key.mjs`), and the three `MS_*` below |
 | `outlook-connect` | "Connect Outlook" on the Mail page (095), for a login of any kind. POST `start` (checks the caller itself) answers Microsoft's sign-in URL with the login's address filled in; Microsoft returns the browser to the GET, which connects the mailbox **only if it is the login's own** (`lib/outlookConnect.ts`, copied into the function) and goes back to the Mail page with `#outlook=connected / refused / failed`. **verify_jwt OFF** (Microsoft's redirect has no Supabase token): deploy without `--verify-jwt`. Its address must be a Web redirect URI on the Azure app | `OUTLOOK_REDIRECT_URI` (pinned), `OUTLOOK_TOKEN_KEY`, the three `MS_*`; optional `OUTLOOK_APP_ORIGINS` for another site to return to |
 | `mail-sync` | Every CRM login's Sent Items into `mail_log`, app-only Graph; cron every 5 minutes (087), or an admin's button | `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MAIL_SYNC_SECRET` |
-| `live-rates` | The Sunday rate requests (101): `weekly` from pg_cron (Sun 22:30 IST, re-runs every 10 minutes to 23:20), and from the Live rates page `now`, `test` (to the caller only) and `check` (whether Microsoft lets the app send; sends nothing). App-only Graph `sendMail` from the request's mailbox, one mail per partner, 2 s apart | the three `MS_*`, and `MAIL_SYNC_SECRET` as the scheduler's secret (header `x-scheduler-secret`) |
+| `live-rates` | The Sunday rate requests (101): `weekly` from pg_cron (Sun 20:30 IST since 117, re-runs every 10 minutes to 21:20), and from the Live rates page `now`, `test` (to the caller only) and `check` (whether Microsoft lets the app send; sends nothing). App-only Graph `sendMail` from the request's mailbox, one mail per partner, 2 s apart | the three `MS_*`, and `MAIL_SYNC_SECRET` as the scheduler's secret (header `x-scheduler-secret`) |
 
 Deploy a function with `node supabase-v2/deploy-function.mjs <slug>` (`--verify-jwt` for
 `track-shipment`, `mail-sync` and `live-rates`: the cron sends the anon key and the shared secret).
@@ -246,6 +246,7 @@ transaction).
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
+| `117` | **The Sunday rate requests go at 8:30 pm IST** (the user, 1 Oct), not 10:30: `cron.alter_job` moves `araxys-v2-live-rates` to `0,10,20,30,40,50 15 * * 0` (15:00–15:50 GMT = 20:30–21:20 IST) and leaves its command as 101 wrote it. `lib/liveRates.ts` (and the function's copy) say 8:30 for the page; the function never reads the time, so it was not redeployed. Dry-run rolled back, then applied |
 
 **Everything on an enquiry or a job is live (084).** Whoever has a page open sees another
 person's change as it is made.
@@ -841,6 +842,9 @@ its own** (the user corrected a first version that was one).
   are chosen in each; a country lists its partners to tick ("Choose all in Taiwan"); choices carry
   across countries ("Chosen:" at the foot); the search looks across all countries. The role chips
   went (the role is on each row and the search matches it).
+  On both, choosing partners is step 1 (the Sunday editor: 1 partners by country, 2 the service, 3
+  the mailbox; the user, 1 Oct). While no partner has a country yet, the picker says so above
+  "Country not set", with a link to the directory.
 - Under a country's list, what its partners were already sent: on the shipment form, their
   `partner_quotes` from any job (`rfq.rateRequestsTo`: date, job, status, amount, services, mailbox);
   on the Sunday editor, their `live_rate_sends` (Sunday or by hand, sent or the refusal; tests left
@@ -879,7 +883,10 @@ before acting on it.
    altogether: every model answered 503 or 404.
 6. **Mail.Send (application) for Live rates (101).** The Azure app
    `efb90aa6-9404-40d2-be1b-3b6a3d5f5866` has only `Mail.ReadBasic.All`, so every Sunday send
-   is refused and logged, and the page says so (checked 26 Sep: `canSend` false). Azure portal
+   is refused and logged, and the page says so (checked 26 Sep and again 1 Oct evening: an app-only
+   token for it carries `Mail.ReadBasic.All` only). The permission must be of type **Application**
+   (a Delegated Mail.Send, which the sign-in already has, does not count), with its status
+   "Granted for <organisation>". Azure portal
    → App registrations → the app → API permissions → Add a permission → Microsoft Graph →
    Application permissions → Mail.Send → Grant admin consent.
    - Mail.Send (application) can send as any mailbox in the tenant. The CRM only ever sends
@@ -1019,8 +1026,8 @@ Complaints placeholder went.
   leftover code and the Complaints placeholder removed, and this file. Pushed to
   `logistics-v3/main`. The live build is in maintenance (§0), so only `/q` and `/t` show any of
   it. After them, **partners by country** (116, §8), pushed once 116 was applied.
-- **Migrations:** the last in the repository is `116-partner-country.sql`, applied 1 Oct, and the
-  next is `117-….sql`. Each row in §4 records its rolled-back dry run. On 1 Oct, after 116, the
+- **Migrations:** the last in the repository is `117-live-rates-8-30.sql`, applied 1 Oct (as was
+  116), and the next is `118-….sql`. Each row in §4 records its rolled-back dry run. On 1 Oct, after 116, the
   audit's schema-drift check found every table, column and function the code names live (no
   drift), 115's included. Before relying on its columns: `select column_name from
   information_schema.columns where table_name = 'quote_lines'` should list `gst_rate`.
@@ -1066,7 +1073,7 @@ dated notes; `git log` has the rest. Grouped:
 | Team oversight (086, 087) | see `git log` | A live view of the desk: every mail each mailbox sent and to whom (from Outlook too), enquiries taken on, quoted and booked, job steps ticked, per person and per period. A server copy of every mailbox every 5 minutes |
 | Sign-ups closed, staff accounts, backups (093) | see `git log` | Only an admin adds staff (Staff accounts); the leaked starter password is dead; a tested nightly backup with a status card, downloads and a restore script |
 | Customer milestones (102) | see `git log` | The customer's tracking page shows only what the desk records on the job's Tracking tab: each milestone with its day, time, place and a note, the desk's own updates, nothing from feeds or internal steps. The job's records are offered as "Use this"; the stage follows the milestones |
-| Live rates (101) | see `git log` | Name a service, pick the partners: every Sunday 10:30 pm IST each gets their own mail asking for the coming week's rates, from info@, replies under Partner mail. Send now, a test to yourself, preview, pause; every send and Microsoft's reason for any refusal on the page |
+| Live rates (101) | see `git log` | Name a service, pick the partners: every Sunday 8:30 pm IST (10:30 pm until 117) each gets their own mail asking for the coming week's rates, from info@, replies under Partner mail. Send now, a test to yourself, preview, pause; every send and Microsoft's reason for any refusal on the page |
 | Customer DSR (108) | see `git log` | Each customer's daily status report on their page: live shipments in the desk's columns, REASON/STATUS written there, Excel download, emailed to the customer with the sheet attached (no agent column), every send recorded |
 | Live rates for a shipment (107) | see `git log` | Choose a job and partners, and per partner the services to price; one mail each from your Outlook, filed on the job as a thread under Partners, with the partner added to its parties. The case file's Ask partners uses the same form |
 | ICEGATE replies (100) | see `git log` | "Read a reply" takes ICEGATE's ACK or SFL, finds the file by job number, shows each error on its house and container in the desk's words, and on an accepted live file records the CSN number and date and the MCIN/PCINs; a rejected file stops being the amendment baseline |
@@ -1371,7 +1378,7 @@ this was §9's "Product gaps"; it moved here unchanged except for the two lines 
 
 - **Live rates (101, 26 Sep).** Agents & partners → Live rates. The desk names a service
   ("FCL 20' / 40' · Chennai → Jebel Ali"), says what to quote, and picks the partners.
-  - **When:** every Sunday at 10:30 pm IST each partner gets their own mail (nobody sees who else
+  - **When:** every Sunday at 8:30 pm IST (117; it was 10:30 pm) each partner gets their own mail (nobody sees who else
     was asked). It asks for the Monday to the Sunday after, so the rates are in on Monday
     morning. A mail sent by hand asks from that day to the coming Sunday.
   - **The mail:** `lib/liveRates.ts`, copied into the function with `lib/company.ts` (a test

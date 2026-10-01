@@ -9,7 +9,7 @@
  * `rateRequestMail` (a copy of src/lib/liveRates.ts; a test keeps them
  * identical). Every mail is logged in `live_rate_sends`, sent or refused.
  *
- * - `weekly`: pg_cron, Sunday 22:30 IST and every ten minutes to 23:20. Each
+ * - `weekly`: pg_cron, Sunday 20:30 IST and every ten minutes to 21:20 (117). Each
  *   partner is claimed once per Sunday before its mail goes, so a re-run picks
  *   up only what failed or was not reached, and nobody gets two.
  * - `now`: "Send now" on the Live rates page, to every partner of one request.

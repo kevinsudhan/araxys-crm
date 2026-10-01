@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, Check, Globe, Search, X } from "lucide-react";
 import { groupByCountry } from "../lib/countries";
 import { PARTNER_ROLE_LABEL, type Partner } from "../services/partners";
@@ -51,8 +52,23 @@ export default function CountryPartnerPicker({
     : [];
   const picked = partners.filter((p) => isPicked(p.id));
 
+  // Nobody has a country yet (every partner saved before 116): say why there is nothing to group by.
+  const noCountries = groups.length > 0 && groups.every((g) => !g.country);
+
   return (
     <div>
+      {noCountries && (
+        <p className="mb-2 flex items-start gap-1.5 rounded-lg bg-bg-warning px-3 py-2 text-[12px] text-text-warning">
+          <AlertTriangle size={13} className="mt-px shrink-0" />
+          <span>
+            None of your partners has a country yet, so they cannot be listed by country. Give each one its country on the{" "}
+            <Link to="/partners" className="font-medium underline">
+              partner directory
+            </Link>{" "}
+            (Edit), and they appear here under it.
+          </span>
+        </p>
+      )}
       <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Countries">
         {groups.map((g) => {
           const on = !needle && group?.country === g.country;
@@ -120,7 +136,7 @@ export default function CountryPartnerPicker({
               </button>
             )}
           </div>
-          {!group.country && (
+          {!group.country && !noCountries && (
             <p className="mb-2 text-[11.5px] text-text-warning">Saved before the country was asked: give each one its country on the partner directory.</p>
           )}
           <Rows partners={group.partners} isPicked={isPicked} onToggle={onToggle} disabled={disabled} can={can} />
