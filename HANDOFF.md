@@ -1007,7 +1007,7 @@ Complaints placeholder went.
   - `logistics-v3` (`github.com/kevinsudhan/logistics-v3`): **the deploy.** Push with
     `git push logistics-v3 v2:main`; Netlify builds `main` on every push.
   - `origin` (`github.com/kevinsudhan/araxys-crm`): v1's repository. `v2` tracks `origin/v2`,
-    which has been kept level with the deploy (both at `31479ad` on 1 Oct), so a bare
+    which is kept level with the deploy (the user's wish, 1 Oct): push both. A bare
     `git push` goes there and **does not deploy**. **Never push v2 to `origin/main`,** which
     is v1's branch.
 - **A fresh clone** of logistics-v3 checks out `main` with logistics-v3 as `origin`: there the
