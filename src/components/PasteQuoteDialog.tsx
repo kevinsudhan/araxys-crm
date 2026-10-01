@@ -1,20 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowDownUp, ClipboardPaste, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { PASTE_CURRENCIES, PASTE_UNITS, chargesLayout, figure, totalInInr, type PastedLine, type PastedQuote, type Section } from "../lib/pastedQuote";
-import { applyPastedQuote, readPastedQuote } from "../services/pasteQuote";
-import { chargesHtml } from "../lib/quotationMail";
+import { AlertCircle, ClipboardPaste, Loader2, Percent, Plus, Sparkles, Trash2, X } from "lucide-react";
+import {
+  GST_RATES,
+  PASTE_CURRENCIES,
+  PASTE_UNITS,
+  SECTIONS,
+  asSection,
+  chargesLayout,
+  figure,
+  shareWording,
+  totalInInr,
+  withShares,
+  type PastedLine,
+  type PastedQuote,
+  type Section,
+} from "../lib/pastedQuote";
+import { airTable } from "../lib/airQuote";
+import { applyPastedQuote, isAirQuote, readPastedQuote } from "../services/pasteQuote";
+import { airTableHtml, chargesHtml } from "../lib/quotationMail";
 import type { Enquiry, Quote } from "../services/enquiries";
 
 /**
  * "Paste a quotation": the rate as the desk has it — from a mail, a WhatsApp
- * message, a rate sheet — read by the AI into charges under Ex works and Other
- * charges, checked here, then saved as the quotation's charges (106).
+ * message, a rate sheet — read by the AI into charges under Freight, Ex works,
+ * Destination and Other charges, checked here, then saved as the quotation's
+ * charges (106). An air rate goes out as the desk's rate table, with GST (115).
  *
- * The AI only reads. Every total, and the plain text the mail carries, is
- * worked out by the app from the lines shown here, which can be corrected
- * before anything is saved: a misread figure is one wrong line on this screen,
- * not a wrong total in a customer's inbox.
+ * The AI only reads. Every total, every charge quoted as a percentage of
+ * others, and the layout the mail carries are worked out by the app from the
+ * lines shown here, which can be corrected before anything is saved: a
+ * misread figure is one wrong line on this screen, not a wrong total in a
+ * customer's inbox.
  */
+let fresh = 0;
+const newId = () => `n${++fresh}`;
+
 export default function PasteQuoteDialog({
   enquiry,
   live,
@@ -30,6 +50,7 @@ export default function PasteQuoteDialog({
   onClose: () => void;
   onApplied: () => void;
 }) {
+  const air = isAirQuote(enquiry);
   const [text, setText] = useState("");
   const [q, setQ] = useState<PastedQuote | null>(null);
   const [busy, setBusy] = useState<"read" | "save" | null>(null);
@@ -63,22 +84,44 @@ export default function PasteQuoteDialog({
     }
   }
 
+  // What will be saved: the terms as typed, every percentage charge worked out.
   const current: PastedQuote | null = useMemo(
-    () => (q ? { ...q, terms: termsText.split(/\r?\n/).map((t) => t.trim()).filter(Boolean) } : null),
+    () => (q ? withShares({ ...q, terms: termsText.split(/\r?\n/).map((t) => t.trim()).filter(Boolean) }) : null),
     [q, termsText]
   );
-  const foreign = useMemo(() => [...new Set((q?.lines ?? []).map((l) => l.currency).filter((c) => c !== "INR"))], [q]);
+  const foreign = useMemo(() => [...new Set((q?.lines ?? []).filter((l) => l.percent == null).map((l) => l.currency).filter((c) => c !== "INR"))], [q]);
   const missingRoe = foreign.filter((c) => !(q?.roe[c] && q.roe[c] > 0));
-  // The charges exactly as the mail will show them (lib/quotationMail `chargesHtml`).
-  const preview = current ? chargesHtml(chargesLayout(current)) : "";
+  // The charges exactly as the mail will show them (lib/quotationMail).
+  const preview = current ? (air ? airTableHtml(airTable(current, enquiry)) : chargesHtml(chargesLayout(current))) : "";
 
   const setLine = (i: number, patch: Partial<PastedLine>) =>
     setQ((prev) => (prev ? { ...prev, lines: prev.lines.map((l, k) => (k === i ? { ...l, ...patch } : l)) } : prev));
+
+  /** A change to what a percentage is of: its wording follows, as the desk would now write it. */
+  const setShare = (i: number, patch: Pick<PastedLine, "percent" | "percentOf">) =>
+    setQ((prev) => {
+      if (!prev) return prev;
+      const lines = prev.lines.map((l, k) => (k === i ? { ...l, ...patch } : l));
+      lines[i] = { ...lines[i], note: shareWording(lines[i], lines) };
+      return { ...prev, lines };
+    });
+
+  const removeLine = (i: number) =>
+    setQ((prev) => {
+      if (!prev) return prev;
+      const gone = prev.lines[i]?.id;
+      return {
+        ...prev,
+        lines: prev.lines.filter((_, k) => k !== i).map((l) => (gone && l.percentOf?.includes(gone) ? { ...l, percentOf: l.percentOf.filter((x) => x !== gone) } : l)),
+      };
+    });
 
   async function save() {
     if (!current) return;
     if (!current.lines.length) return setError("There are no charges to save.");
     if (current.lines.some((l) => !l.description.trim())) return setError("Every charge needs a name.");
+    const loose = current.lines.find((l) => l.percent != null && (!l.percent || !l.percentOf?.length));
+    if (loose) return setError(`Say what ${loose.description || "the percentage charge"} is a percentage of.`);
     if (missingRoe.length) return setError(`Give the rate of exchange for ${missingRoe.join(", ")}.`);
     setBusy("save");
     setError(null);
@@ -94,14 +137,25 @@ export default function PasteQuoteDialog({
   const group = (section: Section, title: string) => {
     const rows = (q?.lines ?? []).map((l, i) => ({ l, i })).filter((x) => x.l.section === section);
     return (
-      <div className="mt-3">
+      <div key={section} className="mt-3">
         <div className="mb-1.5 flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">{title}</p>
+          <p className={`text-[11px] font-semibold uppercase tracking-wide ${rows.length ? "text-text-secondary" : "text-text-muted"}`}>
+            {title}
+            {rows.length === 0 && <span className="ml-1.5 font-normal normal-case tracking-normal">— none</span>}
+          </p>
           <button
             type="button"
             onClick={() =>
               setQ((prev) =>
-                prev ? { ...prev, lines: [...prev.lines, { section, description: "", currency: "INR", unit: "Shipment", quantity: 1, rate: 0, note: null }] } : prev
+                prev
+                  ? {
+                      ...prev,
+                      lines: [
+                        ...prev.lines,
+                        { id: newId(), section, description: "", currency: "INR", unit: "Shipment", quantity: 1, rate: 0, note: null, gst: air ? 18 : null, percent: null, percentOf: [] },
+                      ],
+                    }
+                  : prev
               )
             }
             className="flex items-center gap-1 text-[11.5px] text-text-accent hover:underline"
@@ -109,66 +163,147 @@ export default function PasteQuoteDialog({
             <Plus size={11} /> Add a charge
           </button>
         </div>
-        {rows.length === 0 && <p className="rounded-lg border border-dashed border-border px-3 py-2 text-[12px] text-text-muted">None.</p>}
         <div className="space-y-1.5">
-          {rows.map(({ l, i }) => (
-            <div key={i} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-surface-1 p-1.5">
-              <input
-                value={l.description}
-                onChange={(e) => setLine(i, { description: e.target.value })}
-                placeholder="Charge"
-                aria-label="Charge"
-                className="h-8 min-w-[10rem] flex-[3] text-[12.5px]"
-              />
-              <select value={l.currency} onChange={(e) => setLine(i, { currency: e.target.value })} aria-label="Currency" className="h-8 w-[4.6rem] text-[12.5px]">
-                {PASTE_CURRENCIES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-              <input
-                value={String(l.rate)}
-                onChange={(e) => setLine(i, { rate: Number(e.target.value.replace(/,/g, "")) || 0 })}
-                inputMode="decimal"
-                aria-label="Rate"
-                className="h-8 w-24 text-right text-[12.5px] tabular-nums"
-              />
-              <select value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} aria-label="Per" className="h-8 w-[6.6rem] text-[12.5px]">
-                {PASTE_UNITS.map((u) => (
-                  <option key={u}>{u}</option>
-                ))}
-              </select>
-              <span className="text-[11.5px] text-text-muted">×</span>
-              <input
-                value={String(l.quantity)}
-                onChange={(e) => setLine(i, { quantity: Number(e.target.value) || 0 })}
-                inputMode="decimal"
-                aria-label="Units"
-                className="h-8 w-14 text-right text-[12.5px] tabular-nums"
-              />
-              <span className="min-w-[6.5rem] flex-1 text-right text-[12.5px] font-medium tabular-nums text-text-primary">
-                {l.currency} {figure(l.rate * l.quantity)}
-              </span>
-              <button
-                type="button"
-                onClick={() => setLine(i, { section: section === "ex_works" ? "other" : "ex_works" })}
-                title={section === "ex_works" ? "Move to Other charges" : "Move to Ex works"}
-                aria-label={section === "ex_works" ? "Move to Other charges" : "Move to Ex works"}
-                className="grid size-7 place-items-center rounded-md text-text-muted hover:bg-surface-2 hover:text-text-primary"
-              >
-                <ArrowDownUp size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setQ((prev) => (prev ? { ...prev, lines: prev.lines.filter((_, k) => k !== i) } : prev))}
-                aria-label="Remove this charge"
-                title="Remove this charge"
-                className="grid size-7 place-items-center rounded-md text-text-muted hover:bg-bg-danger hover:text-text-danger"
-              >
-                <Trash2 size={13} />
-              </button>
-              {l.note && <p className="w-full pl-1 text-[11px] text-text-muted">Note: {l.note}</p>}
-            </div>
-          ))}
+          {rows.map(({ l, i }) => {
+            const share = l.percent != null;
+            const worked = current?.lines[i];
+            const others = (q?.lines ?? []).filter((x) => x.id && x.id !== l.id && x.percent == null);
+            return (
+              <div key={l.id ?? i} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-surface-1 p-1.5">
+                <input
+                  value={l.description}
+                  onChange={(e) => setLine(i, { description: e.target.value })}
+                  placeholder="Charge"
+                  aria-label="Charge"
+                  className="h-8 min-w-[10rem] flex-[3] text-[12.5px]"
+                />
+                {share ? (
+                  <>
+                    <input
+                      value={String(l.percent ?? "")}
+                      onChange={(e) => setShare(i, { percent: Number(e.target.value) || 0, percentOf: l.percentOf ?? [] })}
+                      inputMode="decimal"
+                      aria-label="Per cent"
+                      className="h-8 w-14 text-right text-[12.5px] tabular-nums"
+                    />
+                    <span className="text-[11.5px] text-text-muted">% of</span>
+                  </>
+                ) : (
+                  <>
+                    <select value={l.currency} onChange={(e) => setLine(i, { currency: e.target.value })} aria-label="Currency" className="h-8 w-[4.6rem] text-[12.5px]">
+                      {PASTE_CURRENCIES.map((c) => (
+                        <option key={c}>{c}</option>
+                      ))}
+                    </select>
+                    <input
+                      value={String(l.rate)}
+                      onChange={(e) => setLine(i, { rate: Number(e.target.value.replace(/,/g, "")) || 0 })}
+                      inputMode="decimal"
+                      aria-label="Rate"
+                      className="h-8 w-24 text-right text-[12.5px] tabular-nums"
+                    />
+                    <select value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} aria-label="Per" className="h-8 w-[6.6rem] text-[12.5px]">
+                      {PASTE_UNITS.map((u) => (
+                        <option key={u}>{u}</option>
+                      ))}
+                    </select>
+                    <span className="text-[11.5px] text-text-muted">×</span>
+                    <input
+                      value={String(l.quantity)}
+                      onChange={(e) => setLine(i, { quantity: Number(e.target.value) || 0 })}
+                      inputMode="decimal"
+                      aria-label="Units"
+                      className="h-8 w-16 text-right text-[12.5px] tabular-nums"
+                    />
+                  </>
+                )}
+                <span className="min-w-[6.5rem] flex-1 text-right text-[12.5px] font-medium tabular-nums text-text-primary">
+                  {share ? `INR ${figure(worked?.rate ?? 0)}` : `${l.currency} ${figure(l.rate * l.quantity)}`}
+                </span>
+                {air && (
+                  <select
+                    value={l.gst == null ? "" : String(l.gst)}
+                    onChange={(e) => setLine(i, { gst: e.target.value === "" ? null : Number(e.target.value) })}
+                    aria-label="GST"
+                    title="GST on this charge, as the table shows it"
+                    className="h-8 w-[5.6rem] text-[12px]"
+                  >
+                    {l.gst == null && <option value="">GST —</option>}
+                    {GST_RATES.map((g) => (
+                      <option key={g} value={g}>
+                        {g ? `GST ${g}%` : "No GST"}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <select
+                  value={l.section}
+                  onChange={(e) => setLine(i, { section: asSection(e.target.value) })}
+                  aria-label="Group"
+                  title="Which group it is under"
+                  className="h-8 w-[6.4rem] text-[12px]"
+                >
+                  {SECTIONS.map((s) => (
+                    <option key={s.key} value={s.key}>
+                      {s.title.replace(/ Charges$/, "")}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() =>
+                    share
+                      ? setLine(i, { percent: null, percentOf: [], note: null, currency: "INR", rate: worked?.rate ?? 0, quantity: 1 })
+                      : setShare(i, { percent: 0, percentOf: [] })
+                  }
+                  title={share ? "Make it a plain figure" : "Work it out as a percentage of other charges"}
+                  aria-label={share ? "Make it a plain figure" : "Work it out as a percentage of other charges"}
+                  aria-pressed={share}
+                  className={`grid size-7 place-items-center rounded-md ${share ? "bg-bg-accent text-text-accent" : "text-text-muted hover:bg-surface-2 hover:text-text-primary"}`}
+                >
+                  <Percent size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeLine(i)}
+                  aria-label="Remove this charge"
+                  title="Remove this charge"
+                  className="grid size-7 place-items-center rounded-md text-text-muted hover:bg-bg-danger hover:text-text-danger"
+                >
+                  <Trash2 size={13} />
+                </button>
+                {share && (
+                  <div className="flex w-full flex-wrap items-center gap-1 pl-1">
+                    <span className="text-[11px] text-text-muted">Of:</span>
+                    {others.length === 0 && <span className="text-[11px] text-text-muted">no other charges yet</span>}
+                    {others.map((o) => {
+                      const on = !!l.percentOf?.includes(o.id!);
+                      return (
+                        <button
+                          key={o.id}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() =>
+                            setShare(i, { percent: l.percent ?? 0, percentOf: on ? (l.percentOf ?? []).filter((x) => x !== o.id) : [...(l.percentOf ?? []), o.id!] })
+                          }
+                          className={`h-6 rounded-full border px-2 text-[11px] ${on ? "border-text-accent bg-bg-accent text-text-accent" : "border-border text-text-secondary hover:text-text-primary"}`}
+                        >
+                          {o.description || "unnamed charge"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <input
+                  value={l.note ?? ""}
+                  onChange={(e) => setLine(i, { note: e.target.value || null })}
+                  placeholder={share ? "Its wording, e.g. 3% on OF+EXW" : "A condition, e.g. at actuals (with no figure, it stands in for one)"}
+                  aria-label="Note"
+                  className="h-7 w-full text-[11.5px]"
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -178,7 +313,7 @@ export default function PasteQuoteDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-6">
-      <div className="flex max-h-[94vh] w-full flex-col rounded-t-card bg-surface-1 shadow-xl sm:card sm:max-w-4xl" role="dialog" aria-label="Paste a quotation">
+      <div className="flex max-h-[94vh] w-full flex-col rounded-t-card bg-surface-1 shadow-xl sm:card sm:max-w-5xl" role="dialog" aria-label="Paste a quotation">
         <header className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="flex items-center gap-2 text-[14px] font-medium text-text-primary">
             <ClipboardPaste size={15} /> Paste a quotation
@@ -196,16 +331,22 @@ export default function PasteQuoteDialog({
           {!q ? (
             <>
               <p className="mb-2 text-[12.5px] text-text-secondary">
-                Paste the rate as you have it — a mail, a WhatsApp message, a rate sheet. The AI sorts the charges into
-                <strong className="font-medium text-text-primary"> Ex works</strong> and <strong className="font-medium text-text-primary">Other charges</strong>; you check them next.
-                The mail goes out as plain text, and the PDF as a proper quotation with both groups.
+                Paste the rate as you have it — a table, a mail, a WhatsApp message. The AI sorts the charges into
+                <strong className="font-medium text-text-primary"> Freight, Ex works, Destination</strong> and <strong className="font-medium text-text-primary">Other charges</strong>; you check them next.
+                {air
+                  ? " This is an air enquiry, so the mail carries them as your rate table, with GST, and the PDF goes with it."
+                  : " The mail carries them in the quotation letter in your style, and the PDF goes with it."}
               </p>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 autoFocus
                 rows={14}
-                placeholder={"EXW charges\nPickup from factory – INR 4,500\nExport customs clearance – 2,500\n\nOcean freight USD 1,150 per 40HC × 2\nBL fee 1,500 per BL\n\nValidity 15 days. Duties extra."}
+                placeholder={
+                  air
+                    ? "HEL - IST - MAA, carrier TK, TT 2-3 days\nAF EUR 3.20/kg\nEXW EUR 795/shpt\nCC charges 3% on OF+EXW\nDO INR 2,500\nAirline DO at receipted\nROE 1 EUR = 111.70"
+                    : "EXW charges\nPickup from factory – INR 4,500\nExport customs clearance – 2,500\n\nOcean freight USD 1,150 per 40HC × 2\nBL fee 1,500 per BL\n\nValidity 15 days. Duties extra."
+                }
                 className="w-full resize-y font-mono text-[12.5px] leading-relaxed"
               />
             </>
@@ -217,13 +358,33 @@ export default function PasteQuoteDialog({
                 </p>
               )}
               <p className="text-[12px] text-text-secondary">
-                Read by the AI — check every figure against what you pasted. Move a charge between the groups with the arrows.
+                Read by the AI — check every figure against what you pasted. Change a charge's group from its menu; the % button works a charge out as a percentage of others.
               </p>
-              {group("ex_works", "Ex works charges")}
-              {group("other", "Other charges")}
+              {SECTIONS.map((s) => group(s.key, s.title))}
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <div>
+                  {air && (
+                    <div className="mb-3 grid grid-cols-3 gap-2">
+                      {(
+                        [
+                          ["routing", "Routing", "HEL - IST - MAA"],
+                          ["carrier", "Carrier", "TK"],
+                          ["transitTime", "Transit time", "2-3 days"],
+                        ] as const
+                      ).map(([key, label, hint]) => (
+                        <label key={key} className="block text-[12px] text-text-secondary">
+                          {label}
+                          <input
+                            value={q[key] ?? ""}
+                            onChange={(e) => setQ((prev) => (prev ? { ...prev, [key]: e.target.value || null } : prev))}
+                            placeholder={hint}
+                            className="mt-1 h-8 w-full text-[12.5px]"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Rates of exchange</p>
                   {foreign.length === 0 ? (
                     <p className="text-[12px] text-text-muted">All in rupees.</p>
@@ -259,13 +420,14 @@ export default function PasteQuoteDialog({
                   </label>
                   <p className="mt-2 text-[12.5px] text-text-primary">
                     Total: <strong className="font-semibold tabular-nums">{inr === null ? "needs every rate of exchange" : `₹${figure(inr)}`}</strong>
+                    {air && <span className="text-text-muted"> before GST</span>}
                   </p>
                 </div>
                 <div className="min-w-0">
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">The charges, as the mail shows them</p>
                   {/* Our own markup, every value in it escaped (lib/quotationMail.ts). */}
                   <div
-                    className="max-h-[22rem] overflow-auto rounded-lg border border-border bg-white p-3"
+                    className="max-h-[26rem] overflow-auto rounded-lg border border-border bg-white p-3"
                     dangerouslySetInnerHTML={{ __html: preview }}
                   />
                   <p className="mt-1 text-[11px] text-text-muted">In the quotation letter as usual, with the PDF attached.</p>

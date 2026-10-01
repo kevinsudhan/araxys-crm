@@ -21,7 +21,7 @@ import { quotationHtml, quotationMessage, quotationSubject } from "../lib/quotat
 import { MAIL_LOGO_PATH } from "../lib/company";
 import { acceptUrl, isReachable, issueLink } from "../services/publicQuote";
 import { threadWith } from "../services/customerThread";
-import { chargesLayoutFor } from "../services/pasteQuote";
+import { airTableFor, chargesLayoutFor, isAirQuote } from "../services/pasteQuote";
 import { quoteProblems } from "../lib/quoteChecks";
 import type { MailMessage } from "../services/backend";
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
@@ -622,12 +622,13 @@ export default function QuoteSend({
               // This app's own copy, which the send carries inside the message.
               logoSrc: `${window.location.origin}${MAIL_LOGO_PATH}`,
               /*
-                A pasted quotation (106): the same letter, its charges as text —
-                Ex works and their total, the other charges and theirs, the
-                whole in rupees — from the charges as they are now. The PDF
-                keeps the tables.
+                A pasted quotation (106): the same letter, its charges in the
+                desk's style — as text under red headings, or for air as the
+                desk's rate table with GST (115) — from the charges as they
+                are now. The PDF keeps its own tables.
               */
-              charges: quote.mail_text ? chargesLayoutFor(lines) : null,
+              charges: quote.mail_text && !isAirQuote(enquiry) ? chargesLayoutFor(lines) : null,
+              airCharges: quote.mail_text && isAirQuote(enquiry) ? airTableFor(lines, enquiry, quote) : null,
             }),
           }}
           /*

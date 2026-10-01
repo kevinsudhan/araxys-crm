@@ -19,7 +19,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (58 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **114**, so the next one is `115-….sql`.
+  migration filename (§6). The last migration is **115**, so the next one is `116-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 106 migrations
+## 4. Data model — 107 migrations
 
-`supabase-v2/001…114`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…115`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `113` | **Rates find the enquiry's lane.** `rates_for` matched places by exact text, so a rate for "Chennai" never met an enquiry reading "Chennai (MAA)". `place_words` / `place_matches`: every word of one place is among the other's, either way round ("Dubai" matches "Jebel Ali / Dubai, UAE"; "MAA" matches "Chennai (MAA)"; "Chennai" does not match "Kochi"). Ranking unchanged. Checked rolled back |
 | `112` | **What can go on a console.** `attach_to_console` took an air job onto a sea console, an import onto an export console, cancelled and signed-off jobs; a move between consoles was logged as a plain "Put on". Now sea only, directions must agree (cross-trade takes either), not cancelled or signed off, the same console again is a no-op, and a move says "Moved from X to Y" (the old console's master bill leaves with it). Checked rolled back |
@@ -700,6 +701,24 @@ aligned ("OCEAN FREIGHT … : USD 42 PER W/M × 8 = USD 336"); a trailing "(…)
 group's total in bold, then "TOTAL : INR …" with the exchange rates. `chargesLayout` (lib/pastedQuote)
 groups the lines and `chargesHtml` (lib/quotationMail) draws them; `chargesText` (the plain-text
 part) is built from the same layout. The branded letter around the charges is unchanged.
+
+**Pasted air quotation as the desk's rate table (115, 1 Oct).** On an air enquiry a pasted rate
+(a table copied from Excel, a mail, a WhatsApp line) goes out as the desk's own sheet
+(`lib/airQuote.ts` `airTable`, drawn by `airTableHtml` in lib/quotationMail): a first line
+"EX HEL - IST - MAA // EXW // NO OF PKGS // GWT [// CHWT] // CARRIER // TT", then CHARGES |
+CURRENCY/QUANTUM | RATES | INR | GST | TOTAL VALUE IN INR under FREIGHT / EX WORKS / DESTINATION /
+OTHER CHARGES, a TOTAL row, and the ROE on the yellow mark. Every figure is the app's: rupees at
+the ROE, GST at the charge's rate, a "3% on OF+EXW" charge worked out from the charges it names
+(`withShares`; saved as an INR line whose wording rides on its name as "(3% on OF+EXW)"), and a
+charge with no figure ("at receipted") spans the figure columns and counts for nothing. The reader
+(classify-enquiry, paste_quote) now returns `gst_rate`, `percent / percent_of / rate_text`,
+`routing / carrier / transit_time` and the four groups; where the paste has its own group headings
+the app re-files each charge under the heading above it (`sectionsByHeading`) — the model put
+"EXW charges" listed under FREIGHT CHARGES back under Ex works every time. GST defaults: 0 on the
+freight itself and its surcharges, 18 on the rest; the desk changes it in the paste dialog or in the
+charges grid (air only). Sea quotations keep the red-heading text layout, now with the same four
+groups (freight first, as the desk writes it). Tests: `scripts/tests/airQuote.test.ts` on the desk's
+HEL - IST - MAA sheet (totals 3,06,763.87 / 3,24,793.31).
 
 ## 9. Open items
 

@@ -50,8 +50,10 @@ export interface QuoteLine {
   /** What this charge costs us in rupees. Derived when a cost rate is given. */
   cost_inr: number | null;
   partner_quote_id: string | null;
-  /** Ex works or Other charges, on a pasted quotation (106); the PDF groups by it. */
-  section?: "ex_works" | "other" | null;
+  /** Its group on a pasted quotation (106, 115); the PDF and the mail group by it. */
+  section?: "freight" | "ex_works" | "destination" | "other" | null;
+  /** GST in per cent as quoted (115): 0 none, null not stated (an invoice then charges 18). */
+  gst_rate?: number | null;
   created_at: string;
 }
 

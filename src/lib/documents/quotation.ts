@@ -17,6 +17,7 @@ import type { Customer, Enquiry, Quote } from "../../services/enquiries";
 import type { QuoteLine } from "../../services/quoteLines";
 import type { QuoteTerm } from "../../services/quoteApproval";
 import { chargeableWeight, describeChargeable, volumeFromPieces } from "../chargeableWeight";
+import { SECTIONS, asSection } from "../pastedQuote";
 
 /**
  * The quotation, as a document rather than as a screen.
@@ -197,17 +198,18 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
   }
 
   /*
-    A pasted quotation (106) files each charge under Ex works or Other charges,
-    and the document prints them that way: each group under its own title with
-    its own total, then the whole. A quotation built charge by charge has no
-    groups and prints as one table, as before.
+    A pasted quotation (106, 115) files each charge under Freight, Ex works,
+    Destination or Other charges, and the document prints them that way: each
+    group under its own title with its own total, then the whole. A quotation
+    built charge by charge has no groups and prints as one table, as before.
   */
   const bySection = lines.some((l) => l.section);
   const groups: Array<{ title: string | null; totalLabel: string | null; lines: QuoteLine[] }> = bySection
-    ? [
-        { title: "EX WORKS CHARGES", totalLabel: "Ex works total (INR)", lines: lines.filter((l) => l.section === "ex_works") },
-        { title: "OTHER CHARGES", totalLabel: "Other charges total (INR)", lines: lines.filter((l) => l.section !== "ex_works") },
-      ].filter((g) => g.lines.length)
+    ? SECTIONS.map((s) => ({
+        title: s.title.toUpperCase(),
+        totalLabel: `${s.totalLabel} (INR)`,
+        lines: lines.filter((l) => asSection(l.section) === s.key),
+      })).filter((g) => g.lines.length)
     : [{ title: null, totalLabel: null, lines }];
 
   for (const g of groups) {

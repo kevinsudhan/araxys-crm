@@ -234,6 +234,10 @@ export interface Quote {
   mail_text?: string | null;
   /** What was pasted, for checking the figures against their source. */
   pasted_text?: string | null;
+  /** What a pasted air rate is for (115), in the first line of its table: HEL - IST - MAA, TK, 2-3 days. */
+  routing?: string | null;
+  carrier?: string | null;
+  transit_time?: string | null;
 }
 
 /** One line of the sign-off checklist, as `shipment_signoff_checklist` returns it. */

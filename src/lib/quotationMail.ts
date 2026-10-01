@@ -2,6 +2,7 @@ import type { Customer, Enquiry, Quote } from "../services/enquiries";
 import type { QuoteLine } from "../services/quoteLines";
 import type { QuoteTerm } from "../services/quoteApproval";
 import type { ChargesLayout } from "./pastedQuote";
+import { roeText, rupees, type AirTable } from "./airQuote";
 import {
   ACCENT,
   ACCENT_SOFT,
@@ -82,6 +83,12 @@ export interface QuotationMailInput {
    * letter. The PDF keeps its tables.
    */
   charges?: ChargesLayout | null;
+  /**
+   * A pasted air quotation's charges (lib/airQuote `airTable`): the desk's
+   * rate table (`airTableHtml`) where the letter would draw its own. Wins over
+   * `charges`.
+   */
+  airCharges?: AirTable | null;
 }
 
 /** The subject line, carrying the reference so the reply files itself. */
@@ -170,7 +177,7 @@ export function quotationHtml(i: QuotationMailInput): string {
       )
     : "";
 
-  const table = i.charges ? section(chargesHtml(i.charges), 24) : section(
+  const table = i.airCharges ? section(airTableHtml(i.airCharges), 24) : i.charges ? section(chargesHtml(i.charges), 24) : section(
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           <thead>
             <tr>
@@ -250,6 +257,55 @@ export function chargesHtml(c: ChargesLayout): string {
     <p style="margin:4px 0 0;font-size:15.5px;font-weight:800;color:${NAVY};">TOTAL : ${esc(c.total.toUpperCase())}${
       c.rates ? ` <span style="font-size:12.5px;font-weight:400;color:${MUTED};">(${esc(c.rates)})</span>` : ""
     }</p>`;
+}
+
+/**
+ * A pasted air quotation's charges, as the desk's rate table (115): the line
+ * of what it is for across the top, then CHARGES | CURRENCY/QUANTUM | RATES |
+ * INR | GST | TOTAL VALUE IN INR, a row per group, the TOTAL row, and the rate
+ * of exchange on the desk's yellow mark under it. Ruled like the desk's own
+ * sheet, its figures right-aligned to the paisa so the columns line up.
+ */
+export function airTableHtml(t: AirTable): string {
+  const GRID = "#94a3b8";
+  const TINT = "#eef2f7";
+  const cell = (inner: string, style = "", span = 1) =>
+    `<td${span > 1 ? ` colspan="${span}"` : ""} style="border:1px solid ${GRID};padding:6px 7px;font-size:12px;line-height:1.35;color:${INK};${style}">${inner}</td>`;
+  const fig = "text-align:right;white-space:nowrap;";
+  const amount = (v: number | null) => (v === null ? "-" : rupees(v));
+  // The charge name gets the room: it is the one column that should not wrap.
+  const widths = [28, 15, 15, 14, 11, 17];
+  const head = ["Charges", "Currency / Quantum", "Rates", "INR", "GST", "Total value in INR"]
+    .map((h, k) => cell(esc(h.toUpperCase()), `width:${widths[k]}%;background:${TINT};font-size:10.5px;font-weight:700;letter-spacing:.03em;${k ? "text-align:center;" : ""}`))
+    .join("");
+  const body = t.groups
+    .map(
+      (g) =>
+        `<tr>${cell(esc(g.title), `font-weight:700;color:${NAVY};background:#f8fafc;`, 6)}</tr>` +
+        g.rows
+          .map((r) => {
+            const name = esc(r.name) + (r.note ? ` <span style="color:${RED};">(${esc(r.note)})</span>` : "");
+            const figures = r.instead
+              ? cell(esc(r.instead), "text-align:center;", 4)
+              : cell(esc(r.rate), fig) + cell(amount(r.inr), fig) + cell(amount(r.gst), fig) + cell(amount(r.value), `${fig}font-weight:600;`);
+            return `<tr>${cell(name)}${cell(esc(r.basis), "white-space:nowrap;")}${figures}</tr>`;
+          })
+          .join("")
+    )
+    .join("");
+  const total = `<tr>${cell("TOTAL", `background:${TINT};font-weight:700;text-align:right;`, 3)}${cell(rupees(t.inr), `background:${TINT};font-weight:700;${fig}`)}${cell(
+    rupees(t.gst),
+    `background:${TINT};font-weight:700;${fig}`
+  )}${cell(rupees(t.value), `background:${TINT};font-weight:800;color:${NAVY};${fig}`)}</tr>`;
+  const roe = t.roe.length
+    ? `<p style="margin:10px 0 0;"><span style="background:${MARK};color:${INK};font-size:12.5px;font-weight:700;padding:3px 8px;">${esc(t.roe.map(roeText).join("   ·   "))}</span></p>`
+    : "";
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+      ${t.title ? `<tr>${cell(esc(t.title), `background:${NAVY};color:#ffffff;font-weight:700;font-size:12.5px;text-align:center;letter-spacing:.02em;`, 6)}</tr>` : ""}
+      <tr>${head}</tr>
+      ${body}
+      ${total}
+    </table>${roe}`;
 }
 
 /**

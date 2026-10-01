@@ -3,6 +3,7 @@ import { AlertCircle, Loader2, Plus, Trash2, Wand2 } from "lucide-react";
 import Select from "./Select";
 import { CHARGE_HEADS, LINE_CURRENCIES, UNITS, money } from "../services/charges";
 import { missingRate, rateInUse } from "../lib/quoteChecks";
+import { GST_RATES, SECTIONS, asSection } from "../lib/pastedQuote";
 import {
   addLine,
   addLines,
@@ -231,8 +232,8 @@ export default function QuoteCharges({
     setError(null);
     const before = new Set(lines.map((l) => l.id));
     try {
-      // On a quotation grouped into Ex works and Other charges, a new charge joins Other.
-      await addLine(quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...(lines.some((l) => l.section) ? { section: "other" as const } : {}), ...line });
+      // On a pasted quotation a new charge joins Other charges; on an air one, at GST 18 like the rest.
+      await addLine(quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...(lines.some((l) => l.section) ? { section: "other" as const, ...(lane?.mode === "air" ? { gst_rate: 18 } : {}) } : {}), ...line });
       const next = await linesFor(quoteId);
       setLines(next);
       setFresh(next.find((l) => !before.has(l.id))?.id ?? null);
@@ -332,26 +333,51 @@ export default function QuoteCharges({
     }
   }
 
-  /** A pasted quotation (106) files its charges under Ex works or Other charges. */
+  /** A pasted quotation (106, 115) files its charges under Freight, Ex works, Destination or Other charges. */
   const anySection = lines.some((l) => l.section);
+  /** A pasted air quotation goes out as the desk's rate table, which shows each charge's GST (115). */
+  const withGst = anySection && lane?.mode === "air";
 
   /** Every cell of one charge, for whichever arrangement the width allows. */
   function cells(l: QuoteLine) {
-    const exw = l.section === "ex_works";
+    const group = asSection(l.section);
+    const tag = "h-6 shrink-0 cursor-pointer appearance-none rounded-md px-1.5 text-[10px] font-semibold tracking-wide disabled:cursor-default";
     return {
       name: anySection ? (
         <div className="flex min-w-0 items-center gap-1">
-          {/* Its group on the PDF and in the mail; a press moves it to the other one. */}
-          <button
-            type="button"
+          {/* Its group on the PDF and in the mail. */}
+          <select
+            value={group}
             disabled={locked}
-            onClick={() => void run(() => updateLine(l.id, { section: exw ? "other" : "ex_works" }))}
-            title={exw ? "Ex works — press to move to Other charges" : "Other charges — press to move to Ex works"}
-            aria-label={exw ? "Ex works charge; move to Other charges" : "Other charge; move to Ex works"}
-            className={`h-6 shrink-0 rounded-md px-1.5 text-[10px] font-semibold tracking-wide ${exw ? "bg-bg-accent text-text-accent" : "bg-surface-2 text-text-secondary"} disabled:cursor-default`}
+            onChange={(e) => void run(() => updateLine(l.id, { section: asSection(e.target.value) }))}
+            title={`${SECTIONS.find((s) => s.key === group)?.title} — change its group`}
+            aria-label="Group"
+            className={`${tag} ${group === "other" ? "bg-surface-2 text-text-secondary" : "bg-bg-accent text-text-accent"}`}
           >
-            {exw ? "EXW" : "OTH"}
-          </button>
+            {SECTIONS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.short}
+              </option>
+            ))}
+          </select>
+          {withGst && (
+            // Its GST in the air table (and on the invoice made from it); "—" is not stated, charged at 18.
+            <select
+              value={l.gst_rate == null ? "" : String(Number(l.gst_rate))}
+              disabled={locked}
+              onChange={(e) => void run(() => updateLine(l.id, { gst_rate: e.target.value === "" ? null : Number(e.target.value) }))}
+              title="GST on this charge"
+              aria-label="GST"
+              className={`${tag} bg-surface-2 text-text-secondary`}
+            >
+              {l.gst_rate == null && <option value="">GST —</option>}
+              {GST_RATES.map((g) => (
+                <option key={g} value={g}>
+                  {g ? `GST ${g}%` : "No GST"}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="min-w-0 flex-1">
             <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void run(() => updateLine(l.id, { description: v }))} />
           </div>
