@@ -164,15 +164,24 @@ export function quotationHtml(i: QuotationMailInput): string {
 
     A table cell with its own background rather than a styled <a> alone:
     Outlook ignores padding and background on inline elements.
+
+    Two buttons side by side: accept, or ask for a revision (114). Both open
+    the same page; the second opens it at the box for what they want changed
+    (`?revise=1`).
   */
+  const reviseUrl = i.acceptUrl ? `${i.acceptUrl}${i.acceptUrl.includes("?") ? "&" : "?"}revise=1` : null;
   const accept = i.acceptUrl
     ? section(
         `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
-          <td bgcolor="${ACCENT}" style="background:${ACCENT};border-radius:6px;">
-            <a href="${esc(i.acceptUrl)}" style="display:inline-block;padding:13px 24px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Accept this quotation &rarr;</a>
+          <td bgcolor="${ACCENT}" style="background:${ACCENT};border:1px solid ${ACCENT};border-radius:6px;">
+            <a href="${esc(i.acceptUrl)}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Accept this quotation &rarr;</a>
+          </td>
+          <td style="width:10px;font-size:0;line-height:0;">&nbsp;</td>
+          <td bgcolor="#ffffff" style="background:#ffffff;border:1px solid ${ACCENT};border-radius:6px;">
+            <a href="${esc(reviseUrl!)}" style="display:inline-block;padding:12px 22px;color:${ACCENT};font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Revise this quote</a>
           </td>
         </tr></table>
-        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Opens a page showing this quotation, where you can accept it or ask for a revision. Replying to this email works just as well.</p>`,
+        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Each opens a page showing this quotation: accept it there, or tell us what you would like revised. Replying to this email works just as well.</p>`,
         24
       )
     : "";

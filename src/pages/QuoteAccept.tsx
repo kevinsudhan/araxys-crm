@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { AlertCircle, Check, Loader2, PencilLine, Truck } from "lucide-react";
 import {
   acceptByToken,
@@ -45,14 +45,18 @@ import { COMPANY, MAIL_LOGO_PATH } from "../lib/company";
  */
 export default function QuoteAccept() {
   const { token = "" } = useParams();
+  const [params] = useSearchParams();
   const [quote, setQuote] = useState<PublicQuote | null>(null);
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  /** "Revise this quote" open, and what they want changed (114). */
-  const [revising, setRevising] = useState(false);
+  /**
+   * "Revise this quote" open, and what they want changed (114). Open from the
+   * start when they came by the mail's "Revise this quote" button (?revise=1).
+   */
+  const [revising, setRevising] = useState(() => params.get("revise") === "1");
   const [change, setChange] = useState("");
   const [said, setSaid] = useState<string | null>(null);
 

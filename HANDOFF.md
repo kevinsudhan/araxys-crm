@@ -743,6 +743,10 @@ quotation, in every state short of accepted: it starts one, replaces a draft's c
 sent one's next version. "Lay it out" opens the review with the text already being read
 (`PasteQuoteDialog initialText`). Building or revising charge by charge is the link beside it.
 
+**Revise button in the quotation mail (1 Oct).** The mail carries two buttons side by side:
+**Accept this quotation** and **Revise this quote** (outlined). Both open `/q/:token`; the second
+adds `?revise=1`, and the page opens with the "What would you like revised?" box ready.
+
 ## 9. Open items
 
 ### Waiting on the user

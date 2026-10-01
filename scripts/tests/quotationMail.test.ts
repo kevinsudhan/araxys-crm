@@ -70,6 +70,7 @@ is("markup in the cargo is escaped", html.includes("&lt;for solar&gt;"), true);
 is("each charge with its unit", html.includes("per kg") && html.includes("480 &times; USD&nbsp;4.1"), true);
 is("the total", html.includes("₹1,85,000"), true);
 is("accept only with a link", [html.includes("Accept this quotation"), quotationHtml(base).includes("Accept this quotation")], [true, false]);
+is("revise beside it, opening the page at the revision box", [html.includes('href="https://x/q/abc?revise=1"'), html.includes(">Revise this quote</a>"), quotationHtml(base).includes("Revise this quote")], [true, true, false]);
 is("signed by the sender", html.includes("Aarathy"), true);
 is("the registered details in the footer", html.includes("GSTIN 33ABDCA2229C1ZD") && html.includes("Anna Nagar"), true);
 is("no comments of ours in the customer's mail", html.includes("<!--"), false);
