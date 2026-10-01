@@ -10,6 +10,7 @@ import {
   type Partner,
   type PartnerRole,
 } from "../services/partners";
+import { canonicalCountry, COUNTRIES, countryProblem } from "../lib/countries";
 
 /**
  * Add or edit one partner.
@@ -45,6 +46,7 @@ export default function PartnerForm({
 }) {
   const [name, setName] = useState(partner?.name ?? "");
   const [organisation, setOrganisation] = useState(partner?.organisation ?? "");
+  const [country, setCountry] = useState(partner?.country ?? "");
   const [role, setRole] = useState<PartnerRole>(partner?.role ?? "overseas_agent");
   const [emails, setEmails] = useState((partner?.emails ?? []).join(", "));
   const [phones, setPhones] = useState((partner?.phones ?? []).join(", "));
@@ -68,6 +70,7 @@ export default function PartnerForm({
   const dirty =
     name.trim() !== "" ||
     organisation.trim() !== "" ||
+    country.trim() !== "" ||
     emails.trim() !== "" ||
     phones.trim() !== "" ||
     notes.trim() !== "" ||
@@ -109,6 +112,10 @@ export default function PartnerForm({
     if (!name.trim() && !organisation.trim())
       return setError("Give at least a contact name or a company.");
 
+    // Mandatory, and one spelling per country: Live rates groups partners by it (116).
+    const countryError = countryProblem(country);
+    if (countryError) return setError(countryError);
+
     const emailList = list(emails);
     const bad = emailList.find((a) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a));
     if (bad) return setError(`"${bad}" is not a valid email address.`);
@@ -121,6 +128,7 @@ export default function PartnerForm({
       const body = {
         name: name.trim(),
         organisation: organisation.trim(),
+        country: canonicalCountry(country) ?? country.trim(),
         role,
         emails: emailList,
         phones: list(phones),
@@ -193,14 +201,37 @@ export default function PartnerForm({
             </Field>
           </div>
 
-          <Field label="They are our">
-            <Select
-              label="They are our"
-              value={role}
-              onChange={(v) => setRole(v as PartnerRole)}
-              options={PARTNER_ROLES.map((r) => ({ value: r, label: PARTNER_ROLE_LABEL[r] }))}
-            />
-          </Field>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Country" required>
+              <input
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                // The list's own spelling once it is recognised, so what is saved is what is seen.
+                onBlur={() => setCountry((c) => canonicalCountry(c) ?? c)}
+                list="partner-countries"
+                placeholder="Taiwan"
+                className="w-full h-8"
+                autoComplete="off"
+                aria-required="true"
+              />
+              <datalist id="partner-countries">
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </Field>
+            <Field label="They are our">
+              <Select
+                label="They are our"
+                value={role}
+                onChange={(v) => setRole(v as PartnerRole)}
+                options={PARTNER_ROLES.map((r) => ({ value: r, label: PARTNER_ROLE_LABEL[r] }))}
+              />
+            </Field>
+          </div>
+          <p className="text-[11px] text-text-muted -mt-1">
+            Where they are based. Live rates lists partners by country.
+          </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Email">
@@ -352,10 +383,13 @@ export default function PartnerForm({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, required = false, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="block text-[11px] text-text-secondary mb-1">{label}</span>
+      <span className="block text-[11px] text-text-secondary mb-1">
+        {label}
+        {required && <span className="text-text-danger"> *</span>}
+      </span>
       {children}
     </label>
   );

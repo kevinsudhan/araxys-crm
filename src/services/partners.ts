@@ -49,6 +49,8 @@ export interface Partner {
   address: string;
   /** Their multimodal transport operator registration, where we issue house B/Ls under it (085). */
   mto_registration: string;
+  /** Where they are, in lib/countries' spelling; "" only for partners saved before it was asked (116). */
+  country: string;
   role: PartnerRole;
   emails: string[];
   phones: string[];
@@ -83,6 +85,8 @@ export async function listPartners(includeArchived = false): Promise<Partner[]> 
 export async function createPartner(input: {
   name: string;
   organisation: string;
+  /** Required: the database refuses a new partner without one (116). */
+  country: string;
   role: PartnerRole;
   emails: string[];
   phones: string[];

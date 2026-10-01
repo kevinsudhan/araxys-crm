@@ -90,8 +90,8 @@ begin
   -- ---- partner, with an address the burst can actually reach ----------
   select id into v_part from public.partners where name = 'Demo Consol Partner';
   if v_part is null then
-    insert into public.partners (name, organisation, role, emails, phones, tags, notes)
-    values ('Demo Consol Partner', 'Lanka Consol Lines', 'consol_partner',
+    insert into public.partners (name, organisation, country, role, emails, phones, tags, notes)
+    values ('Demo Consol Partner', 'Lanka Consol Lines', 'Sri Lanka', 'consol_partner',
             array['${esc(PARTNER_EMAIL)}'], array['+94 11 234 5678'],
             array['Colombo','LCL'],
             'Demo partner — created by seed-showcase.mjs. Safe to delete.')

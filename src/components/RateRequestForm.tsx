@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import DOMPurify from "dompurify";
-import { AlertCircle, Check, CheckCircle2, Eye, Loader2, Plus, RotateCcw, Search, Send, Sparkles, X, XCircle } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Eye, Loader2, Plus, RotateCcw, Send, Sparkles, X, XCircle } from "lucide-react";
 import RichTextEditor from "./RichTextEditor";
 import Drafting from "./Drafting";
+import CountryPartnerPicker from "./CountryPartnerPicker";
+import StatusPill from "./StatusPill";
 import { InlineLoading } from "./Loading";
 import { useAuth } from "../lib/auth";
+import { formatDate } from "../lib/dates";
+import { failureText } from "../lib/errorText";
 import { cleanServices, defaultServices, personalise, serviceCatalogue, withReference } from "../lib/rateRequest";
-import { draftRequest, draftRequestWithAi, sendBurst, type BurstResult } from "../services/rfq";
-import { listPartners, PARTNER_ROLES, PARTNER_ROLE_LABEL, type Partner, type PartnerRole } from "../services/partners";
+import { draftRequest, draftRequestWithAi, QUOTE_STATUS_LABEL, rateRequestsTo, sendBurst, type BurstResult, type PartnerQuote, type QuoteStatus } from "../services/rfq";
+import { listPartners, PARTNER_ROLE_LABEL, type Partner } from "../services/partners";
 import { mailIsLive } from "../services/backend";
 import type { Enquiry } from "../services/enquiries";
 
@@ -57,8 +62,6 @@ export default function RateRequestForm({
 
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
-  const [role, setRole] = useState<PartnerRole | "all">("all");
   /** Who is asked, in the order they were picked, with the services for each. */
   const [picked, setPicked] = useState<Array<{ id: string; services: string[] }>>([]);
   const [adding, setAdding] = useState<Record<string, string>>({});
@@ -77,6 +80,8 @@ export default function RateRequestForm({
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BurstResult | null>(null);
+  /** Moves after each send, so the country's list of what was sent reads itself again. */
+  const [sentVersion, setSentVersion] = useState(0);
 
   useEffect(() => {
     void listPartners()
@@ -90,13 +95,6 @@ export default function RateRequestForm({
   const byId = useMemo(() => new Map(partners.map((p) => [p.id, p])), [partners]);
   const catalogue = useMemo(() => serviceCatalogue(enquiry), [enquiry]);
   const chosen = new Set(picked.map((p) => p.id));
-
-  const shown = partners
-    .filter((p) => role === "all" || p.role === role)
-    .filter((p) => {
-      const n = query.trim().toLowerCase();
-      return !n || [p.name, p.organisation, ...p.emails, ...p.tags].some((v) => String(v).toLowerCase().includes(n));
-    });
 
   function toggle(p: Partner) {
     if (!p.emails.length) return;
@@ -164,6 +162,7 @@ export default function RateRequestForm({
         onProgress: (done, total) => setProgress({ done, total }),
       });
       setResult(r);
+      setSentVersion((v) => v + 1);
       // Whoever was reached is done; whoever was not stays picked, to try again.
       const reached = new Set(r.sent.map((q) => q.partner_id));
       setPicked((list) => list.filter((x) => !reached.has(x.id)));
@@ -194,28 +193,10 @@ export default function RateRequestForm({
 
         {/* ---- who ---- */}
         <section>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <p className="text-[12px] font-medium text-text-secondary">
-              1 · Partners to ask
-              {picked.length > 0 && <span className="ml-2 font-normal text-text-muted">{picked.length} chosen</span>}
-            </p>
-            <div className="relative ml-auto w-full min-w-[180px] sm:w-64">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Company, contact, tag…" className="h-8 w-full pl-7 text-[12px]" />
-            </div>
-          </div>
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {(["all", ...PARTNER_ROLES] as Array<PartnerRole | "all">).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRole(r)}
-                className={`h-7 rounded-full border px-2.5 text-[11.5px] ${role === r ? "border-brand bg-brand text-white" : "border-border bg-surface-1 text-text-secondary hover:text-text-primary"}`}
-              >
-                {r === "all" ? "All" : PARTNER_ROLE_LABEL[r]}
-              </button>
-            ))}
-          </div>
+          <p className="mb-2 text-[12px] font-medium text-text-secondary">
+            1 · Partners to ask, by country
+            {picked.length > 0 && <span className="ml-2 font-normal text-text-muted">{picked.length} chosen</span>}
+          </p>
 
           {loading ? (
             <InlineLoading label="Loading partners" className="py-1 text-[12px]" />
@@ -224,40 +205,17 @@ export default function RateRequestForm({
               No partners on the directory yet. Add them under Agents &amp; partners → Directory.
             </p>
           ) : (
-            <ul className="grid gap-1.5 sm:grid-cols-2">
-              {shown.map((p) => {
-                const on = chosen.has(p.id);
-                const can = p.emails.length > 0;
-                return (
-                  <li key={p.id}>
-                    <button
-                      type="button"
-                      onClick={() => toggle(p)}
-                      disabled={!can || busy}
-                      aria-pressed={on}
-                      title={can ? p.emails.join(", ") : "No email address on the directory"}
-                      className={`flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed ${
-                        on ? "border-brand/30 bg-bg-success" : "border-border bg-surface-1 hover:border-border-strong"
-                      } ${can ? "" : "opacity-60"}`}
-                    >
-                      <span
-                        className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded border ${on ? "border-brand bg-brand text-white" : "border-border-strong bg-surface-1"}`}
-                        aria-hidden
-                      >
-                        {on && <Check size={10} />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12.5px] font-medium text-text-primary">{p.organisation?.trim() || p.name}</span>
-                        <span className="block truncate text-[11px] text-text-muted">
-                          {PARTNER_ROLE_LABEL[p.role]} · {can ? p.emails[0] : "no email address"}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-              {!shown.length && <li className="px-1 py-2 text-[12px] text-text-muted">Nobody matches that.</li>}
-            </ul>
+            <CountryPartnerPicker
+              partners={partners}
+              isPicked={(id) => chosen.has(id)}
+              onToggle={toggle}
+              onPickAll={(ps) => {
+                setResult(null);
+                setPicked((list) => [...list, ...ps.map((p) => ({ id: p.id, services: defaultServices(p.role, enquiry) }))]);
+              }}
+              disabled={busy}
+              history={(inCountry, country) => <SentToCountry partners={inCountry} country={country} version={sentVersion} />}
+            />
           )}
         </section>
 
@@ -471,6 +429,85 @@ export default function RateRequestForm({
         </div>
       </footer>
     </>
+  );
+}
+
+const STATUS_TONE: Record<QuoteStatus, "neutral" | "accent" | "success" | "warning"> = {
+  asked: "neutral",
+  replied: "accent",
+  quoted: "success",
+  declined: "warning",
+  no_reply: "neutral",
+};
+
+/**
+ * The rate requests a country's partners have been sent, on any job, from
+ * here or from a case file (116): under the country's list, so what went to
+ * Taiwan last is in view when Taiwan is asked again.
+ */
+function SentToCountry({ partners, country, version }: { partners: Partner[]; country: string; version: number }) {
+  const [rows, setRows] = useState<PartnerQuote[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const ids = partners.map((p) => p.id).join(",");
+
+  useEffect(() => {
+    let gone = false;
+    setRows(null);
+    setError(null);
+    rateRequestsTo(ids ? ids.split(",") : [])
+      .then((r) => !gone && setRows(r))
+      .catch((e) => !gone && setError(failureText(e, "Could not read what was sent.").message));
+    return () => {
+      gone = true;
+    };
+  }, [ids, version]);
+
+  const shown = all ? rows ?? [] : (rows ?? []).slice(0, 5);
+  return (
+    <div>
+      <p className="text-[11.5px] font-medium text-text-secondary">Sent to partners in {country || "this list"}</p>
+      {error ? (
+        <p className="mt-1 text-[11.5px] text-text-danger">{error}</p>
+      ) : rows === null ? (
+        <p className="mt-1 flex items-center gap-1.5 text-[11.5px] text-text-muted">
+          <Loader2 size={11} className="animate-spin" /> Reading…
+        </p>
+      ) : !rows.length ? (
+        <p className="mt-1 text-[11.5px] text-text-muted">No rate request has gone to them yet.</p>
+      ) : (
+        <>
+          <ul className="mt-1 divide-y divide-border">
+            {shown.map((q) => (
+              <li key={q.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1.5 text-[11.5px]">
+                <span className="text-text-muted">{formatDate(q.sent_at, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}</span>
+                <span className="font-medium text-text-primary">{q.partner_label || q.partner_email}</span>
+                <Link to={`/enquiries/${encodeURIComponent(q.enquiry_ref)}?section=quote`} className="font-mono text-text-accent hover:underline">
+                  {q.enquiry_ref}
+                </Link>
+                <StatusPill tone={STATUS_TONE[q.status]}>{QUOTE_STATUS_LABEL[q.status]}</StatusPill>
+                {q.amount != null && (
+                  <span className="tabular-nums text-text-primary">
+                    {q.currency ? `${q.currency} ` : ""}
+                    {Number(q.amount).toLocaleString("en-IN")}
+                  </span>
+                )}
+                <span className="w-full truncate text-text-muted">
+                  {q.subject}
+                  {q.services.length ? ` · ${q.services.join(", ")}` : ""}
+                  {q.sent_from ? ` · from ${q.sent_from}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {rows.length > shown.length && (
+            <button type="button" onClick={() => setAll(true)} className="mt-1 text-[11.5px] text-text-accent hover:underline">
+              Show all {rows.length}
+            </button>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

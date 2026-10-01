@@ -72,7 +72,7 @@ export default function Partners() {
       .filter((p) =>
         !needle
           ? true
-          : [p.name, p.organisation, ...p.emails, ...p.phones, ...p.tags, p.notes]
+          : [p.name, p.organisation, p.country, ...p.emails, ...p.phones, ...p.tags, p.notes]
               .filter(Boolean)
               .some((v) => String(v).toLowerCase().includes(needle))
       );
@@ -232,7 +232,14 @@ export default function Partners() {
 
                   <p className="mt-1 text-[12px] text-text-secondary">
                     {PARTNER_ROLE_LABEL[p.role]}
+                    {p.country ? ` · ${p.country}` : ""}
                     {p.organisation && p.name ? ` · ${p.name}` : ""}
+                    {/* Saved before the country was asked (116): Live rates cannot list them until it is given. */}
+                    {!p.country && (
+                      <Link to={`/partners/${p.id}/edit`} className="ml-2 text-text-warning hover:underline">
+                        Country not set
+                      </Link>
+                    )}
                   </p>
 
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-text-secondary">

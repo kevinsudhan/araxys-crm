@@ -31,10 +31,10 @@ session should read this whole file before changing anything. §0 is the short v
   fresh clone of logistics-v3 has the branch as `main` and the remote as `origin` instead
   (`git push origin main`). Never push v2 to the `origin` of `araxys-crm-v2`, which is v1's
   repository (§11).
-- **Before every push:** `npm test` (59 suites) and `npm run build` (typecheck, bundle and
+- **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **115**, so the next one is `116-….sql`.
+  migration filename (§6). The last migration is **116** (not yet applied, §9), so the next one is `117-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -245,6 +245,7 @@ transaction).
 | `113` | **Rates find the enquiry's lane.** `rates_for` matched places by exact text, so a rate for "Chennai" never met an enquiry reading "Chennai (MAA)". `place_words` / `place_matches`: every word of one place is among the other's, either way round ("Dubai" matches "Jebel Ali / Dubai, UAE"; "MAA" matches "Chennai (MAA)"; "Chennai" does not match "Kochi"). Ranking unchanged. Checked rolled back |
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
+| `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). **Written 1 Oct, not yet applied** (§9) |
 
 **Everything on an enquiry or a job is live (084).** Whoever has a page open sees another
 person's change as it is made.
@@ -330,7 +331,7 @@ Pure logic lives in `src/lib/` so that it can be tested under Node:
 ```bash
 npm run dev                          # :5174
 npm run build                        # tsc -b && vite build && check-bundle-secrets
-npm test                             # 59 suites, pure logic
+npm test                             # 60 suites, pure logic
 npm run preview -- --port 4173       # the built app, service worker included
 node supabase-v2/run-sql.mjs 081-something.sql      # apply a migration
 node supabase-v2/run-sql.mjs "select count(*) from public.enquiries"   # quick query
@@ -347,7 +348,7 @@ The workspace root `.claude/launch.json` (one level up, outside this repo) has
 
 ### Unit tests
 
-There are 59 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
+There are 60 suites in `scripts/tests/*.test.ts`, run with tsx. Each is registered as its
 own script and chained into `npm test`. When you add a suite, add it to both.
 
 The UI has no automated tests. It is verified by hand in the way described below.
@@ -825,6 +826,27 @@ line's GWT.
 Your booking has been confirmed.", the shipment details and the sign-off. The "Rate agreed" block
 (with the quotation's total) and "What happens next" / "keep the reference in the subject" are gone.
 
+**Partners by country (116, 1 Oct).** The user's request: partners divided by country, the country
+mandatory when a partner is added, and in Live rates "click Taiwan → its agents → mail them, and what
+went to them visible there". It is a way of choosing inside the two Live rates tabs, **not a tab of
+its own** (the user corrected a first version that was one).
+- `partners.country` (116): the database refuses a new partner without one and refuses blanking one
+  once given; partners saved before keep "" and show as "Country not set" (directory, pickers) until
+  edited. The partner form asks for it (required, with the list as suggestions) and saves
+  `lib/countries.ts`'s spelling: "taiwan", "Taiwan, ROC" and "TW"-style short forms ("UAE", "USA",
+  "U.K.", "Korea", "Burma") are one country; anything not on the list is refused with a sentence.
+  Hong Kong and Macau are their own. Tests: `scripts/tests/countries.test.ts`.
+- `components/CountryPartnerPicker.tsx`, used by the shipment rate request (`RateRequestForm`, so the
+  case file's Ask partners too) and the Sunday request editor: country chips with counts and how many
+  are chosen in each; a country lists its partners to tick ("Choose all in Taiwan"); choices carry
+  across countries ("Chosen:" at the foot); the search looks across all countries. The role chips
+  went (the role is on each row and the search matches it).
+- Under a country's list, what its partners were already sent: on the shipment form, their
+  `partner_quotes` from any job (`rfq.rateRequestsTo`: date, job, status, amount, services, mailbox);
+  on the Sunday editor, their `live_rate_sends` (Sunday or by hand, sent or the refusal; tests left
+  out). Each mail's own preview is still "Their mail" (shipment) and "Preview" (Sunday).
+- Seeds (`seed-partners`, `seed-showcase`) now give a country, or 116 would refuse them.
+
 ## 9. Open items
 
 Figures here are as last recorded: 28 Sep for the counts and the mailboxes, 1 Oct for the
@@ -832,6 +854,11 @@ Operations tables. They were not re-read for the 1 Oct revision; check one with 
 before acting on it.
 
 ### Waiting on the user, most urgent first
+
+**Before the next deploy: apply migration 116** (`node supabase-v2/run-sql.mjs 116-partner-country.sql`,
+after its rolled-back dry run). The partner form now saves a `country`, which the live table does not
+have until 116 runs: deployed first, adding a partner fails. Written 1 Oct and not applied (the session
+was not cleared to write to production). Take this line out once it is.
 
 1. **Make both GitHub repositories private** (`logistics-v3`, `araxys-crm`). Still public on
    1 Oct: an anonymous clone of logistics-v3 worked. The history holds no working secret
@@ -994,13 +1021,14 @@ Complaints placeholder went.
   commits from the 1 Oct revision: September dates in the quotation mail, the voice era's
   leftover code and the Complaints placeholder removed, and this file. Pushed to
   `logistics-v3/main`. The live build is in maintenance (§0), so only `/q` and `/t` show any of
-  it.
-- **Migrations:** the last in the repository is `115-air-quote-table.sql`, and the next is
-  `116-….sql`. Each row in §4 records its rolled-back dry run, and this file has treated every
-  one as applied; the 1 Oct revision could not re-read the live catalogue to confirm 115.
-  Before relying on its columns: `select column_name from information_schema.columns where
-  table_name = 'quote_lines'` should list `gst_rate`.
-- **Checked at the head (1 Oct):** `npm test` (59 suites) passing, `npm run build` clean with
+  it. After them, **partners by country** (116, §8): committed in `araxys-crm-v2` and not
+  pushed, because it must not deploy before 116 is applied (§9).
+- **Migrations:** the last in the repository is `116-partner-country.sql` (not yet applied), and
+  the next is `117-….sql`. Each row in §4 records its rolled-back dry run, and this file has
+  treated every one through 115 as applied; the 1 Oct revision could not re-read the live
+  catalogue to confirm 115. Before relying on its columns: `select column_name from
+  information_schema.columns where table_name = 'quote_lines'` should list `gst_rate`.
+- **Checked at the head (1 Oct):** `npm test` (60 suites) passing, `npm run build` clean with
   its bundle secret scan, `node scripts/audit/routes.mjs` with no dead links. The full
   `npm run audit` was last run on 28 Sep.
 - Nothing temporary is committed: no `__Preview` routes, no `src/__audit.ts` harness, no

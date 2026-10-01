@@ -45,6 +45,7 @@ const PARTNERS = [
   // ---- overseas agents: the far end of the lane ----
   {
     organisation: "Pacific Consolidators Pte",
+    country: "Singapore",
     name: "Wei Ling Tan",
     role: "overseas_agent",
     emails: ["ops@pacificconsol.example"],
@@ -54,6 +55,7 @@ const PARTNERS = [
   },
   {
     organisation: "Gulf Line Freight LLC",
+    country: "United Arab Emirates",
     name: "Rashid Al Mansoori",
     role: "overseas_agent",
     emails: ["chennai.desk@gulflinefreight.example"],
@@ -65,6 +67,7 @@ const PARTNERS = [
   // ---- consol partners: whose box the cargo travels in ----
   {
     organisation: "Seabridge Groupage",
+    country: "India",
     name: "Anand Krishnan",
     role: "consol_partner",
     emails: ["bookings@seabridge.example"],
@@ -74,6 +77,7 @@ const PARTNERS = [
   },
   {
     organisation: "Indus Consol Services",
+    country: "India",
     name: "Farida Sheikh",
     role: "consol_partner",
     emails: ["ops@indusconsol.example"],
@@ -85,6 +89,7 @@ const PARTNERS = [
   // ---- carriers ----
   {
     organisation: "Meridian Lines",
+    country: "India",
     name: "S Ramanathan",
     role: "carrier",
     emails: ["chennai@meridianlines.example"],
@@ -94,6 +99,7 @@ const PARTNERS = [
   },
   {
     organisation: "Orient Star Shipping",
+    country: "Singapore",
     name: "Lim Chee Hong",
     role: "carrier",
     emails: ["bookings@orientstar.example"],
@@ -105,6 +111,7 @@ const PARTNERS = [
   // ---- CHA / customs ----
   {
     organisation: "Coastline Clearing Agents",
+    country: "India",
     name: "R Kumar",
     role: "cha_customs",
     emails: ["docs@coastlineclearing.example"],
@@ -114,6 +121,7 @@ const PARTNERS = [
   },
   {
     organisation: "Trident Customs House",
+    country: "India",
     name: "Nithya Balan",
     role: "cha_customs",
     emails: ["clearance@tridentcha.example"],
@@ -125,6 +133,7 @@ const PARTNERS = [
   // ---- CFS / transport ----
   {
     organisation: "Metro Haulage",
+    country: "India",
     name: "S Devi",
     role: "cfs_transport",
     emails: ["dispatch@metrohaulage.example"],
@@ -134,6 +143,7 @@ const PARTNERS = [
   },
   {
     organisation: "Redhills CFS & Logistics",
+    country: "India",
     name: "Vignesh Kumar",
     role: "cfs_transport",
     emails: ["yard@redhillscfs.example"],

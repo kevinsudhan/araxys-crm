@@ -14,12 +14,12 @@ import {
   Pencil,
   Play,
   Plus,
-  Search,
   Send,
   Trash2,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import LiveRatesForShipment from "../components/LiveRatesForShipment";
+import CountryPartnerPicker from "../components/CountryPartnerPicker";
 import EmptyState from "../components/EmptyState";
 import StatusPill from "../components/StatusPill";
 import { ListSkeleton } from "../components/Loading";
@@ -28,7 +28,7 @@ import { COMPANY } from "../lib/company";
 import { formatDate } from "../lib/dates";
 import { failureText, type FailureText } from "../lib/errorText";
 import { dayLabel, nextSendAt, rateRequestMail, SCHEDULE_LABEL, weekAsked } from "../lib/liveRates";
-import { listPartners, PARTNER_ROLES, PARTNER_ROLE_LABEL, type Partner, type PartnerRole } from "../services/partners";
+import { listPartners, type Partner } from "../services/partners";
 import {
   crmMailboxes,
   listLiveRates,
@@ -220,6 +220,8 @@ function WeeklyRates() {
       {editing === "new" && (
         <Editor
           partners={partners}
+          sends={sends}
+          requests={requests}
           mailboxes={mailboxes}
           admin={admin}
           onCancel={() => setEditing(null)}
@@ -246,6 +248,8 @@ function WeeklyRates() {
                 key={r.id}
                 request={r}
                 partners={partners}
+                sends={sends}
+                requests={requests}
                 mailboxes={mailboxes}
                 admin={admin}
                 onCancel={() => setEditing(null)}
@@ -535,6 +539,8 @@ function RequestCard({
 function Editor({
   request,
   partners,
+  sends,
+  requests,
   mailboxes,
   admin,
   onCancel,
@@ -542,6 +548,9 @@ function Editor({
 }: {
   request?: LiveRateRequest;
   partners: Partner[];
+  /** Every Sunday mail and every one sent by hand, for what a country's partners have had. */
+  sends: LiveRateSend[];
+  requests: LiveRateRequest[];
   mailboxes: string[];
   admin: boolean;
   onCancel: () => void;
@@ -551,17 +560,9 @@ function Editor({
   const [details, setDetails] = useState(request?.details ?? "");
   const [from, setFrom] = useState(request?.from_mailbox ?? (mailboxes.includes("info@aashishlogistics.com") ? "info@aashishlogistics.com" : mailboxes[0] ?? ""));
   const [picked, setPicked] = useState<Set<string>>(new Set(request?.partner_ids ?? []));
-  const [role, setRole] = useState<PartnerRole | "all">("all");
-  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const shown = partners
-    .filter((p) => role === "all" || p.role === role)
-    .filter((p) => {
-      const n = query.trim().toLowerCase();
-      return !n || [p.name, p.organisation, ...p.emails, ...p.tags].some((v) => String(v).toLowerCase().includes(n));
-    });
   const toggle = (id: string) =>
     setPicked((s) => {
       const n = new Set(s);
@@ -636,58 +637,27 @@ function Editor({
       <div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2">
           <p className="text-[12px] text-text-secondary">
-            Partners to ask <span className="text-text-muted">· {picked.size} picked</span>
+            Partners to ask, by country <span className="text-text-muted">· {picked.size} picked</span>
           </p>
-          <div className="relative ml-auto min-w-[200px] max-w-xs flex-1">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Company, contact, tag…" className="h-8 w-full pl-7 text-[12px]" />
-          </div>
-        </div>
-        <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          {(["all", ...PARTNER_ROLES] as Array<PartnerRole | "all">).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRole(r)}
-              className={`h-7 rounded-full border px-2.5 text-[12px] ${role === r ? "border-brand bg-brand text-white" : "border-border bg-surface-1 text-text-secondary hover:text-text-primary"}`}
-            >
-              {r === "all" ? "All" : PARTNER_ROLE_LABEL[r]}
+          {picked.size > 0 && (
+            <button type="button" className="ml-auto text-[12px] text-text-muted hover:text-text-primary" onClick={() => setPicked(new Set())}>
+              Clear
             </button>
-          ))}
-          <button
-            type="button"
-            className="ml-auto text-[12px] text-text-accent hover:underline"
-            onClick={() => setPicked((s) => new Set([...s, ...shown.filter((p) => p.emails.length).map((p) => p.id)]))}
-          >
-            Pick all shown
-          </button>
-          <button type="button" className="text-[12px] text-text-muted hover:text-text-primary" onClick={() => setPicked(new Set())}>
-            Clear
-          </button>
+          )}
         </div>
         {!partners.length ? (
           <p className="text-[12px] text-text-muted">
             No partners yet. <Link to="/partners/new" className="text-text-accent underline">Add them on the directory</Link> first.
           </p>
         ) : (
-          <div className="max-h-72 divide-y divide-border overflow-y-auto rounded-lg border border-border">
-            {shown.map((p) => {
-              const can = p.emails.length > 0;
-              return (
-                <label key={p.id} className={`flex items-start gap-3 px-3 py-2 text-[12px] ${can ? "cursor-pointer hover:bg-surface-2" : "opacity-60"}`}>
-                  {/* No address: cannot be added, but one already on the request can be taken off. */}
-                  <input type="checkbox" className="mt-0.5" disabled={!can && !picked.has(p.id)} checked={picked.has(p.id)} onChange={() => toggle(p.id)} />
-                  <span className="min-w-0">
-                    <span className="font-medium text-text-primary">{p.organisation || p.name}</span>
-                    {p.organisation && p.name && <span className="text-text-secondary"> · {p.name}</span>}
-                    <span className="block text-text-muted">{can ? p.emails.join(", ") : "No email address — add one on the directory"}</span>
-                  </span>
-                  <span className="ml-auto shrink-0 text-[11px] text-text-muted">{PARTNER_ROLE_LABEL[p.role]}</span>
-                </label>
-              );
-            })}
-            {!shown.length && <p className="px-3 py-3 text-[12px] text-text-muted">Nobody matches that.</p>}
-          </div>
+          <CountryPartnerPicker
+            partners={partners}
+            isPicked={(id) => picked.has(id)}
+            onToggle={(p) => toggle(p.id)}
+            onPickAll={(ps) => setPicked((s) => new Set([...s, ...ps.map((p) => p.id)]))}
+            disabled={busy}
+            history={(inCountry, country) => <SundaySendsTo partners={inCountry} country={country} sends={sends} requests={requests} />}
+          />
         )}
       </div>
 
@@ -705,6 +675,67 @@ function Editor({
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * What a country's partners have had from the Sunday requests (116): each
+ * mail to them, Sunday's or sent by hand, newest first, with which request it
+ * was and whether it went. Tests (to the sender only) are left out.
+ */
+function SundaySendsTo({
+  partners,
+  country,
+  sends,
+  requests,
+}: {
+  partners: Partner[];
+  country: string;
+  sends: LiveRateSend[];
+  requests: LiveRateRequest[];
+}) {
+  const [all, setAll] = useState(false);
+  const byId = new Map(partners.map((p) => [p.id, p]));
+  const service = new Map(requests.map((r) => [r.id, r.service]));
+  const theirs = sends.filter((s) => s.kind !== "test" && s.partner_id && byId.has(s.partner_id));
+  const shown = all ? theirs : theirs.slice(0, 5);
+
+  return (
+    <div>
+      <p className="text-[11.5px] font-medium text-text-secondary">Sent to partners in {country || "this list"}</p>
+      {!theirs.length ? (
+        <p className="mt-1 text-[11.5px] text-text-muted">No Sunday request has gone to them yet.</p>
+      ) : (
+        <>
+          <ul className="mt-1 divide-y divide-border">
+            {shown.map((s) => {
+              const p = byId.get(s.partner_id ?? "");
+              return (
+                <li key={s.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1.5 text-[11.5px]">
+                  <span className="text-text-muted">{formatDate(s.created_at, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}</span>
+                  <span className="font-medium text-text-primary">{p?.organisation || p?.name || s.to_addresses.join(", ")}</span>
+                  <span className="text-text-secondary">{s.kind === "weekly" ? "Sunday" : "By hand"}</span>
+                  <span className={s.status === "sent" ? "text-text-success" : s.status === "failed" ? "text-text-danger" : "text-text-muted"}>
+                    {s.status === "sent" ? "sent" : s.status === "failed" ? `not sent: ${s.error ?? ""}` : "sending"}
+                  </span>
+                  <span className="w-full truncate text-text-muted">
+                    {s.subject}
+                    {/* The request's name, unless the subject already carries it (the Sunday mail's does). */}
+                    {s.request_id && service.get(s.request_id) && !s.subject.includes(service.get(s.request_id)!) ? ` · ${service.get(s.request_id)}` : ""} · from{" "}
+                    {s.from_mailbox}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {theirs.length > shown.length && (
+            <button type="button" onClick={() => setAll(true)} className="mt-1 text-[11.5px] text-text-accent hover:underline">
+              Show all {theirs.length}
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -328,6 +328,22 @@ export async function recentRateRequests(limit = 40): Promise<PartnerQuote[]> {
   return (data ?? []) as PartnerQuote[];
 }
 
+/**
+ * The rate requests sent to these partners, from the case file or Live rates,
+ * newest first: what a country's partners have already been asked (116).
+ */
+export async function rateRequestsTo(partnerIds: string[], limit = 30): Promise<PartnerQuote[]> {
+  if (!partnerIds.length) return [];
+  const { data, error } = await supabase
+    .from("partner_quotes")
+    .select("*")
+    .in("partner_id", partnerIds)
+    .order("sent_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as PartnerQuote[];
+}
+
 export interface FoundReply {
   quote: PartnerQuote;
   message: MailMessage;
