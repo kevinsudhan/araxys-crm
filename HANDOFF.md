@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **116** (not yet applied, §9), so the next one is `117-….sql`.
+  migration filename (§6). The last migration is **116**, so the next one is `117-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -245,7 +245,7 @@ transaction).
 | `113` | **Rates find the enquiry's lane.** `rates_for` matched places by exact text, so a rate for "Chennai" never met an enquiry reading "Chennai (MAA)". `place_words` / `place_matches`: every word of one place is among the other's, either way round ("Dubai" matches "Jebel Ali / Dubai, UAE"; "MAA" matches "Chennai (MAA)"; "Chennai" does not match "Kochi"). Ranking unchanged. Checked rolled back |
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
-| `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). **Written 1 Oct, not yet applied** (§9) |
+| `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
 
 **Everything on an enquiry or a job is live (084).** Whoever has a page open sees another
 person's change as it is made.
@@ -855,11 +855,6 @@ before acting on it.
 
 ### Waiting on the user, most urgent first
 
-**Before the next deploy: apply migration 116** (`node supabase-v2/run-sql.mjs 116-partner-country.sql`,
-after its rolled-back dry run). The partner form now saves a `country`, which the live table does not
-have until 116 runs: deployed first, adding a partner fails. Written 1 Oct and not applied (the session
-was not cleared to write to production). Take this line out once it is.
-
 1. **Make both GitHub repositories private** (`logistics-v3`, `araxys-crm`). Still public on
    1 Oct: an anonymous clone of logistics-v3 worked. The history holds no working secret
    (scanned on 25 Sep and again on 1 Oct: only the shortened prefixes quoted in §1), but it
@@ -924,6 +919,8 @@ was not cleared to write to production). Take this line out once it is.
   customer "kevin imports" (C0004), the user's own test address. Remove them after a backup, or
   keep them as the test case.
 - Older intake mails are still waiting on the Enquiries page.
+- The partners on the directory before 116 (4 on 1 Oct, 2 of them active) have no country, so Live
+  rates lists them under "Country not set". Give each one its country on the directory (Edit).
 
 ### Not done yet
 
@@ -1021,15 +1018,15 @@ Complaints placeholder went.
   commits from the 1 Oct revision: September dates in the quotation mail, the voice era's
   leftover code and the Complaints placeholder removed, and this file. Pushed to
   `logistics-v3/main`. The live build is in maintenance (§0), so only `/q` and `/t` show any of
-  it. After them, **partners by country** (116, §8): committed in `araxys-crm-v2` and not
-  pushed, because it must not deploy before 116 is applied (§9).
-- **Migrations:** the last in the repository is `116-partner-country.sql` (not yet applied), and
-  the next is `117-….sql`. Each row in §4 records its rolled-back dry run, and this file has
-  treated every one through 115 as applied; the 1 Oct revision could not re-read the live
-  catalogue to confirm 115. Before relying on its columns: `select column_name from
+  it. After them, **partners by country** (116, §8), pushed once 116 was applied.
+- **Migrations:** the last in the repository is `116-partner-country.sql`, applied 1 Oct, and the
+  next is `117-….sql`. Each row in §4 records its rolled-back dry run. On 1 Oct, after 116, the
+  audit's schema-drift check found every table, column and function the code names live (no
+  drift), 115's included. Before relying on its columns: `select column_name from
   information_schema.columns where table_name = 'quote_lines'` should list `gst_rate`.
 - **Checked at the head (1 Oct):** `npm test` (60 suites) passing, `npm run build` clean with
-  its bundle secret scan, `node scripts/audit/routes.mjs` with no dead links. The full
+  its bundle secret scan, `node scripts/audit/routes.mjs` with no dead links, and
+  `node scripts/audit/schema-drift.mjs` with no drift. The full
   `npm run audit` was last run on 28 Sep.
 - Nothing temporary is committed: no `__Preview` routes, no `src/__audit.ts` harness, no
   tokens.
