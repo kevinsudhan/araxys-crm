@@ -13,6 +13,8 @@
  * line on screen before anything is saved.
  * ---------------------------------------------------------------------------
  */
+import { formatDate } from "./dates";
+
 export type Section = "freight" | "ex_works" | "destination" | "other";
 
 /** The groups in the order the desk sets them down, with what each is called (115). */
@@ -293,9 +295,9 @@ export function totalInInr(lines: PastedLine[], roe: Record<string, number>): nu
   return round2(t);
 }
 
+/** formatDate, not toLocaleDateString: the locale writes September as "Sept". */
 function longDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  return formatDate(iso, { day: "numeric", month: "short", year: "numeric" }) || iso;
 }
 
 /**

@@ -88,6 +88,7 @@ is("accept opens the page asking for the shipper", html.includes('href="https://
   const a = quotationHtml({ ...base, acceptUrl: "https://x/q/abc", sentAt: at });
   const b = quotationHtml({ ...base, acceptUrl: "https://x/q/abc", sentAt: new Date("2026-10-01T09:41:00Z") });
   is("the send time, in India time", sentLine(at), "1 Oct 2026, 3:05 pm");
+  is("September is Sep, not the locale's Sept", sentLine(new Date("2026-09-15T09:35:00Z")), "15 Sep 2026, 3:05 pm");
   is("under the buttons, in the same block", a.includes("Sent 1 Oct 2026, 3:05 pm. Accepting ALG09005-26 asks"), true);
   is("and on the footer's last line", a.includes(">Quotation ALG09005-26 · sent 1 Oct 2026, 3:05 pm</p>"), true);
   is("two sends differ there", [a.includes("3:05 pm"), b.includes("3:11 pm"), b.includes("3:05 pm")], [true, true, false]);

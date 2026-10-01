@@ -55,6 +55,7 @@ is("then the other charges", lines.includes("Other Charges"), true);
 is("their total by currency", lines.includes("Other charges total: INR 1,500 + USD 2,300 + AED 450"), true);
 is("the whole in rupees with its rates", lines.find((l) => l.startsWith("Total:")), "Total: INR 2,12,005 (USD at 84, AED at 22.90)");
 is("validity in words", lines.includes("Valid until 14 Oct 2026."), true);
+is("September is Sep, not the locale's Sept", quoteText({ ...q, validUntil: "2026-09-30" }, "Q").includes("Valid until 30 Sep 2026."), true);
 is("terms as a list", lines.slice(-2), ["Terms", "• Rates subject to space availability."]);
 is("without every rate, the total stays by currency", quoteText(q, "Q").split("\n").find((l) => l.startsWith("Total:")), "Total: INR 8,500 + USD 2,300 + AED 450");
 

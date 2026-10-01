@@ -4,6 +4,7 @@ import type { QuoteTerm } from "../services/quoteApproval";
 import type { ChargesLayout } from "./pastedQuote";
 import { roeText, rupees, type AirTable } from "./airQuote";
 import { isRevised, quotationNumber, quotationTitle, revisionOf } from "./quoteRevision";
+import { formatDate } from "./dates";
 import {
   ACCENT,
   INK,
@@ -121,9 +122,8 @@ export function sendSignature(at: Date): string {
 }
 
 export function sentLine(at: Date): string {
-  const d = at.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
-  const t = at.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }).toLowerCase();
-  return `${d}, ${t}`;
+  // formatDate, not toLocaleDateString: the locale writes September as "Sept".
+  return formatDate(at, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
 }
 
 /** The subject line, carrying the reference so the reply files itself. */

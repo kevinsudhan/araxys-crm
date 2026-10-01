@@ -35,6 +35,8 @@ const now = local(2026, 9, 29, 10);
 is("today", snoozeLabel(local(2026, 9, 29, 17), now).startsWith("Today"), true);
 is("tomorrow", snoozeLabel(local(2026, 9, 30, 8), now).startsWith("Tomorrow"), true);
 is("this week, by day", /^Sat /.test(snoozeLabel(local(2026, 10, 3, 8), now)), true);
+is("the time", snoozeLabel(local(2026, 9, 29, 17), now), "Today 5:00 pm");
+is("further off, by date: Sep, not the locale's Sept", snoozeLabel(local(2026, 9, 10, 8), local(2026, 9, 1, 10)), "10 Sep 8:00 am");
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

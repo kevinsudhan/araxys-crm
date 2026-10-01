@@ -3,6 +3,8 @@
  * later today (three hours on, on the hour), tomorrow morning, the weekend
  * (Monday to Friday only) and next week — each at 8 in the morning.
  */
+import { formatDate } from "./dates";
+
 export interface SnoozeChoice {
   key: "later" | "tomorrow" | "weekend" | "nextWeek";
   label: string;
@@ -30,12 +32,12 @@ export function snoozeChoices(now: Date): SnoozeChoice[] {
   return out;
 }
 
-/** "Tue 8:00 am", or "Today 5:00 pm" / "Tomorrow 8:00 am" when it is. */
+/** "Tue 8:00 am", or "Today 5:00 pm" / "Tomorrow 8:00 am" when it is. Names from lib/dates, never the locale ("Sept"). */
 export function snoozeLabel(when: Date, now = new Date()): string {
-  const time = when.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+  const time = formatDate(when, { hour: "numeric", minute: "2-digit", hour12: true });
   const days = Math.round((at(when, 0, 0).getTime() - at(now, 0, 0).getTime()) / 86_400_000);
   if (days === 0) return `Today ${time}`;
   if (days === 1) return `Tomorrow ${time}`;
-  if (days > 1 && days < 7) return `${when.toLocaleDateString("en-IN", { weekday: "short" })} ${time}`;
-  return `${when.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} ${time}`;
+  if (days > 1 && days < 7) return `${formatDate(when, { weekday: "short" })} ${time}`;
+  return `${formatDate(when, { day: "numeric", month: "short" })} ${time}`;
 }
