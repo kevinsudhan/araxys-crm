@@ -1,5 +1,5 @@
 import { brandImages, imageType, withContentIds } from "../../src/lib/inlineBrand";
-import { quotationHtml, quotationMessage, quotationSubject } from "../../src/lib/quotationMail";
+import { quotationHtml, quotationMessage, quotationSubject, sentLine } from "../../src/lib/quotationMail";
 import { quotationFileName, quotationNumber, quotationTitle } from "../../src/lib/quoteRevision";
 import { shipperFrom, shipperText } from "../../src/lib/shipperText";
 import { confirmationHtml, confirmationMessage, confirmationSubject } from "../../src/lib/confirmationMail";
@@ -83,15 +83,14 @@ is("back in the box to correct, without saying the email twice", shipperText({ n
 is("accept only with a link", [html.includes("Accept this quotation"), quotationHtml(base).includes("Accept this quotation")], [true, false]);
 is("accept opens the page asking for the shipper", html.includes('href="https://x/q/abc?accept=1"'), true);
 {
-  // Gmail folds what a mail repeats from an earlier one in the thread: two sends of the same quotation must differ after the header.
-  const t1 = { ...base, terms: [{ scope: "general", text: "Rates subject to space." }], acceptUrl: "https://x/q/abc" };
-  const a = quotationHtml({ ...t1, mark: "mk1" });
-  const b = quotationHtml({ ...t1, mark: "mk2" });
-  const count = (s: string, t: string) => s.split(t).length - 1;
-  is("each send carries its own mark, in the charges, buttons, terms, sign-off and footer", [count(a, "mk1"), a.includes("mk2"), count(b, "mk2")], [6, false, 6]);
-  is("never in the first lines an inbox preview reads", a.indexOf("mk1") > a.indexOf("Prepared for".toUpperCase()) || a.indexOf("mk1") > a.indexOf("kevin imports"), true);
-  is("hidden", a.includes('display:none;font-size:0;line-height:0;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">&#8203;mk1</span>'), true);
-  is("one is made when none is given", quotationHtml(t1) !== quotationHtml(t1), true);
+  // Gmail folds what a mail in a thread repeats word for word: each send says, visibly, when it was sent.
+  const at = new Date("2026-10-01T09:35:00Z");
+  const a = quotationHtml({ ...base, acceptUrl: "https://x/q/abc", sentAt: at });
+  const b = quotationHtml({ ...base, acceptUrl: "https://x/q/abc", sentAt: new Date("2026-10-01T09:41:00Z") });
+  is("the send time, in India time", sentLine(at), "1 Oct 2026, 3:05 pm");
+  is("under the buttons, in the same block", a.includes("Sent 1 Oct 2026, 3:05 pm. Accepting ALG09005-26 asks"), true);
+  is("and on the footer's last line", a.includes(">Quotation ALG09005-26 · sent 1 Oct 2026, 3:05 pm</p>"), true);
+  is("two sends differ there", [a.includes("3:05 pm"), b.includes("3:11 pm"), b.includes("3:05 pm")], [true, true, false]);
 }
 const v2 = { ...base, quote: { ...quote, version: 2 } as Quote };
 const revised = quotationHtml({ ...v2, message: quotationMessage(v2) });

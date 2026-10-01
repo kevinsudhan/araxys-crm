@@ -145,26 +145,12 @@ function fact(label: string, value: string): string {
   </td>`;
 }
 
-/**
- * A mark no two sends share, hidden in a letter's later blocks.
- *
- * Gmail folds whatever a mail in a thread repeats from an earlier one behind
- * "•••" — and a quotation sent again, or revised, in the customer's thread
- * repeats its buttons, terms, sign-off and footer, so the Accept button was
- * folded away with them (1 Oct). Unique text in each of those blocks leaves
- * Gmail nothing to fold. Kept out of the first lines, which inbox previews
- * read.
- */
-export const sendMark = (): string => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-export const hiddenMark = (mark: string | null | undefined): string =>
-  mark ? `<span style="display:none;font-size:0;line-height:0;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">&#8203;${esc(mark)}</span>` : "";
-
 /** Signed by the sender, for the company. */
-export const signOff = (fromName: string | undefined, company: string | undefined, mark?: string) => `<tr><td style="padding:26px 24px 26px;">
+export const signOff = (fromName: string | undefined, company: string | undefined) => `<tr><td style="padding:26px 24px 26px;">
         <p style="margin:0;font-size:13.5px;line-height:1.6;color:${INK};">
           Warm regards,<br>
           ${fromName ? `<strong style="color:${NAVY};">${esc(fromName)}</strong><br>` : ""}
-          <span style="color:${MUTED};">${esc(company || COMPANY.legalName)}</span>${hiddenMark(mark)}
+          <span style="color:${MUTED};">${esc(company || COMPANY.legalName)}</span>
         </p>
       </td></tr>`;
 
@@ -178,7 +164,14 @@ export const signOff = (fromName: string | undefined, company: string | undefine
  * CONFIRMATION") steps down a size, so its longest word still fits a 320px
  * phone.
  */
-export function letter(i: { logoSrc?: string | null; title: string; meta: Array<[string, string]>; sections: string[]; mark?: string }): string {
+export function letter(i: {
+  logoSrc?: string | null;
+  title: string;
+  meta: Array<[string, string]>;
+  sections: string[];
+  /** A last line under the registered details, as plain text ("Quotation … · sent …"). */
+  stamp?: string;
+}): string {
   // width:100% capped at 300, not a fixed 300px: a fixed width sets the cell's minimum and pushes a
   // narrow phone sideways. Outlook ignores the CSS and sizes it by the width attribute.
   const brand = i.logoSrc
@@ -215,11 +208,12 @@ export function letter(i: { logoSrc?: string | null; title: string; meta: Array<
       ${i.sections.filter(Boolean).join("\n\n      ")}
 
       <tr><td bgcolor="${SOFT}" style="background:${SOFT};border-top:1px solid ${LINE};padding:18px 24px 20px;border-radius:0 0 10px 10px;">
-        <p style="margin:0 0 4px;font-size:12.5px;font-weight:700;color:${NAVY};">${esc(COMPANY.legalName)}${hiddenMark(i.mark)}</p>
+        <p style="margin:0 0 4px;font-size:12.5px;font-weight:700;color:${NAVY};">${esc(COMPANY.legalName)}</p>
         <p style="margin:0;font-size:11.5px;line-height:1.6;color:${MUTED};">
           ${COMPANY.address.map(esc).join(", ")}<br>
           Tel ${esc(COMPANY.phone)} &nbsp;&middot;&nbsp; <a href="https://${esc(COMPANY.website)}" style="color:${ACCENT};text-decoration:none;">${esc(COMPANY.website)}</a> &nbsp;&middot;&nbsp; GSTIN ${esc(COMPANY.gstin)}
-        </p>
+        </p>${i.stamp ? `
+        <p style="margin:6px 0 0;font-size:11px;line-height:1.5;color:${MUTED};">${esc(i.stamp)}</p>` : ""}
       </td></tr>
 
     </table>
