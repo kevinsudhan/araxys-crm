@@ -168,6 +168,18 @@ export default function AcceptancePanel({
           )
         )}
 
+        {/* The shipper they gave on the page after accepting (114). */}
+        {evidence?.shipper && (
+          <div className="mt-2 rounded-lg border border-border bg-surface-1 px-3 py-2 text-[12px] text-text-secondary">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Shipper, as the customer gave it</p>
+            <p className="mt-0.5 font-medium text-text-primary">{evidence.shipper.name}</p>
+            <p className="whitespace-pre-line">{evidence.shipper.address}</p>
+            {(evidence.shipper.contact || evidence.shipper.email) && (
+              <p className="text-text-muted">{[evidence.shipper.contact, evidence.shipper.email].filter(Boolean).join(" · ")}</p>
+            )}
+          </div>
+        )}
+
         {/* Their own words, where they left any. */}
         {evidence?.accepted_note && (
           <p className="mt-2 rounded-lg bg-surface-2 px-3 py-2 text-[12px] italic text-text-secondary">

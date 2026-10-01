@@ -29,10 +29,22 @@ export type QuoteLinkState =
   | "declined"
   | "unknown";
 
+/** The shipper as the customer gave it on the page, after accepting (114). */
+export interface ShipperGiven {
+  name: string;
+  address: string;
+  contact: string | null;
+  email: string | null;
+}
+
 export interface PublicQuote {
   state: QuoteLinkState;
   accepted_at: string | null;
   accepted_name: string | null;
+  /** Their latest "revise this quote" (114). */
+  revision_requested_at?: string | null;
+  revision_note?: string | null;
+  shipper?: ShipperGiven | null;
   reference: string;
   version: number;
   issued_on: string;
@@ -75,6 +87,33 @@ export async function acceptByToken(
     p_token: token,
     p_name: name || null,
     p_note: note || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { ok: boolean; reason: string };
+}
+
+/**
+ * "Revise this quote" (114): what they want changed. Also on a quotation that
+ * has expired — asking for a fresh one is the same request.
+ */
+export async function requestRevisionByToken(token: string, note: string, name: string): Promise<{ ok: boolean; reason: string }> {
+  const { data, error } = await supabase.rpc("request_revision_by_token", {
+    p_token: token,
+    p_note: note,
+    p_name: name || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { ok: boolean; reason: string };
+}
+
+/** The shipper, after the booking is confirmed (114). */
+export async function shipperByToken(token: string, s: ShipperGiven): Promise<{ ok: boolean; reason: string }> {
+  const { data, error } = await supabase.rpc("shipper_by_token", {
+    p_token: token,
+    p_name: s.name,
+    p_address: s.address,
+    p_contact: s.contact || null,
+    p_email: s.email || null,
   });
   if (error) throw new Error(error.message);
   return data as { ok: boolean; reason: string };
@@ -139,6 +178,44 @@ export interface AcceptanceEvidence {
   accepted_name: string | null;
   /** Anything they added — "please proceed", "can we bring it forward". */
   accepted_note: string | null;
+  /** The shipper they gave after accepting (114), and when. */
+  shipper: ShipperGiven | null;
+  shipper_at: string | null;
+}
+
+export interface RevisionRequest {
+  quote_id: string;
+  version: number;
+  at: string;
+  note: string;
+  name: string | null;
+}
+
+/**
+ * The customer's latest "revise this quote" on this enquiry (114), while no
+ * quotation has been sent since it — once a new version has gone, it is
+ * answered.
+ */
+export async function openRevisionRequest(ref: string): Promise<RevisionRequest | null> {
+  const { data, error } = await supabase
+    .from("quotes")
+    .select("id, version, sent_at, quote_links(revision_requested_at, revision_note, revision_name)")
+    .eq("enquiry_ref", ref.toUpperCase());
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as Array<{
+    id: string;
+    version: number;
+    sent_at: string | null;
+    quote_links: Array<{ revision_requested_at: string | null; revision_note: string | null; revision_name: string | null }>;
+  }>;
+  let best: RevisionRequest | null = null;
+  for (const q of rows)
+    for (const l of q.quote_links ?? [])
+      if (l.revision_requested_at && l.revision_note && (!best || l.revision_requested_at > best.at))
+        best = { quote_id: q.id, version: q.version, at: l.revision_requested_at, note: l.revision_note, name: l.revision_name };
+  if (!best) return null;
+  const answered = rows.some((q) => q.sent_at && q.sent_at > best!.at);
+  return answered ? null : best;
 }
 
 /**
@@ -164,7 +241,7 @@ export interface AcceptanceEvidence {
 export async function acceptanceEvidence(quoteId: string): Promise<AcceptanceEvidence | null> {
   const { data, error } = await supabase
     .from("quote_links")
-    .select("accepted_at, accepted_name, accepted_note")
+    .select("accepted_at, accepted_name, accepted_note, shipper, shipper_at")
     .eq("quote_id", quoteId)
     .not("accepted_at", "is", null)
     .order("accepted_at", { ascending: false })

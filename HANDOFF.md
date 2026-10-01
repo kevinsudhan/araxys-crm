@@ -19,7 +19,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (58 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **113**, so the next one is `114-….sql`.
+  migration filename (§6). The last migration is **114**, so the next one is `115-….sql`.
 - **Where things stand:** the code is at the head in §11, everything is pushed and live, and
   §9 lists what is open.
 - **How the user works:** they want short, direct replies and a push after each feature.
@@ -170,9 +170,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 105 migrations
+## 4. Data model — 106 migrations
 
-`supabase-v2/001…113`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…114`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -198,6 +198,7 @@ transaction).
 | `090` | the console's cargo manifest sent: `consoles.manifest_sent_at`, `manifest_sent_to`, `manifest_bills`, `manifest_provisional` |
 | `091` | self-approval of a quotation: `quotes.self_approved`, `self_approval_reason`, `self_approval_reviewed_at/by`, `self_approval_review_note`; `self_approve_quote(id, reason)` (reason ≥ 10 chars, not over a rejection) and `review_self_approval(id, withdraw, note)` (admins; withdraw only while unsent); `require_approval_to_send` lets the first through by a transaction-local flag `app.self_approving` |
 | `092` | **the anonymous key reaches nothing but the customer's two pages.** Revoked from `anon` on every public table, view and sequence. Revoked from `public, anon` on every function except `quote_by_token`, `accept_quote_by_token`, `shipment_tracking`, `shipment_track_points` and `shipment_customs_public`; `authenticated` keeps what it had, granted by name. Default privileges changed so new objects are closed too |
+| `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `113` | **Rates find the enquiry's lane.** `rates_for` matched places by exact text, so a rate for "Chennai" never met an enquiry reading "Chennai (MAA)". `place_words` / `place_matches`: every word of one place is among the other's, either way round ("Dubai" matches "Jebel Ali / Dubai, UAE"; "MAA" matches "Chennai (MAA)"; "Chennai" does not match "Kochi"). Ranking unchanged. Checked rolled back |
 | `112` | **What can go on a console.** `attach_to_console` took an air job onto a sea console, an import onto an export console, cancelled and signed-off jobs; a move between consoles was logged as a plain "Put on". Now sea only, directions must agree (cross-trade takes either), not cancelled or signed off, the same console again is a no-op, and a move says "Moved from X to Y" (the old console's master bill leaves with it). Checked rolled back |
 | `111` | **Revert only an untouched booking.** `revert_shipment` deletes the shipment, and everything cascades with it (milestones, receipts, pickups, customs, issued house bills) while vendor `bills` went to no job (ON DELETE SET NULL). Now refused when signed off, cancelled, past booked, with a bill recorded, a house bill or HAWB issued, cargo received into the warehouse, or a pickup/delivery done — cancel instead. Checked rolled back |
@@ -679,6 +680,18 @@ the air HAWB tab no longer offers a console, and the menu lists only consoles go
 the rate master never matched the reader's place names (113); a schedule's cut-off after its ETD
 was accepted by the form and the Excel import (`scheduleDateProblem`, tested in
 `schedules.test.ts`). The test used two `sailing_schedule_seq` numbers; the sequence was set back.
+
+**Quotation page: revise, booking confirmed, shipper (114, 1 Oct).** The customer's page (`/q/:token`,
+`pages/QuoteAccept.tsx`) has **Accept this quotation** and **Revise this quote** side by side; revising
+takes what they want changed. Accepting reads **Booking confirmed**, and below it asks for the
+shipper (company, address, contact, email), shown back once given with "Correct it". An expired
+quotation offers "Ask for a new quotation". In the CRM the quotation panel shows the open revision
+request until a newer version is sent (`openRevisionRequest`), and the acceptance panel shows the
+shipper given. The mail's line under the button now says it can be accepted or revised. Both pages
+stay reachable in maintenance mode (App.tsx).
+**Also 1 Oct:** `replyTracked` (Mail) put attachments into the PATCH of the reply draft, which Graph
+ignores — every reply (a quotation in the customer's thread included) went without its files and
+its inline logo. Each file is now posted onto the draft, as forwards already were.
 
 ## 9. Open items
 

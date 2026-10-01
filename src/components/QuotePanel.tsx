@@ -16,6 +16,7 @@ import {
 import QuoteCharges from "./QuoteCharges";
 import { LINE_CURRENCIES } from "../services/charges";
 import { formatDate } from "../lib/dates";
+import { openRevisionRequest, type RevisionRequest } from "../services/publicQuote";
 import { missingRate } from "../lib/quoteChecks";
 import QuoteSend from "./QuoteSend";
 import SchedulePicker from "./SchedulePicker";
@@ -76,6 +77,22 @@ export default function QuotePanel({
   const live = quotes.find((q) => q.status === "sent" || q.status === "draft") ?? null;
   const accepted = quotes.find((q) => q.status === "accepted") ?? null;
 
+  /*
+    The customer's "revise this quote" from the quotation page (114), until a
+    newer quotation has gone to them. Read again whenever the quotations move.
+  */
+  const [revision, setRevision] = useState<RevisionRequest | null>(null);
+  const quotesKey = quotes.map((q) => `${q.id}:${q.status}:${q.sent_at ?? ""}`).join(",");
+  useEffect(() => {
+    let stale = false;
+    openRevisionRequest(enquiry.ref)
+      .then((r) => !stale && setRevision(r))
+      .catch(() => !stale && setRevision(null));
+    return () => {
+      stale = true;
+    };
+  }, [enquiry.ref, quotesKey]);
+
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
     setError(null);
@@ -115,6 +132,17 @@ export default function QuotePanel({
           the quotation prints those as TBD. Fill them in above if the customer has given them.
         </p>
       ) : null}
+
+      {revision && !accepted && (
+        <div role="alert" className="mb-3 rounded-lg border border-text-warning/30 bg-bg-warning px-3 py-2.5 text-[12px] text-text-warning">
+          <p className="font-medium">
+            The customer asked for a revision of v{revision.version}
+            {revision.name ? ` (${revision.name})` : ""} on {formatDate(revision.at, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+          </p>
+          <p className="mt-1 whitespace-pre-line text-text-primary">&ldquo;{revision.note}&rdquo;</p>
+          <p className="mt-1 text-[11.5px] opacity-80">Revise the quote and send the new version; this note clears once it has gone.</p>
+        </div>
+      )}
 
       {/* ---- outstanding quote ---- */}
       {live && !accepted && (

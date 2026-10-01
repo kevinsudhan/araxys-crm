@@ -165,7 +165,7 @@ export function quotationHtml(i: QuotationMailInput): string {
             <a href="${esc(i.acceptUrl)}" style="display:inline-block;padding:13px 24px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Accept this quotation &rarr;</a>
           </td>
         </tr></table>
-        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Opens a page showing this quotation, where you can confirm. Replying to this email works just as well.</p>`,
+        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Opens a page showing this quotation, where you can accept it or ask for a revision. Replying to this email works just as well.</p>`,
         24
       )
     : "";

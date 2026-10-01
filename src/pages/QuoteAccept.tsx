@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { AlertCircle, Check, Loader2 } from "lucide-react";
+import { AlertCircle, Check, Loader2, PencilLine, Truck } from "lucide-react";
 import {
   acceptByToken,
   quoteByToken,
+  requestRevisionByToken,
+  shipperByToken,
   type PublicQuote,
   type QuoteLinkState,
+  type ShipperGiven,
 } from "../services/publicQuote";
 import { SectionSkeleton } from "../components/Loading";
 import { COMPANY, MAIL_LOGO_PATH } from "../lib/company";
@@ -48,6 +51,10 @@ export default function QuoteAccept() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  /** "Revise this quote" open, and what they want changed (114). */
+  const [revising, setRevising] = useState(false);
+  const [change, setChange] = useState("");
+  const [said, setSaid] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,6 +84,25 @@ export default function QuoteAccept() {
     }
   }
 
+  async function revise() {
+    if (change.trim().length < 3) return setSaid("Say what you would like changed.");
+    setBusy(true);
+    setSaid(null);
+    try {
+      const r = await requestRevisionByToken(token, change.trim(), name.trim());
+      if (!r.ok) setSaid(r.reason === "empty" ? "Say what you would like changed." : "This quotation can no longer be revised here. Please reply to the email.");
+      else {
+        setRevising(false);
+        setChange("");
+        await load();
+      }
+    } catch {
+      setSaid("That did not go through. Please try again, or reply to the email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#eef2f7] px-4 py-8 text-[#1f2937]">
       <div className="mx-auto w-full max-w-[640px] overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-[0_12px_32px_-18px_rgba(15,33,58,0.35)]">
@@ -96,16 +122,23 @@ export default function QuoteAccept() {
               body="The link may be incomplete. Please reply to the email it came from and we will send it again."
             />
           ) : quote.state !== "open" ? (
-            <Closed quote={quote} />
+            <Closed quote={quote} token={token} onChanged={load} />
           ) : (
             <>
               <Summary quote={quote} />
 
+              {quote.revision_requested_at && quote.revision_note && (
+                <div className="mt-6 rounded-lg border border-[#fcd34d] bg-[#fffbeb] px-4 py-3 text-[13px] text-[#92400e]">
+                  <p className="font-semibold">You asked for a revision on {longDate(quote.revision_requested_at)}</p>
+                  <p className="mt-1 whitespace-pre-line">&ldquo;{quote.revision_note}&rdquo;</p>
+                  <p className="mt-1 text-[12px]">We will send you a revised quotation. You can still accept this one below.</p>
+                </div>
+              )}
+
               <div className="mt-6 rounded-lg border border-[#e5e7eb] bg-[#f9fafb] p-5">
-                <p className="text-[14px] font-semibold">Accept this quotation</p>
+                <p className="text-[14px] font-semibold">Accept this quotation, or ask us to revise it</p>
                 <p className="mt-1 text-[13px] leading-relaxed text-[#6b7280]">
-                  Confirming here tells our team to go ahead and book. Nothing is charged at this
-                  point, and we will come back to you with the booking details.
+                  Accepting confirms the booking and our team goes ahead. Nothing is charged at this point.
                 </p>
 
                 <label className="mt-4 block">
@@ -118,32 +151,88 @@ export default function QuoteAccept() {
                   />
                 </label>
 
-                <label className="mt-3 block">
-                  <span className="mb-1 block text-[12px] text-[#6b7280]">
-                    Anything we should know
-                  </span>
-                  <textarea
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    rows={2}
-                    placeholder="Optional"
-                    className="w-full rounded-lg border border-[#d1d5db] px-3 py-2 text-[14px]"
-                  />
-                </label>
+                {!revising && (
+                  <label className="mt-3 block">
+                    <span className="mb-1 block text-[12px] text-[#6b7280]">Anything we should know</span>
+                    <textarea
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      rows={2}
+                      placeholder="Optional"
+                      className="w-full rounded-lg border border-[#d1d5db] px-3 py-2 text-[14px]"
+                    />
+                  </label>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() => void accept()}
-                  disabled={busy}
-                  className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#1670b0] text-[15px] font-semibold text-white hover:bg-[#125e94] disabled:opacity-60"
-                >
-                  {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                  Accept and proceed
-                </button>
+                {revising && (
+                  <label className="mt-3 block">
+                    <span className="mb-1 block text-[12px] text-[#6b7280]">What would you like revised?</span>
+                    <textarea
+                      value={change}
+                      onChange={(e) => setChange(e.target.value)}
+                      rows={4}
+                      autoFocus
+                      maxLength={2000}
+                      placeholder="e.g. Please quote without the pickup, we will deliver to your CFS. Can the validity run to month end?"
+                      className="w-full rounded-lg border border-[#d1d5db] px-3 py-2 text-[14px]"
+                    />
+                  </label>
+                )}
+                {said && <p className="mt-2 text-[12.5px] text-[#b91c1c]">{said}</p>}
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {!revising ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void accept()}
+                        disabled={busy}
+                        className="flex h-11 items-center justify-center gap-2 rounded-lg bg-[#1670b0] text-[15px] font-semibold text-white hover:bg-[#125e94] disabled:opacity-60"
+                      >
+                        {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                        Accept this quotation
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRevising(true);
+                          setSaid(null);
+                        }}
+                        disabled={busy}
+                        className="flex h-11 items-center justify-center gap-2 rounded-lg border border-[#1670b0] bg-white text-[15px] font-semibold text-[#1670b0] hover:bg-[#eaf3fb] disabled:opacity-60"
+                      >
+                        <PencilLine size={16} />
+                        Revise this quote
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void revise()}
+                        disabled={busy || change.trim().length < 3}
+                        className="flex h-11 items-center justify-center gap-2 rounded-lg bg-[#1670b0] text-[15px] font-semibold text-white hover:bg-[#125e94] disabled:opacity-60"
+                      >
+                        {busy ? <Loader2 size={16} className="animate-spin" /> : <PencilLine size={16} />}
+                        Send the revision request
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRevising(false);
+                          setSaid(null);
+                        }}
+                        disabled={busy}
+                        className="flex h-11 items-center justify-center rounded-lg border border-[#d1d5db] bg-white text-[14px] text-[#374151] hover:bg-[#f3f4f6]"
+                      >
+                        Back
+                      </button>
+                    </>
+                  )}
+                </div>
 
                 <p className="mt-3 text-[12px] text-[#6b7280]">
-                  Not ready to confirm? Simply reply to the email — we are happy to adjust
-                  anything.
+                  You can also simply reply to the email — we are happy to adjust anything.
                 </p>
               </div>
             </>
@@ -259,13 +348,13 @@ function Summary({ quote }: { quote: PublicQuote }) {
 }
 
 /** Every state that is not "waiting for you", said plainly. */
-function Closed({ quote }: { quote: PublicQuote }) {
+function Closed({ quote, token, onChanged }: { quote: PublicQuote; token: string; onChanged: () => Promise<void> }) {
   const copy: Record<Exclude<QuoteLinkState, "open">, { title: string; body: string }> = {
     accepted: {
-      title: "Thank you — this quotation is accepted",
-      body: `We have it${
-        quote.accepted_name ? ` from ${quote.accepted_name}` : ""
-      }${quote.accepted_at ? ` on ${longDate(quote.accepted_at)}` : ""}. Our team will be in touch with the booking details. There is nothing further for you to do here.`,
+      title: "Booking confirmed",
+      body: `Thank you${quote.accepted_name ? `, ${quote.accepted_name}` : ""} — we have your confirmation${
+        quote.accepted_at ? ` of ${longDate(quote.accepted_at)}` : ""
+      } and our team is going ahead. We will be in touch with the booking details.`,
     },
     expired: {
       title: "This quotation has expired",
@@ -289,8 +378,151 @@ function Closed({ quote }: { quote: PublicQuote }) {
   return (
     <>
       <Ended title={c.title} body={c.body} good={quote.state === "accepted"} />
+      {quote.state === "accepted" && <ShipperBox quote={quote} token={token} onChanged={onChanged} />}
+      {quote.state === "expired" && <RequoteBox quote={quote} token={token} onChanged={onChanged} />}
       {quote.state === "accepted" && <div className="mt-6 opacity-70"><Summary quote={quote} /></div>}
     </>
+  );
+}
+
+/**
+ * The shipper, asked for once the booking is confirmed (114): who we collect
+ * from and whose name goes on the bill of lading. Shown back once given, with
+ * a way to correct it.
+ */
+function ShipperBox({ quote, token, onChanged }: { quote: PublicQuote; token: string; onChanged: () => Promise<void> }) {
+  const given = quote.shipper ?? null;
+  const [editing, setEditing] = useState(!given);
+  const [s, setS] = useState<ShipperGiven>(given ?? { name: "", address: "", contact: "", email: "" });
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+
+  async function save() {
+    if (s.name.trim().length < 2 || s.address.trim().length < 5) return setSaid("Give the shipper's name and full address.");
+    setBusy(true);
+    setSaid(null);
+    try {
+      const r = await shipperByToken(token, { name: s.name.trim(), address: s.address.trim(), contact: s.contact?.trim() || null, email: s.email?.trim() || null });
+      if (!r.ok) setSaid(r.reason === "email" ? "That email address does not look right." : r.reason === "incomplete" ? "Give the shipper's name and full address." : "That did not go through. Please reply to the email instead.");
+      else {
+        setEditing(false);
+        await onChanged();
+      }
+    } catch {
+      setSaid("That did not go through. Please try again, or reply to the email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field = "w-full rounded-lg border border-[#d1d5db] px-3 text-[14px]";
+  return (
+    <div className="mt-2 rounded-lg border border-[#e5e7eb] bg-[#f9fafb] p-5">
+      <p className="flex items-center gap-2 text-[14px] font-semibold">
+        <Truck size={16} className="text-[#1670b0]" /> The shipper
+      </p>
+      {!editing && given ? (
+        <>
+          <p className="mt-1 text-[12.5px] text-[#0f6e56]">Received — thank you.</p>
+          <div className="mt-2 text-[13.5px] leading-relaxed">
+            <p className="font-semibold">{given.name}</p>
+            <p className="whitespace-pre-line text-[#374151]">{given.address}</p>
+            {(given.contact || given.email) && <p className="text-[#6b7280]">{[given.contact, given.email].filter(Boolean).join(" · ")}</p>}
+          </div>
+          <button type="button" onClick={() => setEditing(true)} className="mt-3 text-[13px] font-medium text-[#1670b0] hover:underline">
+            Correct it
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="mt-1 text-[13px] leading-relaxed text-[#6b7280]">
+            Who we collect the cargo from, as it should read on the bill of lading.
+          </p>
+          <label className="mt-3 block">
+            <span className="mb-1 block text-[12px] text-[#6b7280]">Shipper's company name</span>
+            <input value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} maxLength={200} className={`h-10 ${field}`} />
+          </label>
+          <label className="mt-3 block">
+            <span className="mb-1 block text-[12px] text-[#6b7280]">Full address, with the PIN code</span>
+            <textarea value={s.address} onChange={(e) => setS({ ...s, address: e.target.value })} rows={3} maxLength={1000} className={`py-2 ${field}`} />
+          </label>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-[12px] text-[#6b7280]">Contact person and phone</span>
+              <input value={s.contact ?? ""} onChange={(e) => setS({ ...s, contact: e.target.value })} maxLength={200} placeholder="Optional" className={`h-10 ${field}`} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[12px] text-[#6b7280]">Email</span>
+              <input type="email" value={s.email ?? ""} onChange={(e) => setS({ ...s, email: e.target.value })} maxLength={200} placeholder="Optional" className={`h-10 ${field}`} />
+            </label>
+          </div>
+          {said && <p className="mt-2 text-[12.5px] text-[#b91c1c]">{said}</p>}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={busy}
+              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-[#1670b0] px-5 text-[15px] font-semibold text-white hover:bg-[#125e94] disabled:opacity-60 sm:flex-none"
+            >
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+              Send the shipper's details
+            </button>
+            {given && (
+              <button type="button" onClick={() => setEditing(false)} className="h-11 rounded-lg border border-[#d1d5db] bg-white px-4 text-[14px] text-[#374151]">
+                Cancel
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** An expired quotation: ask for a fresh one here, rather than only by reply (114). */
+function RequoteBox({ quote, token, onChanged }: { quote: PublicQuote; token: string; onChanged: () => Promise<void> }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  if (quote.revision_requested_at && quote.revision_note) {
+    return (
+      <p className="mx-auto mt-2 max-w-sm rounded-lg bg-[#fffbeb] px-4 py-3 text-center text-[13px] text-[#92400e]">
+        You asked us to re-quote on {longDate(quote.revision_requested_at)}. We will send the new quotation.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 rounded-lg border border-[#e5e7eb] bg-[#f9fafb] p-5">
+      <label className="block">
+        <span className="mb-1 block text-[13px] font-semibold">Ask us to re-quote</span>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={3}
+          maxLength={2000}
+          placeholder="Anything that has changed — the cargo, the dates, the terms."
+          className="w-full rounded-lg border border-[#d1d5db] px-3 py-2 text-[14px]"
+        />
+      </label>
+      {said && <p className="mt-2 text-[12.5px] text-[#b91c1c]">{said}</p>}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          const note = text.trim() || "Please send a fresh quotation.";
+          setBusy(true);
+          setSaid(null);
+          void requestRevisionByToken(token, note, "")
+            .then((r) => (r.ok ? onChanged() : setSaid("That did not go through. Please reply to the email instead.")))
+            .catch(() => setSaid("That did not go through. Please reply to the email instead."))
+            .finally(() => setBusy(false));
+        }}
+        className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#1670b0] text-[15px] font-semibold text-white hover:bg-[#125e94] disabled:opacity-60"
+      >
+        {busy ? <Loader2 size={16} className="animate-spin" /> : <PencilLine size={16} />}
+        Ask for a new quotation
+      </button>
+    </div>
   );
 }
 
