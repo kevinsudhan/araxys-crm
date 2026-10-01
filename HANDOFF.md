@@ -771,6 +771,14 @@ acceptance and then the shipper (opening the link records nothing: mail scanners
 "Accept now, send the shipper details later" and "Revise this quote instead" sit under the box.
 Mails sent before this open the page without `?accept=1`, with Accept / Revise as before.
 
+**Gmail no longer folds the Accept button (1 Oct).** Gmail hides whatever a mail in a thread repeats
+from an earlier one behind "•••", and a quotation sent again or revised in the customer's thread
+repeats its buttons, terms, sign-off and footer. Each send now carries its own hidden mark
+(`brandedMail` `sendMark` / `hiddenMark`) in the charges, the button caption, the terms heading and
+each term, the sign-off and the footer — never in the first lines an inbox preview reads. The
+marks survive `mailHtml.sanitise` and `forOutlook` (display:none is allowed). The caption under
+the buttons also names the quotation ("Accepting ALG09014-26 Rev 1 asks for…").
+
 ## 9. Open items
 
 ### Waiting on the user

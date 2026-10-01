@@ -13,6 +13,7 @@ import {
   NAVY,
   caption,
   esc,
+  hiddenMark,
   letter,
   longDate,
   message as messageSection,
@@ -21,6 +22,7 @@ import {
   packagesAndWeight,
   preparedFor,
   section,
+  sendMark,
   shipmentBox,
   signOff,
 } from "./brandedMail";
@@ -89,6 +91,8 @@ export interface QuotationMailInput {
    * `charges`.
    */
   airCharges?: AirTable | null;
+  /** This send's own mark (brandedMail `sendMark`); one is made when not given. */
+  mark?: string;
 }
 
 /** The subject line, carrying the reference so the reply files itself. */
@@ -123,6 +127,9 @@ export function quotationHtml(i: QuotationMailInput): string {
   const text = i.message?.trim() || quotationMessage(i);
   // "ALG09014-26 Rev 1" on a revision: the header keeps to three facts, which is what a phone fits.
   const ref = quotationNumber(enquiry.ref, quote.version);
+  // Hidden in every block after the header, so Gmail has nothing to fold on a resend (brandedMail `sendMark`).
+  const mark = i.mark ?? sendMark();
+  const m = hiddenMark(mark);
 
   /*
     Three columns, not six.
@@ -154,13 +161,13 @@ export function quotationHtml(i: QuotationMailInput): string {
   const grouped = groupTerms(terms);
   const termsHtml = grouped.length
     ? section(
-        `${caption("Terms & conditions", NAVY)}
+        `${caption("Terms & conditions", NAVY)}${m}
         ${grouped
           .map(
             (g) => `
           ${g.label ? `<p style="margin:10px 0 4px;font-size:12px;font-weight:700;color:${INK};">${esc(g.label)}</p>` : ""}
           <ol style="margin:6px 0 0;padding-left:18px;list-style-type:decimal;color:${MUTED};font-size:12px;line-height:1.6;">
-            ${g.items.map((t) => `<li style="margin:0 0 3px;">${esc(t)}</li>`).join("")}
+            ${g.items.map((t) => `<li style="margin:0 0 3px;">${esc(t)}${m}</li>`).join("")}
           </ol>`
           )
           .join("")}`,
@@ -195,12 +202,12 @@ export function quotationHtml(i: QuotationMailInput): string {
             <a href="${esc(reviseUrl!)}" style="display:inline-block;padding:12px 22px;color:${ACCENT};font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Revise this quote</a>
           </td>
         </tr></table>
-        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Accepting asks for the shipper's details to confirm the booking; revising asks what you would like changed. Replying to this email works just as well.</p>`,
+        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Accepting ${esc(ref)} asks for the shipper's details to confirm the booking; revising asks what you would like changed. Replying to this email works just as well.${m}</p>`,
         24
       )
     : "";
 
-  const table = i.airCharges ? section(airTableHtml(i.airCharges), 24) : i.charges ? section(chargesHtml(i.charges), 24) : section(
+  const table = i.airCharges ? section(m + airTableHtml(i.airCharges), 24) : i.charges ? section(m + chargesHtml(i.charges), 24) : section(m +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
           <thead>
             <tr>
@@ -216,6 +223,7 @@ export function quotationHtml(i: QuotationMailInput): string {
 
   return letter({
     logoSrc: i.logoSrc,
+    mark,
     title: quotationTitle(quote.version),
     meta: [
       ["Reference", esc(ref)],
@@ -235,7 +243,7 @@ export function quotationHtml(i: QuotationMailInput): string {
       table,
       accept,
       termsHtml,
-      signOff(i.fromName, i.company),
+      signOff(i.fromName, i.company, mark),
     ],
   });
 }

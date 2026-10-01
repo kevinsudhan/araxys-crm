@@ -82,6 +82,17 @@ is("a name alone is not enough", [shipperFrom("ABC Exports"), shipperFrom(""), s
 is("back in the box to correct, without saying the email twice", shipperText({ name: "ABC", address: "12 Main Road\nravi@abc.in", contact: null, email: "ravi@abc.in" }), "ABC\n12 Main Road\nravi@abc.in");
 is("accept only with a link", [html.includes("Accept this quotation"), quotationHtml(base).includes("Accept this quotation")], [true, false]);
 is("accept opens the page asking for the shipper", html.includes('href="https://x/q/abc?accept=1"'), true);
+{
+  // Gmail folds what a mail repeats from an earlier one in the thread: two sends of the same quotation must differ after the header.
+  const t1 = { ...base, terms: [{ scope: "general", text: "Rates subject to space." }], acceptUrl: "https://x/q/abc" };
+  const a = quotationHtml({ ...t1, mark: "mk1" });
+  const b = quotationHtml({ ...t1, mark: "mk2" });
+  const count = (s: string, t: string) => s.split(t).length - 1;
+  is("each send carries its own mark, in the charges, buttons, terms, sign-off and footer", [count(a, "mk1"), a.includes("mk2"), count(b, "mk2")], [6, false, 6]);
+  is("never in the first lines an inbox preview reads", a.indexOf("mk1") > a.indexOf("Prepared for".toUpperCase()) || a.indexOf("mk1") > a.indexOf("kevin imports"), true);
+  is("hidden", a.includes('display:none;font-size:0;line-height:0;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">&#8203;mk1</span>'), true);
+  is("one is made when none is given", quotationHtml(t1) !== quotationHtml(t1), true);
+}
 const v2 = { ...base, quote: { ...quote, version: 2 } as Quote };
 const revised = quotationHtml({ ...v2, message: quotationMessage(v2) });
 is("a revision is titled as one, its number in the reference", [revised.includes(">REVISED QUOTATION</p>"), revised.includes("Rev 1</p>"), html.includes("REVISED")], [true, true, false]);
