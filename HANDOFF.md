@@ -737,6 +737,12 @@ The paste dialog warns when the rate reads as air (freight by the kilo, "AF") on
 marked air — the mail follows the enquiry's mode. The reader now takes a per-kg quantity from the
 weight the rate itself states (GWT in the title line) before the enquiry's.
 
+**Pasting is how a quotation starts (1 Oct).** With no quotation yet, the Quotation card shows the
+paste box itself (`components/PasteInput.tsx`, shared with the dialog: table paste, grid view);
+"Lay it out" opens the review with the text already being read (`PasteQuoteDialog initialText`).
+Building charge by charge is the link beside it. With a quotation, "Paste a quotation" (draft) /
+"Paste a revised quotation" (sent) is the main button and "Revise charge by charge" the other.
+
 ## 9. Open items
 
 ### Waiting on the user

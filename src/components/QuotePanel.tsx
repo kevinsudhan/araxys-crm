@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Check, ClipboardPaste, IndianRupee, Loader2, Send, ThumbsDown } from "lucide-react";
 import PasteQuoteDialog from "./PasteQuoteDialog";
+import PasteInput from "./PasteInput";
 import { linesFor } from "../services/quoteLines";
 import {
   acceptQuote,
@@ -61,8 +62,10 @@ export default function QuotePanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
-  /** "Paste a quotation" open, with how many charges the draft has now. */
-  const [pasting, setPasting] = useState<{ count: number } | null>(null);
+  /** "Paste a quotation" open, with how many charges the draft has now, and what was pasted on the card. */
+  const [pasting, setPasting] = useState<{ count: number; text?: string } | null>(null);
+  /** The rate pasted on the card itself, where a new quotation starts. */
+  const [pasteText, setPasteText] = useState("");
   /**
    * Bumped when a paste is saved. The charges and the sending panel each keep
    * their own copy of the lines, read when the quotation changes — and a paste
@@ -255,44 +258,59 @@ export default function QuotePanel({
       {!accepted && (
         <div className="mt-3">
           {!drafting ? (
-            <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setDrafting(true)}
+            !live ? (
               /*
-                Never disabled.
-
-                A desk quotes on partial information constantly: a customer
-                rings for an indication before the packing list exists, an agent
-                wants a number today and the dimensions on Thursday, a regular
-                lane is quoted from last month's figures. Refusing to open the
-                form until every field is answered does not produce better data
-                — it produces a quotation typed into a mail instead, which is
-                the same price with none of the record.
-
-                What is missing is said above, and printed on the document as
-                TBD. That is the honest treatment: tell somebody what they are
-                quoting without, and let them decide.
+                Pasting is how a quotation starts: the rate as the desk already
+                has it — a table, a mail, a WhatsApp message — read by the AI
+                and checked before anything is saved (106). Building one charge
+                by charge is still there, a step aside.
               */
-              className="h-8 px-3 rounded-lg border border-border bg-surface-1 text-[12px] font-medium text-text-primary hover:bg-surface-2"
-            >
-              {live ? "Revise quote" : "Add quote"}
-            </button>
-            {/*
-              The rate as the desk already has it — a mail, a WhatsApp message, a
-              rate sheet — read by the AI into Ex works and Other charges (106).
-              Into the draft when there is one; a new version otherwise.
-            */}
-            <button
-              onClick={() => {
-                if (live?.status === "draft") void linesFor(live.id).then((l) => setPasting({ count: l.length }), () => setPasting({ count: 0 }));
-                else setPasting({ count: 0 });
-              }}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-3 text-[12px] font-medium text-text-primary hover:bg-surface-2"
-            >
-              <ClipboardPaste size={13} />
-              Paste a quotation
-            </button>
-            </div>
+              <div className="rounded-lg border border-border p-3">
+                <p className="mb-2 text-[12.5px] text-text-secondary">
+                  Paste the rate as you have it — a table, a mail, a WhatsApp message. The AI lays it out and you check it before anything is saved.
+                </p>
+                <PasteInput value={pasteText} onChange={setPasteText} air={enquiry.transport_mode === "air"} rows={7} />
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPasting({ count: 0, text: pasteText })}
+                    disabled={!pasteText.trim()}
+                    className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
+                  >
+                    <ClipboardPaste size={13} />
+                    Lay it out
+                  </button>
+                  {/*
+                    Never disabled. A desk quotes on partial information
+                    constantly; what is missing is said above and printed as
+                    TBD, and the person quoting decides.
+                  */}
+                  <button type="button" onClick={() => setDrafting(true)} className="text-[12px] text-text-secondary hover:text-text-primary hover:underline">
+                    or build it charge by charge
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                {/* A new rate pasted: into the draft when there is one, as a new version otherwise. */}
+                <button
+                  onClick={() => {
+                    if (live.status === "draft") void linesFor(live.id).then((l) => setPasting({ count: l.length }), () => setPasting({ count: 0 }));
+                    else setPasting({ count: 0 });
+                  }}
+                  className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark"
+                >
+                  <ClipboardPaste size={13} />
+                  {live.status === "draft" ? "Paste a quotation" : "Paste a revised quotation"}
+                </button>
+                <button
+                  onClick={() => setDrafting(true)}
+                  className="h-8 rounded-lg border border-border bg-surface-1 px-3 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+                >
+                  Revise charge by charge
+                </button>
+              </div>
+            )
           ) : (
             <div className="rounded-lg border border-border p-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -449,9 +467,11 @@ export default function QuotePanel({
           enquiry={enquiry}
           live={live}
           liveCount={pasting.count}
+          initialText={pasting.text}
           onClose={() => setPasting(null)}
           onApplied={() => {
             setPasting(null);
+            setPasteText("");
             setPasted((n) => n + 1);
             onChanged();
           }}
