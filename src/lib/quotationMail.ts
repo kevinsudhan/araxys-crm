@@ -103,6 +103,23 @@ export interface QuotationMailInput {
  * button went behind the dots (1 Oct). Hidden differences do not count with
  * Gmail; this one is visible and true, and no two sends share it.
  */
+/**
+ * This send's time as a run of zero-width characters (space, non-joiner,
+ * joiner): nothing to see, and no two sends a second apart alike. Put at the
+ * end of a button's label so the label is not, as Gmail compares it, the
+ * label of the quotation sent before.
+ */
+export function sendSignature(at: Date): string {
+  const marks = ["&#8203;", "&#8204;", "&#8205;"];
+  let n = Math.floor(at.getTime() / 1000);
+  let out = "";
+  while (n > 0) {
+    out += marks[n % 3];
+    n = Math.floor(n / 3);
+  }
+  return out;
+}
+
 export function sentLine(at: Date): string {
   const d = at.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
   const t = at.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }).toLowerCase();
@@ -141,7 +158,8 @@ export function quotationHtml(i: QuotationMailInput): string {
   const text = i.message?.trim() || quotationMessage(i);
   // "ALG09014-26 Rev 1" on a revision: the header keeps to three facts, which is what a phone fits.
   const ref = quotationNumber(enquiry.ref, quote.version);
-  const sent = sentLine(i.sentAt ?? new Date());
+  const at = i.sentAt ?? new Date();
+  const sent = sentLine(at);
 
   /*
     Three columns, not six.
@@ -203,18 +221,32 @@ export function quotationHtml(i: QuotationMailInput): string {
   const withParam = (url: string, param: string) => `${url}${url.includes("?") ? "&" : "?"}${param}`;
   const acceptHref = i.acceptUrl ? withParam(i.acceptUrl, "accept=1") : null;
   const reviseUrl = i.acceptUrl ? withParam(i.acceptUrl, "revise=1") : null;
+  /*
+    The buttons and the line under them are one table, and each label ends in
+    this send's own run of zero-width characters (`sendSignature`): Gmail
+    folds a block it has seen word for word earlier in the thread, and the
+    button block was the one block a revised or resent quotation still
+    repeated exactly — the send time under it sat outside it (1 Oct).
+  */
+  const sig = sendSignature(at);
   const accept = i.acceptUrl
     ? section(
-        `<table role="presentation" cellpadding="0" cellspacing="0"><tr>
-          <td bgcolor="${ACCENT}" style="background:${ACCENT};border:1px solid ${ACCENT};border-radius:6px;">
-            <a href="${esc(acceptHref!)}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Accept this quotation &rarr;</a>
-          </td>
-          <td style="width:10px;font-size:0;line-height:0;">&nbsp;</td>
-          <td bgcolor="#ffffff" style="background:#ffffff;border:1px solid ${ACCENT};border-radius:6px;">
-            <a href="${esc(reviseUrl!)}" style="display:inline-block;padding:12px 22px;color:${ACCENT};font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Revise this quote</a>
-          </td>
-        </tr></table>
-        <p style="margin:8px 0 0;font-size:11.5px;color:${MUTED};line-height:1.5;">Sent ${esc(sent)}. Accepting ${esc(ref)} asks for the shipper's details to confirm the booking; revising asks what you would like changed. Replying to this email works just as well.</p>`,
+        `<table role="presentation" cellpadding="0" cellspacing="0">
+          <tr>
+            <td bgcolor="${ACCENT}" style="background:${ACCENT};border:1px solid ${ACCENT};border-radius:6px;">
+              <a href="${esc(acceptHref!)}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Accept this quotation &rarr;${sig}</a>
+            </td>
+            <td style="width:10px;font-size:0;line-height:0;">&nbsp;</td>
+            <td bgcolor="#ffffff" style="background:#ffffff;border:1px solid ${ACCENT};border-radius:6px;">
+              <a href="${esc(reviseUrl!)}" style="display:inline-block;padding:12px 22px;color:${ACCENT};font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.02em;">Revise this quote${sig}</a>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="3" style="padding:8px 0 0;">
+              <p style="margin:0;font-size:11.5px;color:${MUTED};line-height:1.5;">Sent ${esc(sent)}. Accepting ${esc(ref)} asks for the shipper's details to confirm the booking; revising asks what you would like changed. Replying to this email works just as well.</p>
+            </td>
+          </tr>
+        </table>`,
         24
       )
     : "";

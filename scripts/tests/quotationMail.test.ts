@@ -1,5 +1,5 @@
 import { brandImages, imageType, withContentIds } from "../../src/lib/inlineBrand";
-import { quotationHtml, quotationMessage, quotationSubject, sentLine } from "../../src/lib/quotationMail";
+import { quotationHtml, quotationMessage, quotationSubject, sendSignature, sentLine } from "../../src/lib/quotationMail";
 import { quotationFileName, quotationNumber, quotationTitle } from "../../src/lib/quoteRevision";
 import { shipperFrom, shipperText } from "../../src/lib/shipperText";
 import { confirmationHtml, confirmationMessage, confirmationSubject } from "../../src/lib/confirmationMail";
@@ -91,6 +91,12 @@ is("accept opens the page asking for the shipper", html.includes('href="https://
   is("under the buttons, in the same block", a.includes("Sent 1 Oct 2026, 3:05 pm. Accepting ALG09005-26 asks"), true);
   is("and on the footer's last line", a.includes(">Quotation ALG09005-26 · sent 1 Oct 2026, 3:05 pm</p>"), true);
   is("two sends differ there", [a.includes("3:05 pm"), b.includes("3:11 pm"), b.includes("3:05 pm")], [true, true, false]);
+  // The button block itself — the one block Gmail still folded — differs between the two sends, label and all.
+  const block = (h: string) => h.slice(h.indexOf('<table role="presentation" cellpadding="0" cellspacing="0">\n          <tr>'), h.indexOf("Replying to this email works just as well."));
+  const label = (h: string) => h.match(/Accept this quotation &rarr;([^<]*)<\/a>/)?.[1] ?? "";
+  is("the caption is inside the buttons' table", block(a).includes("Sent 1 Oct 2026, 3:05 pm") && block(a).includes("Revise this quote"), true);
+  is("each label ends in this send's own invisible run", [label(a).length > 10, /^(&#820[345];)+$/.test(label(a)), label(a) !== label(b)], [true, true, true]);
+  is("a second apart is enough", sendSignature(new Date(1000)) !== sendSignature(new Date(2000)), true);
 }
 const v2 = { ...base, quote: { ...quote, version: 2 } as Quote };
 const revised = quotationHtml({ ...v2, message: quotationMessage(v2) });
@@ -99,7 +105,7 @@ is("its covering note says it replaces the earlier one", quotationMessage(v2).st
 is("its subject, for a new conversation", quotationSubject(v2).startsWith(`Revised quotation ${enquiry.ref} (Rev 1)`), true);
 is("the PDF's name", [quotationFileName("ALG09014-26", 1), quotationFileName("ALG09014-26", 2), quotationFileName("ALG09014-26", 3)], ["Quotation-ALG09014-26.pdf", "Revised-Quotation-ALG09014-26-Rev1.pdf", "Revised-Quotation-ALG09014-26-Rev2.pdf"]);
 is("the PDF's number and title", [quotationNumber("ALG09014-26", 1), quotationNumber("ALG09014-26", 2), quotationTitle(1), quotationTitle(2)], ["ALG09014-26", "ALG09014-26 Rev 1", "QUOTATION", "REVISED QUOTATION"]);
-is("revise beside it, opening the page at the revision box", [html.includes('href="https://x/q/abc?revise=1"'), html.includes(">Revise this quote</a>"), quotationHtml(base).includes("Revise this quote")], [true, true, false]);
+is("revise beside it, opening the page at the revision box", [html.includes('href="https://x/q/abc?revise=1"'), />Revise this quote(&#820[345];)*<\/a>/.test(html), quotationHtml(base).includes("Revise this quote")], [true, true, false]);
 is("signed by the sender", html.includes("Aarathy"), true);
 is("the registered details in the footer", html.includes("GSTIN 33ABDCA2229C1ZD") && html.includes("Anna Nagar"), true);
 is("no comments of ours in the customer's mail", html.includes("<!--"), false);

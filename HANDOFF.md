@@ -783,6 +783,10 @@ the new one, and Gmail folded from the first part the two shared. A quotation no
 quoted thread (`ComposeMail quoteThread={false}`, set by QuoteSend); it still threads by its reply
 headers (Graph createReply), and ordinary replies still quote. Quotations stay in the customer's
 thread (the user does not want revisions split into new conversations).
+After that only the button block still folded: it was the one block repeated exactly (the send time
+sat in a paragraph beside it). The caption is now a second row of the buttons' own table, and each
+button label ends in the send's time as a run of zero-width characters (`sendSignature`) — invisible,
+surviving `sanitise` and `forOutlook`, and different on every send.
 
 ## 9. Open items
 
