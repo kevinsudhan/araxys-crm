@@ -13,6 +13,7 @@ import { readBillFile } from "./masterBill";
 
 export const importConsole = (c: Console): ImportConsole => ({
   console_no: c.console_no,
+  coload: c.space_from === "coloader",
   carrier: c.carrier,
   mbl_number: c.mbl_number,
   mbl_date: c.mbl_date,

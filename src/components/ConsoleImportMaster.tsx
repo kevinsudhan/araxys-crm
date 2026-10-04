@@ -6,15 +6,16 @@ import { formatDate } from "../lib/dates";
 import { failureText } from "../lib/errorText";
 import { manifestTotals } from "../lib/consoleManifest";
 import {
-  IMPORT_STEPS,
-  RELEASE_IN_HAND,
   cfsHtml,
   cfsIssues,
   cfsSubject,
   checkMasterCopy,
+  clearedWith,
   copyIssues,
   importProgress,
   lineDoState,
+  releaseInHand,
+  stepsFor,
   type ImportStep,
 } from "../lib/importMaster";
 import { RELEASE_LABEL, type MasterRelease } from "../lib/masterBill";
@@ -48,7 +49,8 @@ const ourName = COMPANY.legalName.toUpperCase();
  * An import console's master B/L at this end (120): the copy read and
  * checked, the CFS nominated, the release in hand, the line paid, its DO
  * collected, the box destuffed. Each is a date on the console; the houses'
- * DOs wait for the last two. The rules are lib/importMaster.ts.
+ * DOs wait for the last two. The rules are lib/importMaster.ts. On a co-load
+ * (121) the co-loader stands where the line does, and the CFS is theirs.
  */
 export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { console: Console; jobs: number; onChanged: () => void }) {
   const { session } = useAuth();
@@ -77,6 +79,9 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
 
   const ic = importConsole(c);
   const progress = importProgress(ic);
+  const coload = Boolean(ic.coload);
+  const who = clearedWith(ic);
+  const Who = coload ? "Co-loader" : "Line";
   const copy = copyOf(c);
   const boxes = inputs?.boxes ?? [];
   const totals = inputs ? manifestTotals(inputs.lines) : { packages: 0, grossKg: 0, cbm: 0 };
@@ -170,10 +175,10 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
 
   return (
     <section>
-      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Master B/L at this end</h3>
+      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">{coload ? "The co-loader's B/L at this end" : "Master B/L at this end"}</h3>
 
       <ol className="mb-3 flex flex-wrap items-center gap-1.5" aria-label="Master B/L at this end">
-        {IMPORT_STEPS.map((s) => (
+        {stepsFor(ic).map((s) => (
           <li key={s.key} className={`flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-medium ${progress[s.key].done ? "bg-brand text-white" : "bg-surface-2 text-text-muted"}`}>
             {progress[s.key].done && <Check size={11} />}
             {s.label}
@@ -188,7 +193,7 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
         {/* ---- 1 the copy ---- */}
         {step(
           "copy",
-          "Master B/L copy from the origin agent",
+          coload ? "The co-loader's B/L copy, from the origin agent" : "Master B/L copy from the origin agent",
           <>
             <input
               ref={fileRef}
@@ -255,8 +260,22 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
           false
         )}
 
-        {/* ---- 2 the CFS ---- */}
-        {step(
+        {/* ---- 2 the CFS: ours to nominate, or on a co-load theirs to note ---- */}
+        {coload ? step(
+          "cfs",
+          ic.cfs_nominated_at ? `Their CFS: ${ic.cfs_name || "—"}` : "Note the co-loader's CFS",
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="block min-w-[14rem] flex-1">
+              <span className="mb-0.5 block text-[11px] text-text-secondary">CFS</span>
+              <input value={cfs} onChange={(e) => setCfs(e.target.value)} onBlur={() => cfs.trim() !== ic.cfs_name && void act("cfs", () => saveCfs(c, cfs))} placeholder="Where they destuff the box" className={field} />
+            </label>
+            {!ic.cfs_nominated_at && (
+              <button type="button" onClick={() => void act("cfsdone", () => markCfsNominated(c, cfs, ""))} disabled={!cfs.trim() || busy !== null} className={primary}>
+                <Check size={13} /> Noted
+              </button>
+            )}
+          </div>
+        ) : step(
           "cfs",
           ic.cfs_nominated_at ? `CFS nominated: ${ic.cfs_name || "—"}` : "Nominate the CFS to the line",
           <>
@@ -285,7 +304,7 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
         {/* ---- 3 the release ---- */}
         {step(
           "release",
-          release ? RELEASE_IN_HAND[release].label : "Release in hand",
+          release ? releaseInHand(ic, release).label : "Release in hand",
           <div className="flex flex-wrap items-end gap-2">
             <div className="w-44">
               <span className="mb-0.5 block text-[11px] text-text-secondary">Released as</span>
@@ -300,7 +319,7 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
             {release && release !== "seaway" && (
               <>
                 <label className="block min-w-[14rem] flex-1">
-                  <span className="mb-0.5 block text-[11px] text-text-secondary">{RELEASE_IN_HAND[release].ref}</span>
+                  <span className="mb-0.5 block text-[11px] text-text-secondary">{releaseInHand(ic, release).ref}</span>
                   <input value={ref} onChange={(e) => setRef(e.target.value)} className={`${field} font-mono`} />
                 </label>
                 {!ic.release_in_hand_at && (
@@ -317,11 +336,11 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
         {/* ---- 4 the line's charges ---- */}
         {step(
           "paid",
-          "Line's charges paid",
+          `${Who}'s charges paid`,
           <>
             <div className="flex flex-wrap items-end gap-2">
               <label className="block w-44">
-                <span className="mb-0.5 block text-[11px] text-text-secondary">Line's invoice no</span>
+                <span className="mb-0.5 block text-[11px] text-text-secondary">{Who}'s invoice no</span>
                 <input value={invoice} onChange={(e) => setInvoice(e.target.value)} className={`${field} font-mono`} />
               </label>
               <label className="block w-36">
@@ -349,7 +368,7 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
         {/* ---- 5 the line's DO ---- */}
         {step(
           "do",
-          "Line's delivery order collected",
+          `${Who}'s delivery order collected`,
           <>
             <div className="flex flex-wrap items-end gap-2">
               <label className="block w-44">
@@ -372,8 +391,8 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
                 </button>
               )}
             </div>
-            {doState.state === "expired" && warn([`The line's DO lapsed ${-(doState.days ?? 0)} day${doState.days === -1 ? "" : "s"} ago and the box is not destuffed: have it revalidated`])}
-            {doState.state === "last_day" && warn(["The line's DO is good for today only and the box is not destuffed"])}
+            {doState.state === "expired" && warn([`The DO from ${who} lapsed ${-(doState.days ?? 0)} day${doState.days === -1 ? "" : "s"} ago and the box is not destuffed: have it revalidated`])}
+            {doState.state === "last_day" && warn([`The DO from ${who} is good for today only and the box is not destuffed`])}
           </>
         )}
 
@@ -391,7 +410,7 @@ export default function ConsoleImportMaster({ console: c, jobs, onChanged }: { c
                 <Check size={13} /> Record
               </button>
             )}
-            <span className="pb-1.5 text-[11.5px] text-text-muted">Each house's DO waits for this and the line's DO.</span>
+            <span className="pb-1.5 text-[11.5px] text-text-muted">Each house's DO waits for this and the DO from {who}.</span>
           </div>
         )}
       </ol>

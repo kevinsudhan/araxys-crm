@@ -11,6 +11,7 @@ import {
   checkMasterDraft,
   defaultTerms,
   draftProblems,
+  issuerOf,
   masterCorrections,
   siData,
   siHtml,
@@ -34,7 +35,8 @@ import Select from "./Select";
  * The console's master B/L with the line (119): the instruction built from
  * the jobs and mailed with the house list, the line's draft read and checked,
  * then issued and released. Each step is recorded on the console; the rules
- * are lib/masterBill.ts.
+ * are lib/masterBill.ts. On a co-load (121) the same, with the co-loader in
+ * the line's place and their B/L to us as the master.
  */
 export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { console: Console; jobs: number; onChanged: () => void }) {
   const { session } = useAuth();
@@ -57,7 +59,9 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
     void load();
   }, [load]);
 
-  const mc = masterConsole(c);
+  const mc = masterConsole(c, inputs?.coloader?.name);
+  const coload = Boolean(mc.coload);
+  const who = coload ? "the co-loader" : "the line";
   const defaults = useMemo(() => defaultTerms(mc, inputs?.agent ?? null, COMPANY), [mc.pol, inputs?.agent]); // eslint-disable-line react-hooks/exhaustive-deps
   const saved = termsFrom(c.mbl_si as Partial<SiTerms> | null, defaults);
   const [terms, setTerms] = useState<SiTerms>(saved);
@@ -144,7 +148,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
 
   return (
     <section>
-      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Master B/L with the line</h3>
+      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">{coload ? `B/L from ${issuerOf(mc)}` : "Master B/L with the line"}</h3>
 
       {/* ---- where it is ---- */}
       <ol className="mb-3 flex flex-wrap items-center gap-1.5" aria-label="Master B/L stages">
@@ -165,7 +169,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
       <div className="rounded-lg border border-border p-3">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block">
-            <span className="mb-0.5 block text-[11px] text-text-secondary">Line's booking no</span>
+            <span className="mb-0.5 block text-[11px] text-text-secondary">{coload ? "Co-loader's booking no" : "Line's booking no"}</span>
             <input value={booking} onChange={(e) => setBooking(e.target.value)} onBlur={() => booking.trim() !== (c.carrier_booking_no ?? "") && void act("booking", () => saveBookingNo(c, booking))} className={`${field} font-mono`} />
           </label>
           <div>
@@ -203,12 +207,18 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
             <input value={terms.description} onChange={(e) => edit({ description: e.target.value })} className={field} />
           </label>
           <label className="block">
-            <span className="mb-0.5 block text-[11px] text-text-secondary">Remarks for the line</span>
+            <span className="mb-0.5 block text-[11px] text-text-secondary">Remarks for {who}</span>
             <input value={terms.remarks} onChange={(e) => edit({ remarks: e.target.value })} placeholder="e.g. Show the HS codes; clean on board" className={field} />
           </label>
         </div>
 
-        {/* ---- the boxes, from the jobs ---- */}
+        {/* ---- the boxes, from the jobs; on a co-load the box is theirs ---- */}
+        {coload ? (
+          <p className="mt-3 text-[12px] text-text-secondary">
+            {totals.bills} house bill{totals.bills === 1 ? "" : "s"} go to {issuerOf(mc)} as one consignment: {totals.packages.toLocaleString("en-IN")} packages ·{" "}
+            {totals.grossKg.toLocaleString("en-IN")} kg · {totals.cbm.toLocaleString("en-IN")} CBM. The box is theirs; LCL/LCL.
+          </p>
+        ) : (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[34rem] text-[12.5px]">
             <thead>
@@ -247,6 +257,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
             From the jobs' container lines. {totals.bills} house bill{totals.bills === 1 ? "" : "s"} go with it as the attached list.
           </p>
         </div>
+        )}
 
         {issues.length > 0 && (
           <ul className="mt-3 space-y-1 rounded-lg bg-bg-warning px-3 py-2 text-[12px] text-text-warning">
@@ -281,7 +292,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
             disabled={!inputs || busy !== null}
             className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
           >
-            {busy === "mail" ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />} Email the SI to the line
+            {busy === "mail" ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />} Email the SI to {who}
           </button>
           {c.si_sent_at && (
             <span className="text-[11.5px] text-text-muted">
@@ -295,7 +306,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
       {/* ---- the line's draft ---- */}
       <div className="mt-3 rounded-lg border border-border p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[12.5px] font-medium text-text-primary">The line's draft</p>
+          <p className="text-[12.5px] font-medium text-text-primary">{coload ? "The co-loader's draft" : "The line's draft"}</p>
           <div className="flex items-center gap-2">
             <input
               ref={fileRef}
@@ -321,7 +332,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
         </div>
 
         {!draft ? (
-          <p className="mt-1.5 text-[12px] text-text-muted">When the line sends its draft, read it here: it is checked against the instruction, box by box.</p>
+          <p className="mt-1.5 text-[12px] text-text-muted">When {who} sends the draft, read it here: it is checked against the instruction, {coload ? "line by line" : "box by box"}.</p>
         ) : (
           <>
             <div className="mt-2 overflow-x-auto">
@@ -329,7 +340,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
                 <thead>
                   <tr className="border-b border-border text-left text-[10.5px] uppercase tracking-wide text-text-secondary">
                     <th className="py-1.5 pr-2 font-medium">On the bill</th>
-                    <th className="py-1.5 pr-2 font-medium">The line's draft</th>
+                    <th className="py-1.5 pr-2 font-medium">{coload ? "Their draft" : "The line's draft"}</th>
                     <th className="py-1.5 pr-2 font-medium">Our instruction</th>
                     <th className="py-1.5 font-medium" />
                   </tr>
@@ -365,7 +376,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
                       kind: "corrections",
                       to: inputs?.carrierEmail ?? "",
                       subject: `${siSubject({ ...mc, carrier_booking_no: booking })} — DRAFT MBL CORRECTIONS`,
-                      body: `<p>Dear ${c.carrier || "Sir / Madam"} team,</p><pre style="font-family:inherit;white-space:pre-wrap">${masterCorrections(rows, c.mbl_number)
+                      body: `<p>Dear ${(coload ? mc.coloader : c.carrier) || "Sir / Madam"} team,</p><pre style="font-family:inherit;white-space:pre-wrap">${masterCorrections(rows, c.mbl_number)
                         .replace(/&/g, "&amp;")
                         .replace(/</g, "&lt;")}</pre><p>Kindly send the corrected draft.</p>`,
                       attachments: [],
@@ -373,7 +384,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
                   }
                   className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark"
                 >
-                  <Send size={13} /> Mail the {problems.length} correction{problems.length === 1 ? "" : "s"} to the line
+                  <Send size={13} /> Mail the {problems.length} correction{problems.length === 1 ? "" : "s"} to {who}
                 </button>
               )}
               {at < stageIndex("draft_approved") && (
@@ -404,7 +415,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
         <p className="text-[12.5px] font-medium text-text-primary">Issued and released</p>
         <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block">
-            <span className="mb-0.5 block text-[11px] text-text-secondary">Master B/L no</span>
+            <span className="mb-0.5 block text-[11px] text-text-secondary">{coload ? "Their B/L no" : "Master B/L no"}</span>
             <input value={issue.mbl} onChange={(e) => setIssue({ ...issue, mbl: e.target.value })} className={`${field} font-mono`} />
           </label>
           <label className="block">

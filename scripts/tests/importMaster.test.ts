@@ -97,7 +97,7 @@ is(
   [
     'The master is consigned "TO ORDER OF HDFC BANK": the line wants it endorsed to us before it gives the DO',
     "House B/L pilsha0099887 has the master's number: Customs refuses that",
-    "Freight collect: the ocean freight is paid to the line here, with its charges",
+    "Freight collect: the freight is paid to the line here, with its charges",
   ]
 );
 is("another consignee", copyIssues({ ...blank, mbl_release: "telex" }, { ...copy, bill: { ...bill, consignee_name: "GLOBAL CARGO PVT LTD" } }, [], us), [

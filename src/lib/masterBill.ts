@@ -17,6 +17,13 @@ import { correctionsText, sameName, samePlace, type CheckRow } from "./receivedH
  * (`SiTerms`), so a house added after the instruction was written is on the
  * next one without anybody retyping it.
  *
+ * ON A CO-LOAD (121)
+ *
+ * When the space is bought from another consolidator, their house B/L to us
+ * is the master: the same instruction goes to them instead of the line, but
+ * for LCL — they stuff the box, so there is no box, seal or "shipper's load"
+ * of ours to state, and the cargo is the houses' total.
+ *
  * THE DRAFT IS CHECKED, NOT TRUSTED
  *
  * The line's draft is read by the same reader as an agent's house B/L
@@ -87,7 +94,14 @@ export interface MasterConsole {
   place_of_delivery: string;
   etd: string | null;
   cutoff_date: string | null;
+  /** Space bought from a co-loader (121): their B/L to us is the master. */
+  coload?: boolean;
+  /** The co-loader's name, on a co-load. */
+  coloader?: string;
 }
+
+/** Who the instruction goes to: the line, or on a co-load the co-loader. */
+export const issuerOf = (c: Pick<MasterConsole, "coload" | "coloader" | "carrier">) => (c.coload ? c.coloader || "the co-loader" : c.carrier || "the line");
 
 /** One box on the console, added up from the jobs' container lines. */
 export interface ConsoleBox {
@@ -201,9 +215,10 @@ export function siData(c: MasterConsole, terms: SiTerms, boxes: ConsoleBox[], ho
   d.port_of_loading = up(c.pol);
   d.port_of_discharge = up(c.pod);
   d.place_of_delivery = up(c.place_of_delivery || c.pod);
-  // The line carries a full box for us: FCL to them, whatever it is to our shippers.
-  d.service_type = "FCL/FCL";
-  d.containers = boxes.map(
+  // The line carries a full box for us: FCL to them, whatever it is to our
+  // shippers. A co-loader carries our cargo in theirs: LCL, and no box of ours.
+  d.service_type = c.coload ? "LCL/LCL" : "FCL/FCL";
+  d.containers = (c.coload ? [] : boxes).map(
     (b): HblContainer => ({
       ...emptyContainer(),
       container_no: b.container_no,
@@ -215,7 +230,7 @@ export function siData(c: MasterConsole, terms: SiTerms, boxes: ConsoleBox[], ho
       cbm: b.cbm ? String(b.cbm) : "",
     })
   );
-  const fromBoxes = boxes.length > 0 && boxes.some((b) => b.packages || b.gross_kg);
+  const fromBoxes = !c.coload && boxes.length > 0 && boxes.some((b) => b.packages || b.gross_kg);
   const pkgs = fromBoxes ? boxes.reduce((s, b) => s + b.packages, 0) : houses.packages;
   const kg = fromBoxes ? round(boxes.reduce((s, b) => s + b.gross_kg, 0), 3) : houses.grossKg;
   const cbm = fromBoxes ? round(boxes.reduce((s, b) => s + b.cbm, 0), 3) : houses.cbm;
@@ -224,8 +239,8 @@ export function siData(c: MasterConsole, terms: SiTerms, boxes: ConsoleBox[], ho
   d.package_type = "PACKAGES";
   d.description = up(terms.description);
   d.said_to_contain = true;
-  // We stuffed and sealed it at the CFS: the line counted nothing.
-  d.shippers_load = true;
+  // We stuffed and sealed it at the CFS: the line counted nothing. On a co-load they stuff it.
+  d.shippers_load = !c.coload;
   d.gross_weight_kg = kg ? String(kg) : "";
   d.measurement_cbm = cbm ? String(cbm) : "";
   d.freight_terms = terms.freight_terms;
@@ -240,12 +255,14 @@ export function siData(c: MasterConsole, terms: SiTerms, boxes: ConsoleBox[], ho
  */
 export function siIssues(c: MasterConsole, si: HblData, boxes: ConsoleBox[], houseBillNos: string[]): string[] {
   const out: string[] = [];
-  if (!up(c.carrier_booking_no)) out.push("No booking number from the line");
+  if (!up(c.carrier_booking_no)) out.push(`No booking number from ${c.coload ? "the co-loader" : "the line"}`);
   if (!si.consignee_name.trim()) out.push("No consignee: appoint the overseas agent, or name one");
   if (!up(c.vessel)) out.push("No vessel");
-  if (!boxes.length) out.push("No container number on any job yet");
-  const noSeal = boxes.filter((b) => !b.seal_no);
-  if (noSeal.length) out.push(`No seal on ${noSeal.map((b) => b.container_no).join(", ")}`);
+  if (!c.coload) {
+    if (!boxes.length) out.push("No container number on any job yet");
+    const noSeal = boxes.filter((b) => !b.seal_no);
+    if (noSeal.length) out.push(`No seal on ${noSeal.map((b) => b.container_no).join(", ")}`);
+  }
   if (!n(si.packages)) out.push("No packages");
   if (!n(si.gross_weight_kg)) out.push("No gross weight");
   // ICEGATE 2.0 (31 Aug 2026): a house B/L may not carry the master's number.
@@ -350,23 +367,25 @@ export function siHtml(c: MasterConsole, si: HblData, terms: SiTerms, attached: 
     ["Gross weight", esc(si.gross_weight_kg ? `${si.gross_weight_kg} KGS` : "")],
     ["Measurement", esc(si.measurement_cbm ? `${si.measurement_cbm} CBM` : "")],
     ["Freight", esc(`${si.freight_terms.toUpperCase()}${si.freight_payable_at ? ` AT ${si.freight_payable_at}` : ""}`)],
-    ["Clause", "SHIPPER'S LOAD, STOW, COUNT AND SEAL"],
+    ["Clause", si.shippers_load ? "SHIPPER'S LOAD, STOW, COUNT AND SEAL" : ""],
   ];
   return (
-    `<p>Dear ${esc(c.carrier || "Sir / Madam")} team,</p>` +
+    `<p>Dear ${esc((c.coload ? c.coloader : c.carrier) || "Sir / Madam")} team,</p>` +
     `<p>Please find below our shipping instructions for booking <strong>${esc(up(c.carrier_booking_no) || "—")}</strong>, our console ${esc(c.console_no ?? "")}` +
     `${attached.length ? `, with ${attached.map(esc).join(" and ")} attached` : ""}.</p>` +
     `<table style="border-collapse:collapse;font-size:13px;margin:8px 0 12px">` +
     facts.filter(([, v]) => v).map(([k, v]) => `<tr><td style="${cell};color:#555;width:150px">${k}</td><td style="${cell}">${v}</td></tr>`).join("") +
     `</table>` +
-    `<table style="border-collapse:collapse;font-size:13px;margin:8px 0 12px"><tr>` +
-    ["Container", "Size / type", "Seal", "Packages", "Gross kg", "CBM"].map((h) => `<th style="${head}">${h}</th>`).join("") +
-    `</tr>` +
-    si.containers
-      .map((b) => `<tr>${[b.container_no, b.size_type, b.seal_no, b.packages, b.gross_kg, b.cbm].map((v) => `<td style="${cell}">${esc(v)}</td>`).join("")}</tr>`)
-      .join("") +
-    `</table>` +
+    (si.containers.length
+      ? `<table style="border-collapse:collapse;font-size:13px;margin:8px 0 12px"><tr>` +
+        ["Container", "Size / type", "Seal", "Packages", "Gross kg", "CBM"].map((h) => `<th style="${head}">${h}</th>`).join("") +
+        `</tr>` +
+        si.containers
+          .map((b) => `<tr>${[b.container_no, b.size_type, b.seal_no, b.packages, b.gross_kg, b.cbm].map((v) => `<td style="${cell}">${esc(v)}</td>`).join("")}</tr>`)
+          .join("") +
+        `</table>`
+      : "") +
     (terms.remarks.trim() ? `<p>${esc(terms.remarks.trim())}</p>` : "") +
-    `<p>Kindly send the draft master B/L for our approval before issuing.</p>`
+    `<p>Kindly send the draft ${c.coload ? "B/L" : "master B/L"} for our approval before issuing.</p>`
   );
 }

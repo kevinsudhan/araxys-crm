@@ -129,6 +129,14 @@ export interface Console {
   cfs_nominated_to?: string;
   destuffed_on?: string | null;
 
+  /* Space bought from another consolidator (121, lib/coload.ts). */
+  space_from?: "line" | "coloader";
+  coloader_id?: string | null;
+  /** Their rate per W/M. */
+  coloader_rate?: number | null;
+  coloader_currency?: string;
+  coloader_min_wm?: number;
+
   /** Joined in by the loaders, not columns. */
   agent_label?: string | null;
   summary?: ConsoleSummary;

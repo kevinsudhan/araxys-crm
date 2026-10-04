@@ -12,7 +12,7 @@ import type { Console } from "./consoles";
  * step recorded on the console. The rules are lib/masterBill.ts.
  */
 
-export const masterConsole = (c: Console): MasterConsole => ({
+export const masterConsole = (c: Console, coloader?: string): MasterConsole => ({
   console_no: c.console_no,
   direction: c.direction,
   carrier: c.carrier,
@@ -25,6 +25,8 @@ export const masterConsole = (c: Console): MasterConsole => ({
   place_of_delivery: c.place_of_delivery,
   etd: c.etd,
   cutoff_date: c.cutoff_date,
+  coload: c.space_from === "coloader",
+  coloader: coloader ?? "",
 });
 
 export interface MasterInputs {
@@ -33,8 +35,10 @@ export interface MasterInputs {
   provisional: boolean;
   boxes: ConsoleBox[];
   agent: { name: string; address: string; email: string } | null;
-  /** Where the instruction goes: the line's contact on the partner directory, when the console names one. */
+  /** Where the instruction goes: the line's contact on the partner directory, or on a co-load the co-loader's. */
   carrierEmail: string;
+  /** On a co-load (121), who the space is bought from. */
+  coloader: { name: string; email: string } | null;
   houseBillNos: string[];
 }
 
@@ -47,12 +51,14 @@ export async function masterFor(c: Console): Promise<MasterInputs> {
   if (error) throw new Error(error.message);
   const agent = partners.find((p) => p.id === c.agent_id);
   const carrier = partners.find((p) => p.id === c.carrier_id);
+  const coloader = c.space_from === "coloader" ? partners.find((p) => p.id === c.coloader_id) : undefined;
   return {
     lines: manifest.lines,
     provisional: manifest.provisional,
     boxes: boxesFrom((data ?? []) as JobBoxLine[]),
     agent: agent ? { name: agent.organisation || agent.name, address: agent.address ?? "", email: agent.emails[0] ?? "" } : null,
-    carrierEmail: carrier?.emails[0] ?? "",
+    carrierEmail: (c.space_from === "coloader" ? coloader?.emails[0] : carrier?.emails[0]) ?? "",
+    coloader: coloader ? { name: coloader.organisation || coloader.name, email: coloader.emails[0] ?? "" } : null,
     houseBillNos: manifest.lines.map((l) => l.hblNo).filter(Boolean),
   };
 }

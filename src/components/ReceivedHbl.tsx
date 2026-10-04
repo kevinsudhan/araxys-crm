@@ -258,7 +258,9 @@ export default function ReceivedHbl({ shipment: s, onChanged }: { shipment: Ship
     originals_surrendered_on: row?.originals_surrendered_on ?? null,
     telex_received_on: row?.telex_received_on ?? null,
     charges_cleared_on: row?.charges_cleared_on ?? null,
-    console: onConsole ? { console_no: onConsole.console_no, line_do_at: onConsole.line_do_at ?? null, destuffed_on: onConsole.destuffed_on ?? null } : null,
+    console: onConsole
+      ? { console_no: onConsole.console_no, line_do_at: onConsole.line_do_at ?? null, destuffed_on: onConsole.destuffed_on ?? null, coload: onConsole.space_from === "coloader" }
+      : null,
   });
 
   const tick = (patch: Partial<ReceivedHblInput>, said: string) =>

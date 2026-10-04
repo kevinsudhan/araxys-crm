@@ -247,7 +247,7 @@ export interface ReleaseInput {
   telex_received_on: string | null;
   charges_cleared_on: string | null;
   /** The import console the job is on, when it is on one: its master has to be cleared first (120). */
-  console?: { console_no: string | null; line_do_at: string | null; destuffed_on: string | null } | null;
+  console?: { console_no: string | null; line_do_at: string | null; destuffed_on: string | null; coload?: boolean } | null;
 }
 
 export interface ReleaseItem {
@@ -279,7 +279,8 @@ export function releaseChecklist(r: ReleaseInput): { items: ReleaseItem[]; ready
   }
   if (r.console) {
     const no = r.console.console_no ?? "its console";
-    items.push({ key: "console_do", label: `Line's DO collected for the master B/L (${no})`, done: Boolean(r.console.line_do_at), on: r.console.line_do_at?.slice(0, 10) ?? null });
+    const issuer = r.console.coload ? "Co-loader's DO collected for their B/L" : "Line's DO collected for the master B/L";
+    items.push({ key: "console_do", label: `${issuer} (${no})`, done: Boolean(r.console.line_do_at), on: r.console.line_do_at?.slice(0, 10) ?? null });
     items.push({ key: "console_destuffed", label: `Box destuffed at the CFS (${no})`, done: Boolean(r.console.destuffed_on), on: r.console.destuffed_on });
   }
   items.push({

@@ -24,12 +24,12 @@ export function renderMasterSiPdf(c: MasterConsole, si: HblData, terms: SiTerms,
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   set(INK);
-  doc.text("SHIPPING INSTRUCTIONS — MASTER B/L", PAGE_W / 2, y + 3, { align: "center" });
+  doc.text(c.coload ? "SHIPPING INSTRUCTIONS — CO-LOAD" : "SHIPPING INSTRUCTIONS — MASTER B/L", PAGE_W / 2, y + 3, { align: "center" });
   y += 9;
 
   // ---- the booking and the voyage ----
   const facts: Array<[string, string]> = [
-    ["Carrier", c.carrier.toUpperCase()],
+    c.coload ? ["Co-loader", (c.coloader ?? "").toUpperCase()] : ["Carrier", c.carrier.toUpperCase()],
     ["Booking no", si.booking_ref],
     ["Our console", c.console_no ?? ""],
     ["Date", docDate(printedOn.toISOString())],
@@ -109,18 +109,21 @@ export function renderMasterSiPdf(c: MasterConsole, si: HblData, terms: SiTerms,
     });
     y += 7;
   };
-  row(head.map(([h]) => h), true, true);
-  if (!si.containers.length) row(["No container numbers yet", "", "", "", "", ""]);
-  for (const b of si.containers) row([b.container_no, b.size_type, b.seal_no || "—", b.packages, b.gross_kg, b.cbm]);
-  row(["TOTAL", "", "", si.packages, si.gross_weight_kg, si.measurement_cbm], true, true);
-  y += 5;
+  // On a co-load the box is theirs: the cargo below is all there is to state.
+  if (!c.coload) {
+    row(head.map(([h]) => h), true, true);
+    if (!si.containers.length) row(["No container numbers yet", "", "", "", "", ""]);
+    for (const b of si.containers) row([b.container_no, b.size_type, b.seal_no || "—", b.packages, b.gross_kg, b.cbm]);
+    row(["TOTAL", "", "", si.packages, si.gross_weight_kg, si.measurement_cbm], true, true);
+    y += 5;
+  }
 
   // ---- the cargo, as the bill should say it ----
   const cargo = [
     `MARKS & NUMBERS: ${si.marks_numbers || "—"}`,
     `SAID TO CONTAIN ${si.packages || "—"} ${si.package_type} ${si.description}`.replace(/\s+/g, " ").trim(),
     `GROSS WEIGHT ${si.gross_weight_kg || "—"} KGS · MEASUREMENT ${si.measurement_cbm || "—"} CBM`,
-    "SHIPPER'S LOAD, STOW, COUNT AND SEAL",
+    si.shippers_load ? "SHIPPER'S LOAD, STOW, COUNT AND SEAL" : `SERVICE ${si.service_type}`,
     `FREIGHT ${si.freight_terms.toUpperCase()}${si.freight_payable_at ? ` · PAYABLE AT ${si.freight_payable_at}` : ""}`,
   ];
   const wrapped = cargo.flatMap((l) => doc.splitTextToSize(l, CONTENT_W - 6) as string[]);
@@ -148,7 +151,7 @@ export function renderMasterSiPdf(c: MasterConsole, si: HblData, terms: SiTerms,
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.6);
   set(MUTED);
-  doc.text("The house list is attached. Kindly send the draft master B/L for our approval before issuing.", MARGIN, Math.min(y + 2, FOOTER_Y - 8));
+  doc.text(`The house list is attached. Kindly send the draft ${c.coload ? "B/L" : "master B/L"} for our approval before issuing.`, MARGIN, Math.min(y + 2, FOOTER_Y - 8));
 
   doc.setFontSize(6.8);
   doc.text(`${c.console_no ?? ""} · Shipping instructions`, MARGIN, FOOTER_Y);

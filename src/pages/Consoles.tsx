@@ -29,6 +29,10 @@ import ConsoleManifest from "../components/ConsoleManifest";
 import ConsoleCsn from "../components/ConsoleCsn";
 import ConsoleMasterBill from "../components/ConsoleMasterBill";
 import ConsoleImportMaster from "../components/ConsoleImportMaster";
+import ConsoleCoload from "../components/ConsoleCoload";
+import BillsPanel from "../components/BillsPanel";
+import { ACCOUNTS_DESK } from "../lib/features";
+import { wmOf } from "../lib/coload";
 
 /**
  * The consoles the desk is building.
@@ -294,6 +298,7 @@ export default function Consoles() {
                       </span>
                       <StatusPill tone={TONE[c.status]}>{STATUS_LABEL[c.status]}</StatusPill>
                       <StatusPill tone="neutral">{c.mode}</StatusPill>
+                      {c.space_from === "coloader" && <StatusPill tone="accent">Co-load</StatusPill>}
                       {c.mbl_number && (
                         <span className="font-mono text-[11px] text-text-muted">
                           MBL {c.mbl_number}
@@ -319,6 +324,15 @@ export default function Consoles() {
                         )}
                       </span>
                     </span>
+                    {c.space_from === "coloader" ? (
+                      // Bought by the W/M, not by the box: there is no box of ours to fill.
+                      <span>
+                        <span className="block text-[11px] text-text-secondary">W/M</span>
+                        <span className="block text-[13px] font-medium tabular-nums text-text-primary">
+                          {wmOf(Number(s?.volume_cbm ?? 0), Number(s?.gross_weight_kg ?? 0)).toLocaleString("en-IN")}
+                        </span>
+                      </span>
+                    ) : (
                     <span>
                       <span className="block text-[11px] text-text-secondary">Load</span>
                       <span
@@ -333,6 +347,7 @@ export default function Consoles() {
                         {lf === null ? "—" : `${lf}%`}
                       </span>
                     </span>
+                    )}
                     <ChevronDown
                       size={14}
                       className={`text-text-muted transition-transform ${isOpen ? "rotate-180" : ""}`}
@@ -387,7 +402,7 @@ export default function Consoles() {
                         </>
                       )}
                       <Field
-                        label="Carrier"
+                        label={c.space_from === "coloader" ? "Line they ship on" : "Carrier"}
                         value={c.carrier}
                         onCommit={(v) => void run(() => updateConsole(c.id, { carrier: v }))}
                       />
@@ -417,6 +432,9 @@ export default function Consoles() {
                         </span>
                       </div>
                     </Section>
+
+                    {/* ---- our own box, or space bought from a co-loader (121) ---- */}
+                    <ConsoleCoload console={c} partners={partners} onChanged={() => void load()} />
 
                     <Section title="Voyage">
                       {/* The departure from the sailing schedule: vessel,
@@ -655,6 +673,14 @@ export default function Consoles() {
 
                     {/* ---- the CSN for ICEGATE, as consol agent: on entry for an import, on exit for an export (097) ---- */}
                     {(c.direction === "import" || c.direction === "export") && <ConsoleCsn console={c} onChanged={() => void load()} />}
+
+                    {/* ---- what the console cost: the line's or the co-loader's invoice, the agent's (121) ---- */}
+                    {ACCOUNTS_DESK && (
+                      <section>
+                        <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Costs</h3>
+                        <BillsPanel consoleId={c.id} />
+                      </section>
+                    )}
                   </div>
                 )}
               </div>

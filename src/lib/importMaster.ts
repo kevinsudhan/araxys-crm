@@ -22,6 +22,10 @@ import { sameName, samePlace, type CheckRow } from "./receivedHbl";
  * Each is a date on the console, set when it happened, so the progress is
  * read from the console and never kept separately. A house's delivery order
  * (lib/receivedHbl.ts releaseChecklist) waits for 5 and 6 on its console.
+ *
+ * On a co-load (121) the master is the co-loader's B/L to us: their copy,
+ * their release, their charges, their DO. Their box goes to their CFS, so
+ * step 2 is noting which one, not nominating it.
  * ---------------------------------------------------------------------------
  */
 
@@ -36,6 +40,8 @@ export interface MasterCopy {
 /** The console, as far as the master at this end is concerned. */
 export interface ImportConsole {
   console_no: string | null;
+  /** Space bought from a co-loader (121): they stand where the line does. */
+  coload?: boolean;
   carrier: string;
   mbl_number: string | null;
   mbl_date: string | null;
@@ -73,6 +79,21 @@ export const IMPORT_STEPS: Array<{ key: ImportStep; label: string }> = [
   { key: "destuffed", label: "Destuffed" },
 ];
 
+/** The steps as a co-load names them: the co-loader's B/L, their CFS, their charges, their DO. */
+export const COLOAD_STEPS: Array<{ key: ImportStep; label: string }> = [
+  { key: "copy", label: "Their B/L copy" },
+  { key: "cfs", label: "Their CFS" },
+  { key: "release", label: "Release in hand" },
+  { key: "paid", label: "Co-loader paid" },
+  { key: "do", label: "Their DO" },
+  { key: "destuffed", label: "Destuffed" },
+];
+
+export const stepsFor = (c: Pick<ImportConsole, "coload">) => (c.coload ? COLOAD_STEPS : IMPORT_STEPS);
+
+/** Who the master is cleared with: the line, or on a co-load the co-loader. */
+export const clearedWith = (c: Pick<ImportConsole, "coload">) => (c.coload ? "the co-loader" : "the line");
+
 /** What "in hand" means for each way the master is released, and what proves it. */
 export const RELEASE_IN_HAND: Record<MasterRelease, { label: string; ref: string }> = {
   original: { label: "Original master B/Ls received from the origin agent", ref: "Courier and airway bill they came by" },
@@ -80,6 +101,17 @@ export const RELEASE_IN_HAND: Record<MasterRelease, { label: string; ref: string
   seaway: { label: "Sea waybill: nothing to surrender", ref: "" },
   ebl: { label: "eBL transferred to us", ref: "The eBL platform's transfer reference" },
 };
+
+/** The same, said of the co-loader's B/L. */
+export function releaseInHand(c: Pick<ImportConsole, "coload">, release: MasterRelease): { label: string; ref: string } {
+  if (!c.coload) return RELEASE_IN_HAND[release];
+  return {
+    original: { label: "The co-loader's original B/Ls received from the origin agent", ref: "Courier and airway bill they came by" },
+    telex: { label: "Telex release confirmed by the co-loader", ref: "Their telex release number" },
+    seaway: RELEASE_IN_HAND.seaway,
+    ebl: RELEASE_IN_HAND.ebl,
+  }[release];
+}
 
 /** Each step, done or not, and when. The date is the day it was recorded. */
 export function importProgress(c: ImportConsole): Record<ImportStep, { done: boolean; on: string | null }> {
@@ -160,14 +192,15 @@ export function checkMasterCopy(c: ImportConsole, copy: MasterCopy, boxes: Conso
 export function copyIssues(c: ImportConsole, copy: MasterCopy, houseBillNos: string[], ourName: string): string[] {
   const out: string[] = [];
   const consignee = copy.bill.consignee_name.trim();
+  const who = clearedWith(c);
   if (!consignee) out.push("The copy shows no consignee");
-  else if (/^TO ORDER/i.test(consignee)) out.push(`The master is consigned "${consignee}": the line wants it endorsed to us before it gives the DO`);
-  else if (!sameName(consignee, ourName)) out.push(`The master names ${consignee} as consignee, not us: the line gives its DO only to the consignee`);
+  else if (/^TO ORDER/i.test(consignee)) out.push(`The master is consigned "${consignee}": ${who} wants it endorsed to us before it gives the DO`);
+  else if (!sameName(consignee, ourName)) out.push(`The master names ${consignee} as consignee, not us: ${who} gives its DO only to the consignee`);
   // ICEGATE 2.0 (31 Aug 2026): a house B/L may not carry the master's number.
   const mbl = key(copy.bl_no || c.mbl_number);
   const clash = mbl ? houseBillNos.filter((h) => key(h) === mbl) : [];
   if (clash.length) out.push(`House B/L ${clash.join(", ")} has the master's number: Customs refuses that`);
-  if (copy.bill.freight_terms === "collect") out.push("Freight collect: the ocean freight is paid to the line here, with its charges");
+  if (copy.bill.freight_terms === "collect") out.push(`Freight collect: the freight is paid to ${who} here, with its charges`);
   if (!c.mbl_release) out.push("Say how the master is released: originals, telex, sea waybill or eBL");
   return out;
 }
