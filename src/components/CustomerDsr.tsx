@@ -66,14 +66,14 @@ export default function CustomerDsr({ customer }: { customer: Customer }) {
 
   function download() {
     if (!rows) return;
-    downloadWorkbook(dsrFileName(name, today), [dsrSheet(rows, { customer: name, today, forCustomer: false })]);
+    downloadWorkbook(dsrFileName(name, today), [dsrSheet(rows, { customer: name, today })]);
   }
 
   function email() {
     if (!rows) return;
     setNotice(null);
     setComposing({
-      bytes: buildWorkbook([dsrSheet(rows, { customer: name, today, forCustomer: true })]),
+      bytes: buildWorkbook([dsrSheet(rows, { customer: name, today })]),
       html: dsrMailHtml({
         customer: name,
         today,
@@ -98,7 +98,7 @@ export default function CustomerDsr({ customer }: { customer: Customer }) {
           </h2>
           <p className="mt-0.5 max-w-prose text-[12px] text-text-secondary">
             Every shipment in progress, and those delivered in the last {DELIVERED_KEPT_DAYS} days. Write the reason and status here; the rest
-            comes from the job. The customer's copy leaves out the agent.
+            comes from the job. The customer gets exactly these columns.
           </p>
           <p className="mt-1 text-[11.5px] text-text-muted">
             {last
@@ -155,19 +155,14 @@ export default function CustomerDsr({ customer }: { customer: Customer }) {
         </p>
       ) : (
         <>
-          {/* Wide screens: the sheet as the customer gets it, the agent column the desk's only. */}
+          {/* Wide screens: the sheet exactly as the customer gets it. */}
           <div className="mt-4 hidden overflow-x-auto rounded-lg border border-border lg:block">
             <table className="w-max min-w-full border-collapse text-[12px]">
               <thead>
                 <tr className="bg-surface-2 text-left">
                   {DSR_COLUMNS.map((c) => (
-                    <th
-                      key={c.header}
-                      className={`whitespace-nowrap border-b border-border px-2.5 py-2 text-[10.5px] font-semibold uppercase tracking-wide ${c.internal ? "text-text-muted" : "text-text-secondary"}`}
-                      title={c.internal ? "Not on the customer's copy" : undefined}
-                    >
+                    <th key={c.header} className="whitespace-nowrap border-b border-border px-2.5 py-2 text-[10.5px] font-semibold uppercase tracking-wide text-text-secondary">
                       {c.header}
-                      {c.internal && <span className="ml-1 font-normal normal-case tracking-normal">(yours)</span>}
                     </th>
                   ))}
                 </tr>
@@ -188,7 +183,6 @@ export default function CustomerDsr({ customer }: { customer: Customer }) {
                     <Td>{r.term}</Td>
                     <Td>{r.mode}</Td>
                     <Td>{r.port}</Td>
-                    <Td muted>{r.agent}</Td>
                     <Td>{day(r.bookingReceived)}</Td>
                     <Td>{day(r.bookingConfirmed)}</Td>
                     <Td>
@@ -229,7 +223,6 @@ export default function CustomerDsr({ customer }: { customer: Customer }) {
                 <p className="mt-0.5 text-[12px] text-text-secondary">
                   {[r.term, r.mode, r.port, r.pkg, r.weight, r.cbm != null ? `${r.cbm} CBM` : ""].filter(Boolean).join(" · ")}
                 </p>
-                {r.agent && <p className="text-[11.5px] text-text-muted">Agent (yours): {r.agent}</p>}
                 <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11.5px] sm:grid-cols-4">
                   <Fact label="Booking received" value={day(r.bookingReceived)} />
                   <Fact label="Booking confirmed" value={day(r.bookingConfirmed)} />

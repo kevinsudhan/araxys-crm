@@ -12,9 +12,9 @@ import type { Customer } from "./customers";
 export const DELIVERED_KEPT_DAYS = 7;
 
 const SHIPMENT_COLUMNS =
-  "id, enquiry_ref, stage, transport_mode, trade_direction, incoterm, booking_number, bl_number, forwarders_bl_no, vessel, voyage, flight_number, etd, eta, cargo_cutoff, origin, destination, port_of_loading, port_of_discharge, package_count, package_type, piece_count, gross_weight_kg, volume_cbm, created_at, updated_at, cancelled_at, routed_agent_id";
+  "id, enquiry_ref, stage, transport_mode, trade_direction, incoterm, booking_number, bl_number, forwarders_bl_no, vessel, voyage, flight_number, etd, eta, cargo_cutoff, origin, destination, port_of_loading, port_of_discharge, package_count, package_type, piece_count, gross_weight_kg, volume_cbm, created_at, updated_at, cancelled_at";
 
-type ShipmentRow = DsrSource["shipment"] & { updated_at: string; cancelled_at: string | null; routed_agent_id: string | null };
+type ShipmentRow = DsrSource["shipment"] & { updated_at: string; cancelled_at: string | null };
 
 const need = <T,>(r: { data: T | null; error: { message: string } | null }): T => {
   if (r.error) throw new Error(r.error.message);
@@ -35,12 +35,11 @@ export async function dsrFor(customer: Customer, now = new Date()): Promise<DsrR
   const ids = shipments.map((s) => s.id);
   const refs = [...new Set(shipments.map((s) => s.enquiry_ref))];
 
-  const [milestones, moves, hbls, hawbs, assigns, quotes, notes] = await Promise.all([
+  const [milestones, moves, hbls, hawbs, quotes, notes] = await Promise.all([
     supabase.from("shipment_milestones").select("shipment_id, code, label, position, reached_on, hidden").in("shipment_id", ids),
     supabase.from("shipment_movements").select("shipment_id, planned_date, actual_at, seq").eq("kind", "pickup").in("shipment_id", ids),
     supabase.from("house_bills").select("shipment_id, hbl_no").in("shipment_id", ids),
     supabase.from("house_airwaybills").select("shipment_id, hawb_no").in("shipment_id", ids),
-    supabase.from("partner_assignments").select("enquiry_ref, partner_id, role, assigned_at").in("enquiry_ref", refs),
     supabase.from("quotes").select("enquiry_ref, status, responded_at, verbal_accept_at").eq("status", "accepted").in("enquiry_ref", refs),
     supabase.from("shipment_dsr_notes").select("shipment_id, remark, status").in("shipment_id", ids),
   ]);
@@ -48,20 +47,8 @@ export async function dsrFor(customer: Customer, now = new Date()): Promise<DsrR
   const mv = need<Array<{ shipment_id: string; planned_date: string | null; actual_at: string | null; seq: number }>>(moves);
   const hb = need<Array<{ shipment_id: string; hbl_no: string | null }>>(hbls);
   const hw = need<Array<{ shipment_id: string; hawb_no: string | null }>>(hawbs);
-  const pa = need<Array<{ enquiry_ref: string; partner_id: string; role: string; assigned_at: string }>>(assigns);
   const qs = need<Array<{ enquiry_ref: string; responded_at: string | null; verbal_accept_at: string | null }>>(quotes);
   const ns = need<Array<{ shipment_id: string; remark: string; status: string }>>(notes);
-
-  // The agent: the one the job is routed through, else the overseas agent assigned on the enquiry.
-  const agentIds = new Set<string>();
-  for (const s of shipments) if (s.routed_agent_id) agentIds.add(s.routed_agent_id);
-  for (const a of pa) if (a.role === "overseas_agent") agentIds.add(a.partner_id);
-  const partners = agentIds.size
-    ? need<Array<{ id: string; name: string; organisation: string }>>(
-        await supabase.from("partners").select("id, name, organisation").in("id", [...agentIds])
-      )
-    : [];
-  const partnerName = new Map(partners.map((p) => [p.id, p.organisation?.trim() || p.name?.trim() || ""]));
 
   const cutoff = new Date(now.getTime() - DELIVERED_KEPT_DAYS * 86400000).toISOString().slice(0, 10);
   const name = customerName(customer);
@@ -70,7 +57,6 @@ export async function dsrFor(customer: Customer, now = new Date()): Promise<DsrR
     .map((s) => {
       const mine = ms.filter((m) => m.shipment_id === s.id);
       const pickup = mv.filter((m) => m.shipment_id === s.id).sort((a, b) => a.seq - b.seq)[0];
-      const agentId = s.routed_agent_id ?? pa.filter((a) => a.enquiry_ref === s.enquiry_ref && a.role === "overseas_agent").sort((a, b) => b.assigned_at.localeCompare(a.assigned_at))[0]?.partner_id;
       const accepted = qs
         .filter((q) => q.enquiry_ref === s.enquiry_ref)
         .map((q) => q.verbal_accept_at ?? q.responded_at)
@@ -85,7 +71,6 @@ export async function dsrFor(customer: Customer, now = new Date()): Promise<DsrR
           shipment: s,
           customerName: name,
           houseBill: hb.find((x) => x.shipment_id === s.id)?.hbl_no ?? hw.find((x) => x.shipment_id === s.id)?.hawb_no ?? null,
-          agent: agentId ? partnerName.get(agentId) ?? null : null,
           bookingReceived: accepted ?? s.created_at,
           milestones: withPickup,
           pickupPlanned: pickup && !pickup.actual_at ? pickup.planned_date : null,

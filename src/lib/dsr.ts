@@ -14,11 +14,12 @@ import { ACCENT, INK, LINE, MUTED, NAVY, SOFT, caption, esc, letter, longDate, m
  * the report (`shipment_dsr_notes`), and a STATUS nobody has written reads
  * from the milestones instead of going out blank.
  *
- * THE CUSTOMER'S COPY HAS NO AGENT
+ * THE DESK'S TWENTY COLUMNS, AND ONLY THOSE
  *
- * The desk's own sheet hid the agent column before sending. A hidden column is
- * one click from visible, so the customer's copy — the attachment and the
- * mail — leaves it out altogether. The desk's download keeps it.
+ * S.NO to STATUS, as the desk's own sheet has them (4 Oct). The agent column
+ * the desk's old sheet hid before sending is gone from every copy — the
+ * screen, the desk's download and the customer's — so there is one report,
+ * and nothing on it the customer should not see.
  * ---------------------------------------------------------------------------
  */
 
@@ -62,7 +63,6 @@ export interface DsrSource {
   customerName: string;
   /** The house bill or house airway bill number, when one is issued. */
   houseBill: string | null;
-  agent: string | null;
   /** When the booking came in: the quotation accepted, else the job opened. */
   bookingReceived: string | null;
   milestones: DsrMilestone[];
@@ -80,7 +80,6 @@ export interface DsrRow {
   term: string;
   mode: string;
   port: string;
-  agent: string;
   bookingReceived: string | null;
   bookingConfirmed: string | null;
   pickup: string | null;
@@ -152,7 +151,6 @@ export function dsrRow(src: DsrSource): DsrRow {
     term: (s.incoterm ?? "").toUpperCase(),
     mode: MODE[s.transport_mode ?? ""] ?? "",
     port: farPort(s),
-    agent: src.agent?.trim() ?? "",
     bookingReceived: day(src.bookingReceived),
     bookingConfirmed: day(at("booked")),
     pickup: day(picked ?? src.pickupPlanned),
@@ -180,8 +178,6 @@ export const sortRows = (rows: DsrRow[]) => [...rows].sort((a, b) => a.enquiryRe
 
 interface DsrColumn extends Column {
   value: (r: DsrRow, i: number) => CellValue;
-  /** The desk's only: left out of the customer's copy. */
-  internal?: boolean;
 }
 
 const asDate = (iso: string | null): Date | null => {
@@ -190,7 +186,7 @@ const asDate = (iso: string | null): Date | null => {
   return y && m && d ? new Date(y, m - 1, d) : null;
 };
 
-/** The desk's columns, in the desk's order and words. */
+/** The desk's twenty columns, in the desk's order and words — the whole report. */
 export const DSR_COLUMNS: DsrColumn[] = [
   { header: "S.NO", width: 6, kind: "center", value: (_r, i) => i + 1 },
   { header: "ENQ.NO", width: 14, kind: "key", value: (r) => r.enquiryRef },
@@ -200,7 +196,6 @@ export const DSR_COLUMNS: DsrColumn[] = [
   { header: "TERM", width: 7, kind: "center", value: (r) => r.term },
   { header: "MODE", width: 9, kind: "center", value: (r) => r.mode },
   { header: "PORT", width: 14, value: (r) => r.port },
-  { header: "AGENT NAME", width: 16, kind: "wrap", internal: true, value: (r) => r.agent },
   { header: "BOOKING RECEIVED", width: 13, kind: "date", value: (r) => asDate(r.bookingReceived) },
   { header: "BOOKING CNFR", width: 13, kind: "date", value: (r) => asDate(r.bookingConfirmed) },
   { header: "PICKUP DATE", width: 13, kind: "date", value: (r) => asDate(r.pickup) },
@@ -215,18 +210,14 @@ export const DSR_COLUMNS: DsrColumn[] = [
   { header: "STATUS", width: 34, kind: "wrap", value: (r) => r.status },
 ];
 
-export function dsrColumns(forCustomer: boolean): DsrColumn[] {
-  return DSR_COLUMNS.filter((c) => !(forCustomer && c.internal));
-}
-
 export const dsrTitle = (customer: string) => `DSR — ${customer}`;
 export const dsrSubject = (customer: string, today: string) => `Daily Status Report · ${customer} · ${longDate(today)}`;
 export const dsrFileName = (customer: string, today: string) =>
   `DSR ${customer.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60)} ${today}.xlsx`;
 
-/** The workbook's one sheet: the desk's copy, or the customer's (no agent). */
-export function dsrSheet(rows: DsrRow[], input: { customer: string; today: string; forCustomer: boolean }): Sheet {
-  const cols = dsrColumns(input.forCustomer);
+/** The workbook's one sheet, the same for the desk and the customer. */
+export function dsrSheet(rows: DsrRow[], input: { customer: string; today: string }): Sheet {
+  const cols = DSR_COLUMNS;
   const sorted = sortRows(rows);
   return {
     name: "DSR",

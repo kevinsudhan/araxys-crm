@@ -860,6 +860,13 @@ can be read and replied to). The form now has **New partner**: `PartnerForm` inl
 directory and chosen for the request at once (`PartnerForm onSaved` now passes the saved partner);
 a half-typed partner holds the dialog open as a send does.
 
+**DSR: the desk's twenty columns only (4 Oct).** `lib/dsr.ts` `DSR_COLUMNS` is exactly the desk's
+sheet: S.NO, ENQ.NO, BOOKING NO, BL NO, CUSTOMER NAME, TERM, MODE, PORT, BOOKING RECEIVED, BOOKING
+CNFR, PICKUP DATE, PKG, WEIGHT, CBM, VESSEL NAME, CUT-OFF, ETD, ETA, REASON, STATUS. The AGENT NAME
+column (the desk's copy only, before) is gone from the screen, the desk's download and the
+customer's copy alike; `dsrSheet` no longer takes `forCustomer`, and the loader no longer looks up
+partner assignments.
+
 ## 9. Open items
 
 Figures here are as last recorded: 28 Sep for the counts and the mailboxes, 1 Oct for the

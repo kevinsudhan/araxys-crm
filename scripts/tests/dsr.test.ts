@@ -50,7 +50,6 @@ const src: DsrSource = {
   },
   customerName: "Sample Traders",
   houseBill: "HBL-T1",
-  agent: "Sample Agent Co",
   bookingReceived: "2026-09-10T09:30:00Z",
   milestones,
   pickupPlanned: null,
@@ -73,13 +72,15 @@ is("nothing reached yet", statusFromMilestones([{ code: "booked", label: "Bookin
 is("oldest job first", sortRows([dsrRow({ ...src, shipment: { ...src.shipment, id: "B", enquiry_ref: "ALG99010-26" } }), r]).map((x) => x.enquiryRef), ["ALG99003-26", "ALG99010-26"]);
 
 console.log("\nthe sheet");
-const desk = dsrSheet([r], { customer: "Sample Traders", today: "2026-09-30", forCustomer: false });
-const theirs = dsrSheet([r], { customer: "Sample Traders", today: "2026-09-30", forCustomer: true });
-is("the desk's columns, in the desk's order", desk.columns.map((c) => c.header), DSR_COLUMNS.map((c) => c.header));
-is("21 columns for the desk, 20 for the customer: no agent", [desk.columns.length, theirs.columns.length, theirs.columns.some((c) => c.header === "AGENT NAME")], [21, 20, false]);
-is("the agent's name nowhere on the customer's copy", JSON.stringify(theirs.rows).includes("Sample Agent Co"), false);
-is("numbered from 1", desk.rows[0][0], 1);
-is("dates as dates, so they sort", desk.rows[0][DSR_COLUMNS.findIndex((c) => c.header === "ETD")] instanceof Date, true);
+const theirs = dsrSheet([r], { customer: "Sample Traders", today: "2026-09-30" });
+is(
+  "exactly the desk's twenty columns, in the desk's order — no agent, on any copy",
+  theirs.columns.map((c) => c.header),
+  ["S.NO", "ENQ.NO", "BOOKING NO", "BL NO", "CUSTOMER NAME", "TERM", "MODE", "PORT", "BOOKING RECEIVED", "BOOKING CNFR", "PICKUP DATE", "PKG", "WEIGHT", "CBM", "VESSEL NAME", "CUT-OFF", "ETD", "ETA", "REASON", "STATUS"]
+);
+is("the screen shows the same columns", DSR_COLUMNS.map((c) => c.header), theirs.columns.map((c) => c.header));
+is("numbered from 1", theirs.rows[0][0], 1);
+is("dates as dates, so they sort", theirs.rows[0][DSR_COLUMNS.findIndex((c) => c.header === "ETD")] instanceof Date, true);
 
 // Built and read back, as Excel would open it.
 const files = await unzip(buildWorkbook([theirs]));
@@ -93,7 +94,6 @@ console.log("\nthe mail");
 const html = dsrMailHtml({ customer: "Sample Traders", today: "2026-09-30", rows: [r], note: "Please find below.", fromName: "Desk" });
 is("the letter, titled, dated, for the customer", ["DAILY STATUS REPORT", "30 Sep 2026", "Sample Traders"].map((t) => html.includes(t)), [true, true, true]);
 is("each shipment with its dates and status", ["ALG99003-26", "BL HBL-T1", "27 Sep 2026", "14 Oct 2026", "Cargo picked up on 14 Sep 2026"].map((t) => html.includes(t)), [true, true, true, true, true]);
-is("no agent in the mail", html.includes("Sample Agent Co"), false);
 is("a note typed with markup is escaped", dsrMailHtml({ customer: "A<b>", today: "2026-09-30", rows: [], note: "x" }).includes("A&lt;b&gt;"), true);
 is("subject and file name", [dsrSubject("Sample Traders", "2026-09-30"), dsrFileName('Sample / "Traders"', "2026-09-30")], ["Daily Status Report · Sample Traders · 30 Sep 2026", "DSR Sample Traders 2026-09-30.xlsx"]);
 
