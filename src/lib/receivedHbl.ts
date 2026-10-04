@@ -246,10 +246,13 @@ export interface ReleaseInput {
   originals_surrendered_on: string | null;
   telex_received_on: string | null;
   charges_cleared_on: string | null;
+  /** The import console the job is on, when it is on one: its master has to be cleared first (120). */
+  console?: { console_no: string | null; line_do_at: string | null; destuffed_on: string | null } | null;
 }
 
 export interface ReleaseItem {
-  key: "final" | "originals_surrendered_on" | "telex_received_on" | "charges_cleared_on";
+  /** "console_…" items are recorded on the console, not ticked on the job. */
+  key: "final" | "originals_surrendered_on" | "telex_received_on" | "charges_cleared_on" | "console_do" | "console_destuffed";
   label: string;
   done: boolean;
   /** The date it was ticked, when it is a dated tick. */
@@ -261,9 +264,11 @@ export interface ReleaseItem {
  *
  * The final bill in; the title given up the way its release mode says —
  * one original surrendered by the consignee, the telex release from the
- * issuer, or nothing for a sea waybill; and the money paid. The DO is issued
- * when every line is done. Customs clearance is the terminal's condition,
- * printed on the DO, not ours to wait for.
+ * issuer, or nothing for a sea waybill; and the money paid. On a console,
+ * the line's DO for the master collected and the box destuffed at the CFS
+ * as well: the house's cargo cannot be handed over before it is out of the
+ * box. The DO is issued when every line is done. Customs clearance is the
+ * terminal's condition, printed on the DO, not ours to wait for.
  */
 export function releaseChecklist(r: ReleaseInput): { items: ReleaseItem[]; ready: boolean } {
   const items: ReleaseItem[] = [{ key: "final", label: "Final B/L received from the agent", done: r.stage === "final", on: null }];
@@ -271,6 +276,11 @@ export function releaseChecklist(r: ReleaseInput): { items: ReleaseItem[]; ready
     items.push({ key: "originals_surrendered_on", label: "An original B/L surrendered by the consignee", done: Boolean(r.originals_surrendered_on), on: r.originals_surrendered_on });
   } else if (r.release_mode === "telex") {
     items.push({ key: "telex_received_on", label: `Telex release received from ${r.issuer_name.trim() || "the agent"}`, done: Boolean(r.telex_received_on), on: r.telex_received_on });
+  }
+  if (r.console) {
+    const no = r.console.console_no ?? "its console";
+    items.push({ key: "console_do", label: `Line's DO collected for the master B/L (${no})`, done: Boolean(r.console.line_do_at), on: r.console.line_do_at?.slice(0, 10) ?? null });
+    items.push({ key: "console_destuffed", label: `Box destuffed at the CFS (${no})`, done: Boolean(r.console.destuffed_on), on: r.console.destuffed_on });
   }
   items.push({
     key: "charges_cleared_on",

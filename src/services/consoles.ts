@@ -112,6 +112,23 @@ export interface Console {
   mbl_released_at?: string | null;
   mbl_release_ref?: string;
 
+  /* An import console's master at this end (120, lib/importMaster.ts). */
+  /** The master's copy as read (MasterCopy). */
+  mbl_copy?: unknown;
+  mbl_copy_at?: string | null;
+  release_in_hand_at?: string | null;
+  release_in_hand_ref?: string;
+  line_invoice_no?: string;
+  line_charges_inr?: number | null;
+  line_paid_at?: string | null;
+  line_do_no?: string;
+  line_do_at?: string | null;
+  line_do_valid_till?: string | null;
+  cfs_name?: string;
+  cfs_nominated_at?: string | null;
+  cfs_nominated_to?: string;
+  destuffed_on?: string | null;
+
   /** Joined in by the loaders, not columns. */
   agent_label?: string | null;
   summary?: ConsoleSummary;

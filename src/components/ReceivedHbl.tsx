@@ -20,6 +20,7 @@ import {
 } from "../lib/receivedHbl";
 import type { CustomsRecord } from "../lib/customs";
 import type { Shipment } from "../services/enquiries";
+import { getConsole, type Console } from "../services/consoles";
 import { listPartners, type Partner } from "../services/partners";
 import {
   BILL_FILE_TYPES,
@@ -111,6 +112,8 @@ export default function ReceivedHbl({ shipment: s, onChanged }: { shipment: Ship
   const [saved, setSaved] = useState("");
   const [agents, setAgents] = useState<Partner[]>([]);
   const [customs, setCustoms] = useState<CustomsRecord | null>(null);
+  /** The import console the job is on: its master is cleared there (120). */
+  const [onConsole, setOnConsole] = useState<Console | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -123,13 +126,15 @@ export default function ReceivedHbl({ shipment: s, onChanged }: { shipment: Ship
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [existing, partners, c] = await Promise.all([
+      const [existing, partners, c, con] = await Promise.all([
         getReceivedHbl(s.id),
         listPartners().catch(() => [] as Partner[]),
         importCustoms(s.id).catch(() => null),
+        s.console_id ? getConsole(s.console_id).catch(() => null) : Promise.resolve(null),
       ]);
       setAgents(partners.filter((p) => p.role === "overseas_agent" || p.role === "consol_partner"));
       setCustoms(c);
+      setOnConsole(con?.direction === "import" ? con : null);
       setRow(existing);
       const form = existing ? fromRow(existing) : { ...blank(), hbl_no: s.forwarders_bl_no ?? "" };
       setF(form);
@@ -139,7 +144,7 @@ export default function ReceivedHbl({ shipment: s, onChanged }: { shipment: Ship
       setError(failureText(e, "Could not load their B/L.").message);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.id]);
+  }, [s.id, s.console_id]);
 
   useEffect(() => {
     void load();
@@ -253,6 +258,7 @@ export default function ReceivedHbl({ shipment: s, onChanged }: { shipment: Ship
     originals_surrendered_on: row?.originals_surrendered_on ?? null,
     telex_received_on: row?.telex_received_on ?? null,
     charges_cleared_on: row?.charges_cleared_on ?? null,
+    console: onConsole ? { console_no: onConsole.console_no, line_do_at: onConsole.line_do_at ?? null, destuffed_on: onConsole.destuffed_on ?? null } : null,
   });
 
   const tick = (patch: Partial<ReceivedHblInput>, said: string) =>
@@ -637,6 +643,14 @@ function Release({
                 <span className={`text-[12.5px] ${i.done ? "text-text-primary" : "text-text-secondary"}`}>{i.label}</span>
                 {i.key === "final" ? (
                   !i.done && <span className="text-[11.5px] text-text-muted">— mark it at the top when the final bill is in</span>
+                ) : i.key === "console_do" || i.key === "console_destuffed" ? (
+                  i.done ? (
+                    <span className="text-[11.5px] text-text-muted">{day(i.on)}</span>
+                  ) : (
+                    <Link to="/consoles" className="text-[11.5px] text-text-accent hover:underline">
+                      Recorded on the console
+                    </Link>
+                  )
                 ) : i.done ? (
                   <>
                     <span className="text-[11.5px] text-text-muted">{day(i.on)}</span>

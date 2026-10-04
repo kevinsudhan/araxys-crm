@@ -28,6 +28,7 @@ import { PageSkeleton } from "../components/Loading";
 import ConsoleManifest from "../components/ConsoleManifest";
 import ConsoleCsn from "../components/ConsoleCsn";
 import ConsoleMasterBill from "../components/ConsoleMasterBill";
+import ConsoleImportMaster from "../components/ConsoleImportMaster";
 
 /**
  * The consoles the desk is building.
@@ -648,6 +649,9 @@ export default function Consoles() {
 
                     {/* ---- the master B/L with the line: instruction, draft, issue, release (119) ---- */}
                     {c.direction !== "import" && <ConsoleMasterBill console={c} jobs={list.length} onChanged={() => void load()} />}
+
+                    {/* ---- an import's master at this end: copy, CFS, release, line paid, line DO, destuffed (120) ---- */}
+                    {c.direction === "import" && <ConsoleImportMaster console={c} jobs={list.length} onChanged={() => void load()} />}
 
                     {/* ---- the CSN for ICEGATE, as consol agent: on entry for an import, on exit for an export (097) ---- */}
                     {(c.direction === "import" || c.direction === "export") && <ConsoleCsn console={c} onChanged={() => void load()} />}

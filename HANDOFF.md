@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **119**, so the next one is `120-….sql`.
+  migration filename (§6). The last migration is **120**, so the next one is `121-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 119 migrations
+## 4. Data model — 120 migrations
 
-`supabase-v2/001…119`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…120`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -246,6 +246,7 @@ transaction).
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
+| `120` | **An import console's master B/L at this end.** `consoles` gains `mbl_copy` (the origin agent's copy as read: `{bill: HblData, bl_no, issuer, originals}`) / `mbl_copy_at`, `release_in_hand_at / _ref`, `line_invoice_no`, `line_charges_inr` (≥ 0, checked), `line_paid_at`, `line_do_no / line_do_at / line_do_valid_till`, `cfs_name / cfs_nominated_at / cfs_nominated_to`, `destuffed_on`; how the master is released reuses 119's `mbl_release / mbl_originals`. Under the existing consoles policies. Checked rolled back as an employee: every field recorded, a negative charge refused |
 | `119` | **A console's master B/L with the line.** `consoles` gains `carrier_booking_no`, `mbl_si` (the desk's SiTerms: parties, freight, wording; boxes and totals are never stored), `mbl_stage` (none → si_sent → draft_received → draft_approved → issued → released, checked), `si_sent_at / si_sent_to`, `mbl_draft` (the line's draft as read, HblData) / `mbl_draft_at`, `mbl_draft_approved_at`, `mbl_release` (original / telex / seaway / ebl, checked) and `mbl_originals` (0–3), `mbl_released_at / mbl_release_ref`. Under the existing consoles policies. Checked rolled back as an employee: every stage recorded, a bad stage, release or 4 originals refused |
 | `118` | **A sent quotation, edited, becomes its next revision.** `revise_quote(p_quote)` (security invoker, authenticated only): in one transaction the sent quotation is superseded and its next version made as a draft with the same basis, validity, sailing, currency and rate, type, terms, `mail_text`, `pasted_text`, routing, carrier and transit time, and every charge copied (section and GST too); logs `quote_revised`. Answers `{quote_id, lines: {sent line id: copy id}, existing}`; asked again it answers the draft already made rather than a third version; refuses anything not `sent`. Checked rolled back as an employee on ALG10001-26 (10 charges copied exactly, the total unchanged, an edit landing on the copy, the sent version untouched) |
 | `117` | **The Sunday rate requests go at 8:30 pm IST** (the user, 1 Oct), not 10:30: `cron.alter_job` moves `araxys-v2-live-rates` to `0,10,20,30,40,50 15 * * 0` (15:00–15:50 GMT = 20:30–21:20 IST) and leaves its command as 101 wrote it. `lib/liveRates.ts` (and the function's copy) say 8:30 for the page; the function never reads the time, so it was not redeployed. Dry-run rolled back, then applied |
@@ -879,13 +880,31 @@ The version the customer has keeps its figures. The paste box's "or revise it ch
 (which started an empty version) is now "or change the charges below" once a quotation exists.
 
 **Consol build plan (5 Oct), one step at a time.** 1 master B/L, export (done) · 2 master B/L,
-import (line DO, line charges, CFS nomination, OBL/telex before release) · 3 co-loading, buying space
+import (done) · 3 co-loading, buying space
 on another consolidator's box · 4 co-loading, selling space on ours · 5 console P&L (bought vs sold,
 load factor, margin) · 6 CFS and containers (measured vs declared, tally, stuffing, load plan,
 container space) · 7 destination deconsolidation (outturn, auto arrival notices, DO gate) · 8
 destination filings (UAE MPCI, EU ICS2, US AMS/ISF — when the user names the provider) · 9 agent
 profit share, DG acceptance · 10 own MTO registration, consolidator bond, eBL. No GST e-invoicing:
 turnover under ₹5 crore (user, 5 Oct).
+
+**Master B/L at this end, import consoles (120, 5 Oct).** `components/ConsoleImportMaster.tsx`
+under the house list on an import console, six steps in the order they happen, each a date on the
+console (`lib/importMaster.ts` `importProgress`): **1 the copy** from the origin agent, read by the
+house B/L reader (`services/masterBill.ts` `readBillFile`, shared with the export draft) and checked
+(`checkMasterCopy`) against the console (MBL no, vessel, voyage, ports), the jobs' boxes (each
+container, its seal) and the houses' totals; `copyIssues` says what the line or Customs stops on
+(consignee not us or TO ORDER, a house B/L with the master's number, freight collect, release not
+said). Reading fills only the console's blanks (`blanksFromCopy`). **2 the CFS** nominated to the
+line: the letter (`lib/documents/cfsNominationPdf.ts`) downloaded or mailed to the carrier's directory
+contact; sending records it, or "Nominated another way". **3 the release in hand**: originals (courier
+AWB), telex (number), eBL (transfer ref); a sea waybill needs none. **4 the line paid** (invoice no,
+₹), with the console's bills from Accounts listed. **5 the line's DO** (number, valid till; lapsed
+while the box is unopened is warned, `lineDoState`). **6 destuffed** on a date. Any step but the
+copy can be taken back. **A house's DO waits for its console**: `releaseChecklist` gains
+`console_do` and `console_destuffed` items when the job is on an import console (`ReceivedHbl`
+loads it); they are recorded on the console, not ticked on the job. Tests:
+`scripts/tests/importMaster.test.ts`.
 
 **Master B/L with the line, export consoles (119, 5 Oct).** `components/ConsoleMasterBill.tsx`
 under the house list on an export or cross-trade console (an import console keeps the plain MBL

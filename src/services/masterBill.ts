@@ -73,14 +73,10 @@ export const saveSiTerms = (c: Console, terms: SiTerms) => patch(c.id, { mbl_si:
 export const markSiSent = (c: Console, to: string) =>
   patch(c.id, { mbl_stage: forward(c.mbl_stage ?? "none", "si_sent"), si_sent_at: new Date().toISOString(), si_sent_to: to });
 
-/**
- * The line's draft, read (classify-enquiry, mode "hbl", as an agent's house
- * B/L is) and kept on the console to check against the instruction. Nothing
- * is approved by reading it.
- */
-export async function readMasterDraft(c: Console, file: File): Promise<HblData> {
+/** A master B/L's PDF or picture, read by the house B/L reader (classify-enquiry, mode "hbl"). */
+export async function readBillFile(file: File, what: string): Promise<ReturnType<typeof billFromReading>> {
   const types = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-  if (!types.includes(file.type)) throw new Error("Send the draft as a PDF, or a JPG, PNG or WebP picture of it.");
+  if (!types.includes(file.type)) throw new Error(`Send the ${what} as a PDF, or a JPG, PNG or WebP picture of it.`);
   if (file.size > 7 * 1024 * 1024) throw new Error("That file is over 7 MB, too large to read. A smaller scan will do.");
   const base64 = await new Promise<string>((resolve, reject) => {
     const r = new FileReader();
@@ -93,7 +89,15 @@ export async function readMasterDraft(c: Console, file: File): Promise<HblData> 
   const r = data as BillReading & { error?: string };
   if (r.error) throw new Error(r.error);
   if (r.is_bill_of_lading === false) throw new Error("That does not look like a bill of lading.");
-  const draft = billFromReading(r).data;
+  return billFromReading(r);
+}
+
+/**
+ * The line's draft, read as an agent's house B/L is and kept on the console
+ * to check against the instruction. Nothing is approved by reading it.
+ */
+export async function readMasterDraft(c: Console, file: File): Promise<HblData> {
+  const draft = (await readBillFile(file, "draft")).data;
   await patch(c.id, { mbl_draft: draft, mbl_draft_at: new Date().toISOString(), mbl_stage: forward(c.mbl_stage ?? "none", "draft_received") });
   return draft;
 }
