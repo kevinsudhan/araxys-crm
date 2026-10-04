@@ -96,6 +96,22 @@ export interface Console {
   /** The CSN form for ICEGATE as last saved (097, lib/icegateCsn.ts CsnDraft). */
   csn_draft?: unknown;
 
+  /* The master B/L with the line (119, lib/masterBill.ts). */
+  carrier_booking_no?: string;
+  /** The desk's terms for the instruction (SiTerms), when changed from the defaults. */
+  mbl_si?: unknown;
+  mbl_stage?: import("../lib/masterBill").MasterStage;
+  si_sent_at?: string | null;
+  si_sent_to?: string;
+  /** The line's draft as read (HblData). */
+  mbl_draft?: unknown;
+  mbl_draft_at?: string | null;
+  mbl_draft_approved_at?: string | null;
+  mbl_release?: import("../lib/masterBill").MasterRelease | null;
+  mbl_originals?: number | null;
+  mbl_released_at?: string | null;
+  mbl_release_ref?: string;
+
   /** Joined in by the loaders, not columns. */
   agent_label?: string | null;
   summary?: ConsoleSummary;

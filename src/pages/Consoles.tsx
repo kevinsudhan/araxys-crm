@@ -27,6 +27,7 @@ import type { Shipment } from "../services/enquiries";
 import { PageSkeleton } from "../components/Loading";
 import ConsoleManifest from "../components/ConsoleManifest";
 import ConsoleCsn from "../components/ConsoleCsn";
+import ConsoleMasterBill from "../components/ConsoleMasterBill";
 
 /**
  * The consoles the desk is building.
@@ -362,23 +363,28 @@ export default function Consoles() {
                     </div>
 
                     <Section title="The master bill">
-                      <Field
-                        label="MBL number"
-                        value={c.mbl_number ?? ""}
-                        mono
-                        placeholder="The carrier's own"
-                        onCommit={(v) =>
-                          void run(() => updateConsole(c.id, { mbl_number: v || null }))
-                        }
-                      />
-                      <Field
-                        label="MBL date"
-                        type="date"
-                        value={c.mbl_date ?? ""}
-                        onCommit={(v) =>
-                          void run(() => updateConsole(c.id, { mbl_date: v || null }))
-                        }
-                      />
+                      {/* An export's master number and date are recorded where it is issued, under "Master B/L with the line" (119). */}
+                      {c.direction === "import" && (
+                        <>
+                          <Field
+                            label="MBL number"
+                            value={c.mbl_number ?? ""}
+                            mono
+                            placeholder="The carrier's own"
+                            onCommit={(v) =>
+                              void run(() => updateConsole(c.id, { mbl_number: v || null }))
+                            }
+                          />
+                          <Field
+                            label="MBL date"
+                            type="date"
+                            value={c.mbl_date ?? ""}
+                            onCommit={(v) =>
+                              void run(() => updateConsole(c.id, { mbl_date: v || null }))
+                            }
+                          />
+                        </>
+                      )}
                       <Field
                         label="Carrier"
                         value={c.carrier}
@@ -639,6 +645,9 @@ export default function Consoles() {
 
                     {/* ---- the list for the agent at the other end (090) ---- */}
                     <ConsoleManifest console={c} jobs={list.length} onChanged={() => void load()} />
+
+                    {/* ---- the master B/L with the line: instruction, draft, issue, release (119) ---- */}
+                    {c.direction !== "import" && <ConsoleMasterBill console={c} jobs={list.length} onChanged={() => void load()} />}
 
                     {/* ---- the CSN for ICEGATE, as consol agent: on entry for an import, on exit for an export (097) ---- */}
                     {(c.direction === "import" || c.direction === "export") && <ConsoleCsn console={c} onChanged={() => void load()} />}
