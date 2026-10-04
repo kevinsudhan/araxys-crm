@@ -31,7 +31,8 @@ export default function PartnerForm({
   /** Tags already in use, so the same idea is not spelled three ways. */
   suggestions: string[];
   onClose: () => void;
-  onSaved: () => void;
+  /** With the partner as saved, so a form that opened this one can choose them at once. */
+  onSaved: (saved: Partner) => void;
   /**
    * Rendered as a panel on a page rather than as a dialog over one.
    *
@@ -137,9 +138,7 @@ export default function PartnerForm({
         address: address.trim(),
         mto_registration: mto.trim().toUpperCase(),
       };
-      if (partner) await updatePartner(partner.id, body);
-      else await createPartner(body);
-      onSaved();
+      onSaved(partner ? await updatePartner(partner.id, body) : await createPartner(body));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save the partner.");
       setBusy(false);

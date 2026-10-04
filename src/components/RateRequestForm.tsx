@@ -5,6 +5,7 @@ import { AlertCircle, Check, CheckCircle2, Eye, Loader2, Plus, RotateCcw, Send, 
 import RichTextEditor from "./RichTextEditor";
 import Drafting from "./Drafting";
 import CountryPartnerPicker from "./CountryPartnerPicker";
+import PartnerForm from "./PartnerForm";
 import StatusPill from "./StatusPill";
 import { InlineLoading } from "./Loading";
 import { useAuth } from "../lib/auth";
@@ -82,6 +83,12 @@ export default function RateRequestForm({
   const [result, setResult] = useState<BurstResult | null>(null);
   /** Moves after each send, so the country's list of what was sent reads itself again. */
   const [sentVersion, setSentVersion] = useState(0);
+  /**
+   * A partner not in the directory yet, added here (1 Oct): asking a new
+   * agent for a rate used to mean leaving the job for Agents & partners and
+   * coming back. Saved to the directory like any other, and chosen at once.
+   */
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     void listPartners()
@@ -90,11 +97,23 @@ export default function RateRequestForm({
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => onBusy?.(busy), [busy, onBusy]);
+  // A half-typed new partner holds the dialog open, as a send does.
+  useEffect(() => onBusy?.(busy || creating), [busy, creating, onBusy]);
 
   const byId = useMemo(() => new Map(partners.map((p) => [p.id, p])), [partners]);
   const catalogue = useMemo(() => serviceCatalogue(enquiry), [enquiry]);
   const chosen = new Set(picked.map((p) => p.id));
+  const tagsInUse = useMemo(() => [...new Set(partners.flatMap((p) => p.tags))].sort(), [partners]);
+
+  /** The partner just added: into the list, and chosen for this request when they have an address. */
+  function added(p: Partner) {
+    setCreating(false);
+    setPartners((list) => [...list.filter((x) => x.id !== p.id), p]);
+    if (p.emails.length) {
+      setResult(null);
+      setPicked((list) => (list.some((x) => x.id === p.id) ? list : [...list, { id: p.id, services: defaultServices(p.role, enquiry) }]));
+    }
+  }
 
   function toggle(p: Partner) {
     if (!p.emails.length) return;
@@ -193,16 +212,34 @@ export default function RateRequestForm({
 
         {/* ---- who ---- */}
         <section>
-          <p className="mb-2 text-[12px] font-medium text-text-secondary">
-            1 · Partners to ask, by country
-            {picked.length > 0 && <span className="ml-2 font-normal text-text-muted">{picked.length} chosen</span>}
-          </p>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-[12px] font-medium text-text-secondary">
+              1 · Partners to ask, by country
+              {picked.length > 0 && <span className="ml-2 font-normal text-text-muted">{picked.length} chosen</span>}
+            </p>
+            {!creating && (
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                disabled={busy}
+                className="flex h-7 items-center gap-1 rounded-lg border border-border bg-surface-1 px-2.5 text-[11.5px] text-text-secondary hover:border-border-strong hover:text-text-primary disabled:opacity-50"
+              >
+                <Plus size={12} /> New partner
+              </button>
+            )}
+          </div>
+
+          {creating && (
+            <div className="mb-3">
+              <PartnerForm inline suggestions={tagsInUse} onClose={() => setCreating(false)} onSaved={added} />
+            </div>
+          )}
 
           {loading ? (
             <InlineLoading label="Loading partners" className="py-1 text-[12px]" />
           ) : !partners.length ? (
             <p className="rounded-lg bg-surface-2 px-3 py-2.5 text-[12px] text-text-secondary">
-              No partners on the directory yet. Add them under Agents &amp; partners → Directory.
+              No partners yet. Add the first with <strong className="font-medium text-text-primary">New partner</strong>, above.
             </p>
           ) : (
             <CountryPartnerPicker

@@ -851,6 +851,15 @@ its own** (the user corrected a first version that was one).
   out). Each mail's own preview is still "Their mail" (shipment) and "Preview" (Sunday).
 - Seeds (`seed-partners`, `seed-showcase`) now give a country, or 116 would refuse them.
 
+**Partner rates on every tab of the enquiry (4 Oct).** The work runs enquiry → ask partners →
+their rates → quote the customer, and asking lived only on the Partners tab. `PartnerRatesBar`
+sits under the workflow on every tab but Partners: "Not asked yet", or "3 asked · 2 replied · best
+USD 1,150 from …", with **Ask partners** (the same `AskPartners` / `RateRequestForm`: by country,
+services per partner, one mail each) and **See replies** (to the Partners tab, where each thread
+can be read and replied to). The form now has **New partner**: `PartnerForm` inline, saved to the
+directory and chosen for the request at once (`PartnerForm onSaved` now passes the saved partner);
+a half-typed partner holds the dialog open as a send does.
+
 ## 9. Open items
 
 Figures here are as last recorded: 28 Sep for the counts and the mailboxes, 1 Oct for the

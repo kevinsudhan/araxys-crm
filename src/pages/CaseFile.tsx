@@ -23,6 +23,7 @@ import PromotePanel from "../components/PromotePanel";
 import ConfirmPanel from "../components/ConfirmPanel";
 import PartnersPanel from "../components/PartnersPanel";
 import PartnerQuotes from "../components/PartnerQuotes";
+import PartnerRatesBar from "../components/PartnerRatesBar";
 import EnquiryStatusControl from "../components/EnquiryStatusControl";
 import DocumentsPanel from "../components/DocumentsPanel";
 import { documentDataFromEnquiry } from "../lib/documents";
@@ -397,6 +398,15 @@ export default function CaseFile() {
             partnerQuotes={partnerQuotes}
             shipment={shipment}
           />
+          {/* Asking partners, from wherever the desk is on the job; the Partners tab has its own. */}
+          {section !== "quote" && (
+            <PartnerRatesBar
+              enquiry={enquiry}
+              quotes={partnerQuotes}
+              onAsked={() => void listQuotes(enquiry.ref).then(setPartnerQuotes)}
+              onOpen={() => goTo("quote")}
+            />
+          )}
         </div>
       )}
 
