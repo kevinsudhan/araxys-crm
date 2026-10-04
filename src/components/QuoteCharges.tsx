@@ -135,6 +135,8 @@ export default function QuoteCharges({
   quoteCurrency = "INR",
   quoteFxRate = 1,
   withGst: tableWithGst,
+  reviseOnEdit,
+  revisionName,
   onChanged,
 }: {
   quoteId: string;
@@ -160,6 +162,14 @@ export default function QuoteCharges({
   quoteFxRate?: number;
   /** The quotation goes out as the desk's rate table, which shows each charge's GST (services/pasteQuote `tableLayout`). */
   withGst?: boolean;
+  /**
+   * A sent quotation (118): its charges stay editable, and the first change
+   * makes its next revision (services/quoteLines `reviseQuote`) — the change
+   * lands on the copy, and the version the customer has keeps its figures.
+   */
+  reviseOnEdit?: () => Promise<{ quoteId: string; lines: Record<string, string> }>;
+  /** The revision that change makes ("Rev 1"), for the line that says so. */
+  revisionName?: string;
   onChanged?: () => void;
 }) {
   const [lines, setLines] = useState<QuoteLine[]>([]);
@@ -200,9 +210,39 @@ export default function QuoteCharges({
       return !v;
     });
 
+  /**
+   * Where an edit lands. On a sent quotation, the first edit makes the
+   * revision (once: later edits, and a second one racing the first, wait on
+   * the same promise) and every edit from then on goes to the copy of the
+   * charge it was made on.
+   */
+  const revision = useRef<Promise<{ quoteId: string; lines: Record<string, string> }> | null>(null);
+  const showing = useRef(quoteId);
+  async function target(): Promise<{ quoteId: string; line: (l: QuoteLine) => string }> {
+    if (!reviseOnEdit) return { quoteId, line: (l) => l.id };
+    revision.current ??= reviseOnEdit().catch((e) => {
+      revision.current = null;
+      throw e;
+    });
+    const r = await revision.current;
+    showing.current = r.quoteId;
+    return { quoteId: r.quoteId, line: (l) => r.lines[l.id] ?? l.id };
+  }
+  const edit = (l: QuoteLine, patch: Parameters<typeof updateLine>[1]) =>
+    run(async () => {
+      const t = await target();
+      await updateLine(t.line(l), patch);
+    });
+  const drop = (l: QuoteLine) =>
+    run(async () => {
+      const t = await target();
+      await removeLine(t.line(l));
+    });
+
   const load = useCallback(async () => {
     try {
-      setLines(await linesFor(quoteId));
+      // The revision, once an edit has made one: the parent shows it next.
+      setLines(await linesFor(showing.current));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load the charges.");
     }
@@ -253,8 +293,8 @@ export default function QuoteCharges({
     const before = new Set(lines.map((l) => l.id));
     try {
       // On a pasted quotation a new charge joins Other charges; on an air one, at GST 18 like the rest.
-      await addLine(quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...(lines.some((l) => l.section) ? { section: "other" as const, ...((tableWithGst ?? lane?.mode === "air") ? { gst_rate: 18 } : {}) } : {}), ...line });
-      const next = await linesFor(quoteId);
+      await addLine((await target()).quoteId, { position: lines.length + 1, quantity: 1, rate: 0, unit: "W/M", ...(lines.some((l) => l.section) ? { section: "other" as const, ...((tableWithGst ?? lane?.mode === "air") ? { gst_rate: 18 } : {}) } : {}), ...line });
+      const next = await linesFor(showing.current);
       setLines(next);
       setFresh(next.find((l) => !before.has(l.id))?.id ?? null);
       onChanged?.();
@@ -330,7 +370,7 @@ export default function QuoteCharges({
 
       // One request, positioned in the order the rates resolved.
       await addLines(
-        quoteId,
+        (await target()).quoteId,
         used.map((r, i) => ({
           position: lines.length + i + 1,
           description: r.charge_head,
@@ -361,7 +401,7 @@ export default function QuoteCharges({
   /** Every cell of one charge, for whichever arrangement the width allows. */
   function cells(l: QuoteLine) {
     return {
-      name: <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void run(() => updateLine(l.id, { description: v }))} />,
+      name: <Cell field="name" label="Charge name" value={l.description} locked={locked} onCommit={(v) => void edit(l, { description: v })} />,
       // Its group on the PDF and in the mail.
       group: locked ? (
         <span className="text-text-secondary">{SECTIONS.find((x) => x.key === asSection(l.section))?.title}</span>
@@ -371,7 +411,7 @@ export default function QuoteCharges({
           className="w-full"
           value={asSection(l.section)}
           options={SECTIONS.map((x) => ({ value: x.key, label: x.title.replace(/ Charges$/, "") }))}
-          onChange={(v) => void run(() => updateLine(l.id, { section: asSection(v) }))}
+          onChange={(v) => void edit(l, { section: asSection(v) })}
         />
       ),
       // Its GST in the air table, and on the invoice made from it; "—" is not stated, invoiced at 18.
@@ -383,7 +423,7 @@ export default function QuoteCharges({
           className="w-full"
           value={l.gst_rate == null ? "" : String(Number(l.gst_rate))}
           options={[...(l.gst_rate == null ? [{ value: "", label: "—" }] : []), ...GST_RATES.map((g) => ({ value: String(g), label: g ? `${g}%` : "None" }))]}
-          onChange={(v) => void run(() => updateLine(l.id, { gst_rate: v === "" ? null : Number(v) }))}
+          onChange={(v) => void edit(l, { gst_rate: v === "" ? null : Number(v) })}
         />
       ),
       code: (
@@ -393,7 +433,7 @@ export default function QuoteCharges({
           locked={locked}
           mono
           placeholder="—"
-          onCommit={(v) => void run(() => updateLine(l.id, { charge_code: v || null }))}
+          onCommit={(v) => void edit(l, { charge_code: v || null })}
         />
       ),
       currency: locked ? (
@@ -409,7 +449,7 @@ export default function QuoteCharges({
             // charge on this quotation already uses for it; with none, the rate of
             // exchange is left for the desk to give, and flagged until it is (109).
             const inUse = v === "INR" ? 1 : rateInUse(lines.filter((x) => x.id !== l.id), v);
-            void run(() => updateLine(l.id, { currency: v, ...(inUse ? { fx_rate: inUse } : {}) }));
+            void edit(l, { currency: v, ...(inUse ? { fx_rate: inUse } : {}) });
           }}
         />
       ),
@@ -424,7 +464,7 @@ export default function QuoteCharges({
           // column is up for the sake of a foreign line beside it.
           locked={locked || l.currency === "INR"}
           align="right"
-          onCommit={(v) => Number(v) > 0 && void run(() => updateLine(l.id, { fx_rate: Number(v) }))}
+          onCommit={(v) => Number(v) > 0 && void edit(l, { fx_rate: Number(v) })}
         />
       ),
       unit: locked ? (
@@ -435,7 +475,7 @@ export default function QuoteCharges({
           className="w-full"
           value={l.unit}
           options={UNITS.map((u) => ({ value: u, label: u }))}
-          onChange={(v) => void run(() => updateLine(l.id, { unit: v }))}
+          onChange={(v) => void edit(l, { unit: v })}
         />
       ),
       units: (
@@ -444,7 +484,7 @@ export default function QuoteCharges({
           value={String(l.quantity)}
           locked={locked}
           align="right"
-          onCommit={(v) => void run(() => updateLine(l.id, { quantity: Number(v) || 0 }))}
+          onCommit={(v) => void edit(l, { quantity: Number(v) || 0 })}
         />
       ),
       rate: (
@@ -454,7 +494,7 @@ export default function QuoteCharges({
           value={String(l.rate)}
           locked={locked}
           align="right"
-          onCommit={(v) => void run(() => updateLine(l.id, { rate: Number(v) || 0 }))}
+          onCommit={(v) => void edit(l, { rate: Number(v) || 0 })}
         />
       ),
       amount: <Computed value={money(l.amount_inr)} />,
@@ -465,7 +505,7 @@ export default function QuoteCharges({
           locked={locked}
           align="right"
           placeholder="—"
-          onCommit={(v) => void run(() => updateLine(l.id, { min_amount: v.trim() === "" ? null : Number(v) || 0 }))}
+          onCommit={(v) => void edit(l, { min_amount: v.trim() === "" ? null : Number(v) || 0 })}
         />
       ),
       costCurrency: locked ? (
@@ -476,7 +516,7 @@ export default function QuoteCharges({
           className="w-full"
           value={l.cost_currency}
           options={LINE_CURRENCIES.map((c) => ({ value: c, label: c }))}
-          onChange={(v) => void run(() => updateLine(l.id, { cost_currency: v, ...(v === "INR" ? { cost_fx_rate: 1 } : {}) }))}
+          onChange={(v) => void edit(l, { cost_currency: v, ...(v === "INR" ? { cost_fx_rate: 1 } : {}) })}
         />
       ),
       costRoe: (
@@ -485,7 +525,7 @@ export default function QuoteCharges({
           value={String(l.cost_fx_rate)}
           locked={locked || l.cost_currency === "INR"}
           align="right"
-          onCommit={(v) => Number(v) > 0 && void run(() => updateLine(l.id, { cost_fx_rate: Number(v) }))}
+          onCommit={(v) => Number(v) > 0 && void edit(l, { cost_fx_rate: Number(v) })}
         />
       ),
       costRate: (
@@ -495,7 +535,7 @@ export default function QuoteCharges({
           locked={locked}
           align="right"
           placeholder="—"
-          onCommit={(v) => void run(() => updateLine(l.id, { cost_rate: v.trim() === "" ? null : Number(v) || 0 }))}
+          onCommit={(v) => void edit(l, { cost_rate: v.trim() === "" ? null : Number(v) || 0 })}
         />
       ),
       // Derived by the database from the cells before it, so the margin cannot
@@ -521,22 +561,20 @@ export default function QuoteCharges({
               is a buying price, and putting one in front of the shipper sends
               them the agent's own cost.
             */
-            void run(() =>
-              updateLine(l.id, {
-                vendor: pq.partner_label || pq.partner_email,
-                cost_rate: Number(pq.amount),
-                cost_currency: pq.currency || "INR",
-                partner_quote_id: pq.id,
-              })
-            );
+            void edit(l, {
+              vendor: pq.partner_label || pq.partner_email,
+              cost_rate: Number(pq.amount),
+              cost_currency: pq.currency || "INR",
+              partner_quote_id: pq.id,
+            });
           }}
         />
       ) : (
-        <Cell label="Vendor" value={l.vendor ?? ""} locked={locked} placeholder="—" onCommit={(v) => void run(() => updateLine(l.id, { vendor: v || null }))} />
+        <Cell label="Vendor" value={l.vendor ?? ""} locked={locked} placeholder="—" onCommit={(v) => void edit(l, { vendor: v || null })} />
       ),
       remove: locked ? null : (
         <button
-          onClick={() => void run(() => removeLine(l.id))}
+          onClick={() => void drop(l)}
           aria-label={`Remove ${l.description || "this charge"}`}
           title="Remove this charge"
           className="grid size-7 place-items-center rounded-lg text-text-muted transition-colors hover:bg-bg-danger hover:text-text-danger"
@@ -571,6 +609,12 @@ export default function QuoteCharges({
 
   return (
     <div>
+      {reviseOnEdit && (
+        <p className="mb-2 rounded-lg bg-bg-accent px-3 py-2 text-[12px] text-text-accent">
+          Sent to the customer. Change any charge below and it becomes <strong className="font-medium">{revisionName ?? "the next revision"}</strong>: a new
+          draft with these charges, to send as the revised quotation. The version the customer has keeps its figures.
+        </p>
+      )}
       {error && (
         <div className="mb-2 flex items-start gap-2 rounded-lg bg-bg-danger px-3 py-2 text-[12px] text-text-danger">
           <AlertCircle size={13} className="mt-px shrink-0" />

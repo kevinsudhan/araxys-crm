@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, Check, ClipboardPaste, IndianRupee, Loader2, Send, ThumbsDown } from "lucide-react";
 import PasteQuoteDialog from "./PasteQuoteDialog";
 import PasteInput from "./PasteInput";
-import { linesFor } from "../services/quoteLines";
+import { linesFor, reviseQuote } from "../services/quoteLines";
 import { tableLayout } from "../services/pasteQuote";
 import {
   acceptQuote,
@@ -191,10 +191,20 @@ export default function QuotePanel({
                   Never disabled. A desk quotes on partial information
                   constantly; what is missing is said above and printed as
                   TBD, and the person quoting decides.
+
+                  Only before there is a quotation. Once there is one, charge
+                  by charge is the grid below: a draft is edited as it is, and
+                  a sent one's first change makes its revision (118) — the
+                  empty version this used to start meant typing every charge
+                  in again.
                 */}
-                <button type="button" onClick={() => setDrafting(true)} className="text-[12px] text-text-secondary hover:text-text-primary hover:underline">
-                  {live ? "or revise it charge by charge" : "or build it charge by charge"}
-                </button>
+                {live ? (
+                  <span className="text-[12px] text-text-muted">or change the charges below</span>
+                ) : (
+                  <button type="button" onClick={() => setDrafting(true)} className="text-[12px] text-text-secondary hover:text-text-primary hover:underline">
+                    or build it charge by charge
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -409,15 +419,19 @@ export default function QuotePanel({
 
           {/*
             The charges the figure above is the sum of. A draft is still being
-            built so they are editable; once it is sent the arithmetic is what
-            the customer was shown, and once accepted the database refuses to
-            change it at all.
+            built so they are editable. Once it is sent, what the customer was
+            shown stays as it went: a change makes the next revision with the
+            same charges (118). Once accepted the database refuses to change it
+            at all.
           */}
           <div className="mt-3 border-t border-border pt-3">
             <QuoteCharges
               key={`${live.id}:${pasted}`}
               quoteId={live.id}
-              locked={live.status !== "draft"}
+              // A draft edits as it is; a sent one's first change makes its next revision (118).
+              locked={live.status !== "draft" && live.status !== "sent"}
+              reviseOnEdit={live.status === "sent" ? () => reviseQuote(live.id) : undefined}
+              revisionName={`Rev ${live.version}`}
               partnerQuotes={partnerQuotes}
               /*
                 What the rate master is asked about. `transport_mode` is the

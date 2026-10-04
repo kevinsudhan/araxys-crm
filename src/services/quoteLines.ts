@@ -114,3 +114,16 @@ export function summarise(lines: QuoteLine[]) {
     uncosted: lines.length - costed,
   };
 }
+
+/**
+ * A sent quotation's next revision (118): the same charges, terms and
+ * settings as a draft, the sent one superseded — made by the first change to
+ * its charges. `lines` maps each sent charge's id to its copy's, so that
+ * change lands on the copy. Asked again, it answers the draft already made.
+ */
+export async function reviseQuote(quoteId: string): Promise<{ quoteId: string; lines: Record<string, string> }> {
+  const { data, error } = await supabase.rpc("revise_quote", { p_quote: quoteId });
+  if (error) throw new Error(error.message);
+  const d = data as { quote_id: string; lines: Record<string, string> | null };
+  return { quoteId: d.quote_id, lines: d.lines ?? {} };
+}
