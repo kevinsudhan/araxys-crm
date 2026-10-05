@@ -1,7 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { istDay } from "../lib/enquiryRegister";
 import type { PnlDoc, PnlJob } from "../lib/jobPnl";
-import { all, group, num, str, whereIn } from "./paging";
+import { all, group, num, str, whereIn, type Row } from "./paging";
 
 /**
  * Reading every job, invoice and bill the P&L is worked out from.
@@ -19,35 +19,45 @@ export interface PnlData {
 
 const dayOf = (v: unknown) => (v ? istDay(String(v)) : null);
 
+const SHIPMENT_COLS =
+  "id, enquiry_ref, stage, transport_mode, trade_direction, origin, destination, etd, created_at, signed_off_at, console_id, volume_cbm, gross_weight_kg, customer:customers(name, company, forwarder), enquiry:enquiries(assigned_to)";
+const INVOICE_COLS = "id, number, kind, status, invoice_date, created_at, shipment_id, console_id, bill_to_name, taxable_value";
+const BILL_COLS = "id, bill_no, kind, status, bill_date, created_at, shipment_id, console_id, partner_id, exchange_rate, taxable_value";
+const OWED_COLS = "shipment_id, billed_inr, collected_inr, cost_inr, paid_out_inr, open_drafts, disputed_bills";
+
 export async function loadPnl(): Promise<PnlData> {
   const [shipments, invoices, bills, owed, people] = await Promise.all([
-    all((a, b) =>
-      supabase
-        .from("shipments")
-        .select(
-          "id, enquiry_ref, stage, transport_mode, trade_direction, origin, destination, etd, created_at, signed_off_at, console_id, volume_cbm, gross_weight_kg, customer:customers(name, company), enquiry:enquiries(assigned_to)"
-        )
-        .order("created_at")
-        .range(a, b)
-    ),
-    all((a, b) =>
-      supabase
-        .from("invoices")
-        .select("id, number, kind, status, invoice_date, created_at, shipment_id, console_id, bill_to_name, taxable_value")
-        .neq("status", "cancelled")
-        .range(a, b)
-    ),
-    all((a, b) =>
-      supabase
-        .from("bills")
-        .select("id, bill_no, kind, status, bill_date, created_at, shipment_id, console_id, partner_id, exchange_rate, taxable_value")
-        .neq("status", "cancelled")
-        .range(a, b)
-    ),
-    all((a, b) => supabase.from("job_final_bill").select("shipment_id, billed_inr, collected_inr, cost_inr, paid_out_inr, open_drafts, disputed_bills").range(a, b)),
+    all((a, b) => supabase.from("shipments").select(SHIPMENT_COLS).order("created_at").range(a, b)),
+    all((a, b) => supabase.from("invoices").select(INVOICE_COLS).neq("status", "cancelled").range(a, b)),
+    all((a, b) => supabase.from("bills").select(BILL_COLS).neq("status", "cancelled").range(a, b)),
+    all((a, b) => supabase.from("job_final_bill").select(OWED_COLS).range(a, b)),
     all((a, b) => supabase.from("profiles").select("id, full_name").range(a, b)),
   ]);
+  return assemble(shipments, invoices, bills, owed, people);
+}
 
+/**
+ * One console's jobs, and every invoice and bill on them or on the console
+ * itself (125): the console's P&L, worked out exactly as the job P&L is, so
+ * the two never disagree about a job.
+ */
+export async function loadConsolePnl(consoleId: string): Promise<PnlData> {
+  const shipments = await all((a, b) => supabase.from("shipments").select(SHIPMENT_COLS).eq("console_id", consoleId).order("created_at").range(a, b));
+  const ids = shipments.map((s) => String(s.id));
+  const [invJobs, invConsole, billJobs, billConsole, owed, people] = await Promise.all([
+    whereIn("invoices", INVOICE_COLS, "shipment_id", ids),
+    all((a, b) => supabase.from("invoices").select(INVOICE_COLS).eq("console_id", consoleId).range(a, b)),
+    whereIn("bills", BILL_COLS, "shipment_id", ids),
+    all((a, b) => supabase.from("bills").select(BILL_COLS).eq("console_id", consoleId).range(a, b)),
+    whereIn("job_final_bill", OWED_COLS, "shipment_id", ids),
+    all((a, b) => supabase.from("profiles").select("id, full_name").range(a, b)),
+  ]);
+  // A document on a job of the console and on the console too is one document.
+  const live = (rows: Row[]) => [...new Map(rows.filter((r) => r.status !== "cancelled").map((r) => [String(r.id), r])).values()];
+  return assemble(shipments, live([...invJobs, ...invConsole]), live([...billJobs, ...billConsole]), owed, people);
+}
+
+async function assemble(shipments: Row[], invoices: Row[], bills: Row[], owed: Row[], people: Row[]): Promise<PnlData> {
   const refs = shipments.map((s) => str(s.enquiry_ref) ?? "");
   const [invoiceLines, billLines, partners, quotes, consoles] = await Promise.all([
     whereIn("invoice_lines", "invoice_id, description, amount_inr, is_reimbursement", "invoice_id", invoices.map((i) => String(i.id))),
@@ -77,7 +87,7 @@ export async function loadPnl(): Promise<PnlData> {
   }
 
   const jobs: PnlJob[] = shipments.map((s) => {
-    const customer = s.customer as { name?: string | null; company?: string | null } | null;
+    const customer = s.customer as { name?: string | null; company?: string | null; forwarder?: boolean | null } | null;
     const enquiry = s.enquiry as { assigned_to?: string | null } | null;
     const o = owedBy.get(String(s.id));
     const q = accepted.get(String(s.enquiry_ref));
@@ -87,6 +97,7 @@ export async function loadPnl(): Promise<PnlData> {
       id: String(s.id),
       enquiryRef: str(s.enquiry_ref),
       customer: customer?.company?.trim() || customer?.name?.trim() || "—",
+      coloader: Boolean(customer?.forwarder),
       mode: (s.transport_mode ?? null) as PnlJob["mode"],
       direction: (s.trade_direction ?? null) as PnlJob["direction"],
       origin: str(s.origin),

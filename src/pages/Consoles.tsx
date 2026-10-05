@@ -32,6 +32,7 @@ import ConsoleImportMaster from "../components/ConsoleImportMaster";
 import ConsoleCoload from "../components/ConsoleCoload";
 import ConsoleHouseCheck from "../components/ConsoleHouseCheck";
 import ConsoleColoaders from "../components/ConsoleColoaders";
+import ConsolePnlPanel from "../components/ConsolePnlPanel";
 import BillsPanel from "../components/BillsPanel";
 import { ACCOUNTS_DESK } from "../lib/features";
 import { wmOf } from "../lib/coload";
@@ -681,6 +682,16 @@ export default function Consoles() {
 
                     {/* ---- the CSN for ICEGATE, as consol agent: on entry for an import, on exit for an export (097) ---- */}
                     {(c.direction === "import" || c.direction === "export") && <ConsoleCsn console={c} onChanged={() => void load()} />}
+
+                    {/* ---- the console's P&L: space bought and sold, the box's cost, the margin (125) ---- */}
+                    {ACCOUNTS_DESK && (
+                      <ConsolePnlPanel
+                        console={c}
+                        jobs={list.length}
+                        capacityCbm={sailing ? (CAPACITY_CBM[sailing.container_code] ?? null) : null}
+                        boxCode={sailing?.container_code ?? null}
+                      />
+                    )}
 
                     {/* ---- what the console cost: the line's or the co-loader's invoice, the agent's (121) ---- */}
                     {ACCOUNTS_DESK && (

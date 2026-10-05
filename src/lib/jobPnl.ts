@@ -46,6 +46,8 @@ export interface PnlJob {
   id: string;
   enquiryRef: string | null;
   customer: string;
+  /** The customer is a forwarder co-loading on our console (124). */
+  coloader?: boolean;
   mode: Mode;
   direction: "export" | "import" | "cross_trade" | null;
   origin: string | null;

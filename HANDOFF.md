@@ -885,8 +885,7 @@ The version the customer has keeps its figures. The paste box's "or revise it ch
 
 **Consol build plan (5 Oct), one step at a time.** 1 master B/L, export (done) · 2 master B/L,
 import (done) · 3 co-loading, buying space
-on another consolidator's box (done) · 4 co-loading, selling space on ours (done) · 5 console P&L (bought vs sold,
-load factor, margin) · 6 CFS and containers (measured vs declared, tally, stuffing, load plan,
+on another consolidator's box (done) · 4 co-loading, selling space on ours (done) · 5 console P&L (done) · 6 CFS and containers (measured vs declared, tally, stuffing, load plan,
 container space) · 7 destination deconsolidation (outturn, auto arrival notices, DO gate) · 8
 destination filings (UAE MPCI, EU ICS2, US AMS/ISF — when the user names the provider) · 9 agent
 profit share, DG acceptance · 10 own MTO registration, consolidator bond, eBL. No GST e-invoicing:
@@ -909,6 +908,19 @@ B/L copy, their release, their charges, their DO, and their CFS noted rather tha
 shows a Co-load pill and W/M in place of the load factor; "Carrier" reads "Line they ship on".
 **Costs**: every console now shows `BillsPanel` for its own bills (`bills.console_id`) when the
 accounts desk is on. Tests: `scripts/tests/coload.test.ts`.
+
+**Console P&L (step 5, 5 Oct; no migration).** `components/ConsolePnlPanel.tsx` on every console
+when the accounts desk is on, above Costs. The money is the job P&L's (`lib/jobPnl.ts`
+`buildEntries`: issued invoices less credit notes, bills, before GST, a console's own bills shared
+across its jobs by volume), loaded for one console by `services/jobPnl.ts` `loadConsolePnl` (the
+loader now shares its query and assembly with `loadPnl`, which Job Closing uses; the queries were
+checked against the live API). `lib/consolePnl.ts`: a house not yet invoiced counts at its latest
+accepted quotation ("quoted"); each house's own cost and its share of the box; the console's revenue,
+cost, of which the box and console, GP and margin; space — usable CBM of the box (`CAPACITY_CBM` by
+the sailing's container type), sold CBM and W/M, W/M to co-loaders (`PnlJob.coloader`, from
+`customers.forwarder`), load factor, the box's cost per usable CBM, revenue per CBM sold, and the
+break-even CBM. On a co-load console there is no box of ours: no load factor or break-even. Tests:
+`scripts/tests/consolePnl.test.ts`.
 
 **Co-loading, selling space on our console (124, 5 Oct).** A co-loader is a customer marked
 **Freight forwarder (co-loader)** on their customer record (`CustomerEdit`); they come through the
