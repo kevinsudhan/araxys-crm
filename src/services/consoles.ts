@@ -136,6 +136,10 @@ export interface Console {
   coloader_rate?: number | null;
   coloader_currency?: string;
   coloader_min_wm?: number;
+  /** Who files the CSN on a co-load (122): us, or the co-loader in theirs. */
+  csn_by?: "us" | "coloader";
+  csn_list_sent_at?: string | null;
+  csn_list_sent_to?: string;
 
   /** Joined in by the loaders, not columns. */
   agent_label?: string | null;

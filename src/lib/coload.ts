@@ -132,3 +132,82 @@ export function bookingHtml(c: ColoadConsole, t: ColoadTerms, cargo: Cargo, good
     `<p>Kindly confirm with your booking number, the cut-off and the CFS for delivery of the cargo.</p>`
   );
 }
+
+// ---------------------------------------------------------------------------
+// Who files the CSN (122)
+// ---------------------------------------------------------------------------
+
+/** On our own box we file; on a co-load, whoever the desk said for this console. */
+export const csnFiler = (c: { space_from?: string | null; csn_by?: string | null }): "us" | "coloader" =>
+  c.space_from === "coloader" && c.csn_by === "coloader" ? "coloader" : "us";
+
+/** One house as the co-loader needs it to file: our manifest line, and on an export its shipping bill. */
+export interface CsnListHouse {
+  hblNo: string;
+  shipper: string;
+  consignee: string;
+  packages: number | null;
+  packageType: string;
+  grossKg: number | null;
+  cbm: number | null;
+  description: string;
+  sbNo?: string | null;
+  sbDate?: string | null;
+}
+
+/** What stops the list being enough for them to file. Said beside the button; it can still go. */
+export function csnListIssues(houses: CsnListHouse[], exporting: boolean, coloaderEmail: string): string[] {
+  const out: string[] = [];
+  if (!coloaderEmail) out.push("The co-loader has no email on the partner directory");
+  if (!houses.length) out.push("No house bills on the console yet");
+  const noBl = houses.filter((h) => !h.hblNo.trim()).length;
+  if (noBl) out.push(`${noBl} house${noBl === 1 ? " has" : "s have"} no B/L number yet`);
+  if (exporting) {
+    const noSb = houses.filter((h) => h.hblNo.trim() && !(h.sbNo ?? "").trim()).map((h) => h.hblNo);
+    if (noSb.length) out.push(`No shipping bill on ${noSb.join(", ")}`);
+  }
+  return out;
+}
+
+export function csnListSubject(c: { console_no: string | null; mbl_number: string | null }, exporting: boolean): string {
+  return [`[${c.console_no ?? "CONSOLE"}] OUR HOUSE B/Ls FOR YOUR CSN${exporting ? " (EXPORT)" : ""}`, c.mbl_number && `YOUR B/L ${up(c.mbl_number)}`].filter(Boolean).join(" — ");
+}
+
+/**
+ * The list to the co-loader: every house under their B/L with what the CSN
+ * asks of it, each export house's shipping bill, the manifest attached, and
+ * the ask for their CSN number once filed.
+ */
+export function csnListHtml(
+  c: { console_no: string | null; mbl_number: string | null; vessel: string; voyage: string },
+  houses: CsnListHouse[],
+  coloader: string,
+  exporting: boolean,
+  attached: string[]
+): string {
+  const cell = "padding:4px 10px 4px 0;vertical-align:top;border-bottom:1px solid #e5e7eb";
+  const head = "padding:4px 10px 4px 0;text-align:left;color:#555;font-weight:600;border-bottom:1px solid #cbd5e1";
+  const cols = ["House B/L", "Shipper", "Consignee", "Packages", "Gross kg", "CBM", "Description", ...(exporting ? ["Shipping bill"] : [])];
+  const rows = houses.map((h) => [
+    up(h.hblNo) || "—",
+    up(h.shipper),
+    up(h.consignee),
+    h.packages ? `${figure(h.packages, 0)} ${up(h.packageType)}`.trim() : "",
+    h.grossKg ? figure(h.grossKg, 3) : "",
+    h.cbm ? figure(h.cbm, 3) : "",
+    up(h.description),
+    ...(exporting ? [[up(h.sbNo), h.sbDate ? `dt ${h.sbDate}` : ""].filter(Boolean).join(" ")] : []),
+  ]);
+  return (
+    `<p>Dear ${esc(coloader || "Sir / Madam")} team,</p>` +
+    `<p>Please file the CSN for our ${houses.length} house B/L${houses.length === 1 ? "" : "s"} under your B/L <strong>${esc(up(c.mbl_number) || "—")}</strong>` +
+    `${[up(c.vessel), up(c.voyage)].filter(Boolean).length ? `, ${esc([up(c.vessel), up(c.voyage)].filter(Boolean).join(" "))}` : ""}` +
+    `${attached.length ? `; our manifest is attached as ${attached.map(esc).join(" and ")}` : ""}.</p>` +
+    `<table style="border-collapse:collapse;font-size:12px;margin:8px 0 12px"><tr>` +
+    cols.map((h) => `<th style="${head}">${h}</th>`).join("") +
+    `</tr>` +
+    rows.map((r) => `<tr>${r.map((v) => `<td style="${cell}">${esc(v || "—")}</td>`).join("")}</tr>`).join("") +
+    `</table>` +
+    `<p>Kindly send us the CSN number and date once it is filed.</p>`
+  );
+}

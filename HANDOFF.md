@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **121**, so the next one is `122-….sql`.
+  migration filename (§6). The last migration is **122**, so the next one is `123-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 121 migrations
+## 4. Data model — 122 migrations
 
-`supabase-v2/001…121`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…122`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -246,6 +246,7 @@ transaction).
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
+| `122` | **Who files the CSN on a co-load.** `consoles` gains `csn_by` ('us' default / 'coloader', checked; only read on a co-load — our own box is always us), `csn_list_sent_at / csn_list_sent_to`. Their CSN number goes in `csn_no / csn_date` and the jobs' customs records, as ours does. Checked rolled back as an employee |
 | `121` | **A console on space bought from a co-loader.** `consoles` gains `space_from` ('line' default / 'coloader', checked), `coloader_id` (partners, on delete set null, indexed), `coloader_rate` (per W/M, ≥ 0), `coloader_currency` (3 capitals, default USD), `coloader_min_wm` (≥ 0, default 1). Under the existing consoles policies. Checked rolled back as an employee: saved, and a bad source, a negative rate, a lower-case currency or a negative minimum refused |
 | `120` | **An import console's master B/L at this end.** `consoles` gains `mbl_copy` (the origin agent's copy as read: `{bill: HblData, bl_no, issuer, originals}`) / `mbl_copy_at`, `release_in_hand_at / _ref`, `line_invoice_no`, `line_charges_inr` (≥ 0, checked), `line_paid_at`, `line_do_no / line_do_at / line_do_valid_till`, `cfs_name / cfs_nominated_at / cfs_nominated_to`, `destuffed_on`; how the master is released reuses 119's `mbl_release / mbl_originals`. Under the existing consoles policies. Checked rolled back as an employee: every field recorded, a negative charge refused |
 | `119` | **A console's master B/L with the line.** `consoles` gains `carrier_booking_no`, `mbl_si` (the desk's SiTerms: parties, freight, wording; boxes and totals are never stored), `mbl_stage` (none → si_sent → draft_received → draft_approved → issued → released, checked), `si_sent_at / si_sent_to`, `mbl_draft` (the line's draft as read, HblData) / `mbl_draft_at`, `mbl_draft_approved_at`, `mbl_release` (original / telex / seaway / ebl, checked) and `mbl_originals` (0–3), `mbl_released_at / mbl_release_ref`. Under the existing consoles policies. Checked rolled back as an employee: every stage recorded, a bad stage, release or 4 originals refused |
@@ -906,6 +907,17 @@ B/L copy, their release, their charges, their DO, and their CFS noted rather tha
 shows a Co-load pill and W/M in place of the load factor; "Carrier" reads "Line they ship on".
 **Costs**: every console now shows `BillsPanel` for its own bills (`bills.console_id`) when the
 accounts desk is on. Tests: `scripts/tests/coload.test.ts`.
+
+**Who files the CSN on a co-load (122, 5 Oct).** The user's answer: sometimes us, sometimes the
+co-loader, so it is chosen per console. On a co-load console the CSN panel (`ConsoleCsn`) shows "Who
+files it: We file our houses / The co-loader files them" (`lib/coload.ts` `csnFiler`; our own box is
+always us, with no choice shown). "We file" is the existing CSN panel, our houses under the co-loader's
+B/L. "The co-loader files" (`components/ConsoleCsnByColoader.tsx`) emails them our house list — the
+manifest PDF and Excel attached, a table of every house with shipper, consignee, packages, kg, CBM,
+description and, on an export, each exporter's shipping bill from the job's customs record
+(`services/coload.ts` `csnListFor`; `csnListIssues` flags a house without its B/L or shipping bill) —
+records when it went, and takes their CSN number and date through `recordCsn`, so it lands on every
+job and clears the "CSN due" alerts as ours would.
 
 **Master B/L at this end, import consoles (120, 5 Oct).** `components/ConsoleImportMaster.tsx`
 under the house list on an import console, six steps in the order they happen, each a date on the

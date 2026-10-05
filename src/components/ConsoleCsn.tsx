@@ -8,6 +8,9 @@ import { amendmentProblems, asFiled, buildAmendment, buildCsn, csnJson, csnProbl
 import { readCsnReply, whereInForm } from "../lib/icegateReply";
 import { applyCsnReply, csnDraftFor, csnEventFor, csnFilesFor, filedDraftFor, loadCsnSettings, newCsnFile, recordCsn, saveCsnDraft, saveCsnSettings, type CsnFileRow, type ReplyOutcome } from "../services/icegateCsn";
 import type { Console } from "../services/consoles";
+import { csnFiler } from "../lib/coload";
+import { setCsnBy } from "../services/coload";
+import ConsoleCsnByColoader from "./ConsoleCsnByColoader";
 
 /**
  * The CSN for ICEGATE, on an import console (097).
@@ -30,6 +33,10 @@ import type { Console } from "../services/consoles";
  * the CSN it amends.
  *
  * The format and every rule are CBIC's: lib/icegateCsn.ts, docs/icegate-csn.
+ *
+ * On a co-load (121, 122) the desk says, console by console, who files: we
+ * file our houses under the co-loader's B/L, as here, or the co-loader files
+ * them in theirs and gets our house list (ConsoleCsnByColoader).
  */
 export default function ConsoleCsn({ console: c, onChanged }: { console: Console; onChanged: () => void }) {
   const { session } = useAuth();
@@ -70,6 +77,8 @@ export default function ConsoleCsn({ console: c, onChanged }: { console: Console
     };
   }, [open, draft, c]);
 
+  const coload = c.space_from === "coloader";
+  const byColoader = csnFiler(c) === "coloader";
   const event = csnEventFor(c) ?? "SCE";
   const exp = event === "SCX";
   const problems = useMemo(() => (draft && settings ? csnProblems(draft, settings) : []), [draft, settings]);
@@ -186,7 +195,38 @@ export default function ConsoleCsn({ console: c, onChanged }: { console: Console
         )}
       </div>
 
-      {!open ? (
+      {/* ---- on a co-load, who files it: decided console by console (122) ---- */}
+      {coload && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11.5px] text-text-secondary">Who files it</span>
+          {(
+            [
+              { v: "us", label: "We file our houses" },
+              { v: "coloader", label: "The co-loader files them" },
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.v}
+              type="button"
+              aria-pressed={csnFiler(c) === o.v}
+              disabled={busy !== null}
+              onClick={() => csnFiler(c) !== o.v && void act("by", async () => {
+                await setCsnBy(c, o.v);
+                onChanged();
+              })}
+              className={`h-7 rounded-lg border px-2.5 text-[11.5px] transition-colors ${
+                csnFiler(c) === o.v ? "border-brand bg-brand font-medium text-white" : "border-border bg-surface-1 text-text-secondary hover:border-border-strong hover:text-text-primary"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {byColoader ? (
+        <ConsoleCsnByColoader console={c} exporting={exp} onChanged={onChanged} />
+      ) : !open ? (
         <button
           type="button"
           onClick={() => setOpen(true)}

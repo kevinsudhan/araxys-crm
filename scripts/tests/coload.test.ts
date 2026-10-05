@@ -1,4 +1,4 @@
-import { bookingHtml, bookingSubject, coloadFreight, coloaderBilled, coloadIssues, wmOf, type ColoadConsole } from "../../src/lib/coload";
+import { bookingHtml, bookingSubject, coloadFreight, coloaderBilled, coloadIssues, csnFiler, csnListHtml, csnListIssues, csnListSubject, wmOf, type ColoadConsole, type CsnListHouse } from "../../src/lib/coload";
 import { copyIssues, releaseInHand, stepsFor, type ImportConsole, type MasterCopy } from "../../src/lib/importMaster";
 import { defaultTerms, issuerOf, siData, siHtml, siIssues, type MasterConsole } from "../../src/lib/masterBill";
 import { emptyHbl } from "../../src/lib/hbl";
@@ -78,6 +78,26 @@ is("their telex release", releaseInHand(ic, "telex").label, "Telex release confi
 is("the steps as a co-load names them", stepsFor(ic).map((x) => x.label), ["Their B/L copy", "Their CFS", "Release in hand", "Co-loader paid", "Their DO", "Destuffed"]);
 const house = { stage: "final" as const, release_mode: "telex" as const, issuer_name: "A", freight_terms: "prepaid" as const, originals_surrendered_on: null, telex_received_on: "2026-10-21", charges_cleared_on: "2026-10-21" };
 is("a house's DO waits for the co-loader's DO", releaseChecklist({ ...house, console: { console_no: "C", line_do_at: null, destuffed_on: null, coload: true } }).items.find((i) => i.key === "console_do")?.label, "Co-loader's DO collected for their B/L (C)");
+
+console.log("\nwho files the CSN (122)");
+is("our own box: we do, whatever was said", [csnFiler({ space_from: "line", csn_by: "coloader" }), csnFiler({ space_from: "line", csn_by: "us" }), csnFiler({})], ["us", "us", "us"]);
+is("a co-load: as the desk said", [csnFiler({ space_from: "coloader", csn_by: "us" }), csnFiler({ space_from: "coloader", csn_by: "coloader" })], ["us", "coloader"]);
+const houses: CsnListHouse[] = [
+  { hblNo: "ALGH0011", shipper: "Sri Auto", consignee: "Hanse Parts", packages: 20, packageType: "ctns", grossKg: 2000, cbm: 6, description: "auto parts", sbNo: "1234567", sbDate: "2026-10-14" },
+  { hblNo: "ALGH0012", shipper: "Kovai Tex", consignee: "Nord <Mode>", packages: 12, packageType: "bales", grossKg: 1500, cbm: 4, description: "textiles", sbNo: null, sbDate: null },
+  { hblNo: "", shipper: "X", consignee: "Y", packages: null, packageType: "", grossKg: null, cbm: null, description: "", sbNo: null, sbDate: null },
+];
+is("export: a house without its B/L number, one without its shipping bill", csnListIssues(houses, true, "ops@shipco.example"), ["1 house has no B/L number yet", "No shipping bill on ALGH0012"]);
+is("import: no shipping bills asked for", csnListIssues(houses.slice(0, 2), false, "ops@shipco.example"), []);
+is("no email, no houses", csnListIssues([], false, ""), ["The co-loader has no email on the partner directory", "No house bills on the console yet"]);
+is("subject", csnListSubject({ console_no: "CON/26-27/0014", mbl_number: "shp-hbl-889" }, true), "[CON/26-27/0014] OUR HOUSE B/Ls FOR YOUR CSN (EXPORT) — YOUR B/L SHP-HBL-889");
+const list = csnListHtml({ console_no: "CON/26-27/0014", mbl_number: "SHP-HBL-889", vessel: "Kota Lestari", voyage: "0127W" }, houses.slice(0, 2), "Shipco Transport", true, ["Manifest.pdf", "Manifest.xlsx"]);
+is(
+  "the list: their B/L, every house, each shipping bill, escaped, the ask",
+  ["Dear Shipco Transport team", "2 house B/Ls under your B/L <strong>SHP-HBL-889</strong>", "ALGH0011", "1234567 dt 2026-10-14", "20 CTNS", "NORD &lt;MODE&gt;", "Shipping bill", "CSN number and date"].map((t) => list.includes(t)),
+  [true, true, true, true, true, true, true, true]
+);
+is("an import list has no shipping bill column", csnListHtml({ console_no: "C", mbl_number: "M", vessel: "", voyage: "" }, houses.slice(0, 1), "S", false, []).includes("Shipping bill"), false);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);
