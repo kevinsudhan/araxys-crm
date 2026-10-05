@@ -14,14 +14,14 @@ session should read this whole file before changing anything. §0 is the short v
 
 ## 0. Start here (new session)
 
-- **The desk is closed for maintenance, and has been since 29 September** (`eea5b5a`).
-  `netlify.toml` sets `VITE_MAINTENANCE = "on"`, so the live build at
-  https://logisticsdemosif.netlify.app answers only the customers' two pages, `/q/:token`
-  (accept or revise a quotation) and `/t/:token` (tracking). Every other path shows "Under
-  maintenance", and the sign-in page is not in the bundle at all (checked on the live chunks,
-  1 Oct). Everything built from 29 Sep on (pasting a quotation, the DSR, the Revise button,
-  the rate table) has not yet been used by the desk. **Reopening is the user's decision:** set
-  it to `"off"` and push. §9 lists what should be settled first.
+- **The desk is open again since 5 October 2026** (the user's word). It was closed for
+  maintenance from 29 September (`eea5b5a`); `netlify.toml` now sets `VITE_MAINTENANCE =
+  "off"`, so https://logisticsdemosif.netlify.app is the whole desk with its sign-in, and the
+  customers' pages (`/q/` quotation, `/t/` tracking, `/b/` draft house B/L) as before. To
+  close it again, set the flag to `"on"` and push: then only those customer pages answer.
+  Everything built from 29 Sep on (pasting a quotation, the DSR, the Revise button, the rate
+  table, the consol build plan's steps) is first used by the desk from 5 Oct. §9 still lists
+  the decisions that were to be settled first.
 - **The database is production all the same.** It holds the desk's real enquiries, shipments
   and customers, and customers can still open their links. The maintenance flag only changes
   the front end's build: the crons (mail copy, backups, tracking, Sunday rates) live in the
@@ -29,8 +29,8 @@ session should read this whole file before changing anything. §0 is the short v
 - **Deploy:** from `araxys-crm-v2`, `git push logistics-v3 v2:main`. Netlify builds `main`
   of `github.com/kevinsudhan/logistics-v3` on every push; there is no other deploy step. A
   fresh clone of logistics-v3 has the branch as `main` and the remote as `origin` instead
-  (`git push origin main`). Never push v2 to the `origin` of `araxys-crm-v2`, which is v1's
-  repository (§11).
+  (`git push origin main`). Never push v2 to `origin/main` of `araxys-crm-v2`, which is
+  v1's branch; `origin/v2` is kept level with the deploy (§11).
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
@@ -153,7 +153,7 @@ Functions → Secrets. Nothing in the repo reads them.
 |---|---|---|
 | `VITE_ACCOUNTS_DESK` | off | `on` |
 | `VITE_CASE_FILE` | mail only | `full` |
-| `VITE_MAINTENANCE` | off | **`on`** since 29 Sep: only `/q` and `/t` answer (§0) |
+| `VITE_MAINTENANCE` | off | `off` since 5 Oct (was `on` 29 Sep – 5 Oct: only `/q`, `/t`, `/b` answer; §0) |
 
 **Check `netlify.toml` before saying a feature is off in production.**
 

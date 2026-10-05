@@ -16,10 +16,10 @@
   # alongside Mail and Timeline. Anything other than "full" leaves the enquiry
   # as mail and its history only.
   VITE_CASE_FILE = "full"
-  # Maintenance: every screen of the desk shows "Under maintenance" (the
-  # customers' /q/, /t/ and /b/ pages keep working). Set to "off" and push to open
-  # the desk again.
-  VITE_MAINTENANCE = "on"
+  # Maintenance: "on" shows every screen of the desk as "Under maintenance" (the
+  # customers' /q/, /t/ and /b/ pages keep working). On from 29 Sep; turned off
+  # on 5 Oct 2026 at the user's word, reopening the desk.
+  VITE_MAINTENANCE = "off"
   # VITE_API_BASE and VITE_MOCK_BACKEND were removed on 1 Oct 2026, with the
   # voice-era REST paths they switched (services/backend.ts). Nothing in the app
   # reads either now; v2 reads and writes through Supabase directly. Never point
