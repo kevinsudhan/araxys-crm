@@ -35,7 +35,22 @@ export interface HblRow {
   release_sent_to: string;
   released_on: string | null;
   release_note: string;
+  /* The shipper's approval of the draft, and corrections after issue (123). */
+  /** How many times it has been reopened after issue; printed on it from then on. */
+  amendment: number;
+  reopen_reason: string;
+  approval: HblApproval;
+  approval_token: string | null;
+  /** The draft as sent to the shipper: what an approval is an approval of. */
+  draft_sent: { data: unknown; hbl_no: string | null; release_mode: ReleaseMode; originals: number; amendment: number } | null;
+  draft_sent_at: string | null;
+  draft_sent_to: string;
+  approval_at: string | null;
+  approval_by: string;
+  approval_note: string;
 }
+
+export type HblApproval = "none" | "sent" | "approved" | "changes";
 
 export type HblReleasePatch = Partial<
   Pick<
@@ -56,7 +71,7 @@ export interface HblHistory {
   id: string;
   at: string;
   actor: string | null;
-  action: "created" | "updated" | "numbered" | "issued" | "reopened" | "printed" | "released";
+  action: "created" | "updated" | "numbered" | "issued" | "reopened" | "printed" | "released" | "draft_sent" | "approved" | "changes_requested";
   changes: Array<{ field: string; from: unknown; to: unknown }>;
   note: string;
 }
@@ -100,11 +115,35 @@ export async function saveHbl(
   return { row: (await getHbl(shipmentId))!, numberError };
 }
 
-export async function setHblIssued(shipmentId: string, issued: boolean): Promise<void> {
+/**
+ * Issue it, or set an issued one back to draft for a correction. Reopening
+ * needs the reason (123): the database refuses one without, and counts the
+ * amendment.
+ */
+export async function setHblIssued(shipmentId: string, issued: boolean, reason = ""): Promise<void> {
   const { error } = await supabase
     .from("house_bills")
-    .update({ status: issued ? "issued" : "draft" })
+    .update(issued ? { status: "issued" } : { status: "draft", reopen_reason: reason.trim() })
     .eq("shipment_id", shipmentId);
+  if (error) throw failure(error);
+}
+
+/** The draft's link for the shipper (123): minted once, the same on every send. */
+export async function hblDraftToken(shipmentId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("hbl_draft_link", { p_shipment: shipmentId });
+  if (error) throw failure(error);
+  return String(data);
+}
+
+/** The draft has gone to the shipper: what they were sent is what they approve. */
+export async function markHblDraftSent(shipmentId: string, to: string): Promise<void> {
+  const { error } = await supabase.rpc("hbl_draft_sent", { p_shipment: shipmentId, p_to: to });
+  if (error) throw failure(error);
+}
+
+/** Approved by mail or on the phone, recorded by the desk with how. */
+export async function recordHblApproval(shipmentId: string, how: string): Promise<void> {
+  const { error } = await supabase.rpc("hbl_record_approval", { p_shipment: shipmentId, p_how: how });
   if (error) throw failure(error);
 }
 

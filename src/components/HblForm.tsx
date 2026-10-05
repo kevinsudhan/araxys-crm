@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { AlertCircle, AlertTriangle, Check, Download, Eye, FileUp, History, Loader2, Lock, Printer, RefreshCw, Save, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, Check, Download, Eye, FileUp, History, Loader2, Lock, Mail, Printer, RefreshCw, Save, UserCheck, X } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { failureText } from "../lib/errorText";
 import { formatDate } from "../lib/dates";
@@ -9,7 +9,15 @@ import { FIELD_LABEL, missingForIssue, refetch, RELEASE_HINT, RELEASE_LABEL, typ
 import { hblFileName, hblPdfBytes, renderHblPdf, type HblPrint } from "../lib/documents/hblPdf";
 import { uploadFile } from "../services/attachments";
 import { listPeople, nameOf, type Person, type Shipment } from "../services/enquiries";
-import { getHbl, hblFromJob, hblHistory, jobForHbl, logHblPrint, mtoPartners, saveHbl, setHblIssued, type HblHistory, type HblRow } from "../services/hbl";
+import { getHbl, hblDraftToken, hblFromJob, hblHistory, jobForHbl, logHblPrint, markHblDraftSent, mtoPartners, recordHblApproval, saveHbl, setHblIssued, type HblHistory, type HblRow } from "../services/hbl";
+import { approvalLine, hblDraftHtml, hblDraftSubject, issueWarning } from "../lib/hblApproval";
+import { checkHouseAgainstMaster, houseProblems, problemText, type MasterFacts } from "../lib/houseMaster";
+import { MAIL_LOGO_PATH } from "../lib/company";
+import { getConsole } from "../services/consoles";
+import { masterFactsFor } from "../services/houseMaster";
+import { hblDraftUrl } from "../services/publicHbl";
+import { isReachable } from "../services/publicQuote";
+import ComposeMail from "./ComposeMail";
 import type { Partner } from "../services/partners";
 import HblBoxes, { inputBase, Labelled } from "./HblBoxes";
 import HblRelease from "./HblRelease";
@@ -38,6 +46,12 @@ import { SectionSkeleton } from "./Loading";
  *
  * Printing uses what is saved, never what is on screen and unsaved, so the
  * paper and the record cannot disagree.
+ *
+ * Before it is issued (123) the draft goes to the shipper with a link to
+ * approve it or say what to correct; issuing without their approval of this
+ * very draft is asked first. On a console it is checked against the master:
+ * vessel, voyage, ports, its boxes and their seals. Reopened after issue it
+ * needs a reason and becomes an amendment, printed on it from then on.
  * ---------------------------------------------------------------------------
  */
 
@@ -56,6 +70,10 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
   const [history, setHistory] = useState<HblHistory[] | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [printOpen, setPrintOpen] = useState(false);
+  /** The draft mail to the shipper, being written (123). */
+  const [compose, setCompose] = useState<{ to: string; subject: string; body: string; attachments: Array<{ name: string; contentType: string; bytes: Uint8Array }> } | null>(null);
+  /** The master this house sits under, when the job is on a console (123). */
+  const [master, setMaster] = useState<MasterFacts | null>(null);
 
   const snapshot = (data: HblData | null, r: ReleaseMode, o: number, m: string | null) => JSON.stringify([data, r, o, m]);
   const dirty = d !== null && snapshot(d, release, originals, mtoId) !== saved;
@@ -95,6 +113,18 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!s.console_id) return setMaster(null);
+    let gone = false;
+    void getConsole(s.console_id)
+      .then((c) => (c ? masterFactsFor(c) : null))
+      .then((m) => !gone && setMaster(m))
+      .catch(() => !gone && setMaster(null));
+    return () => {
+      gone = true;
+    };
+  }, [s.console_id]);
+
   /*
     Somebody else saving this B/L (084). With nothing unsaved here the form
     simply reads it again; with boxes typed and not saved, it only says so
@@ -129,6 +159,9 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
   }, [dirty]);
 
   const missing = useMemo(() => (d ? missingForIssue(d, release, originals) : []), [d, release, originals]);
+  // Against the master as the form stands, so a difference shows while it is being typed.
+  const againstMaster = useMemo(() => (d && master ? checkHouseAgainstMaster(d, row?.hbl_no ?? null, master) : []), [d, master, row?.hbl_no]);
+  const masterProblems = houseProblems(againstMaster);
 
   if (!d) {
     return error ? (
@@ -198,7 +231,7 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
   const print = (kind: HblPrint, how: "view" | "download" | "file") =>
     run(`print-${how}`, async () => {
       setPrintOpen(false);
-      const input = { data: row!.data, hblNo: row!.hbl_no, release: row!.release_mode, originals: row!.originals, print: kind };
+      const input = { data: row!.data, hblNo: row!.hbl_no, release: row!.release_mode, originals: row!.originals, print: kind, amendment: row!.amendment };
       const name = hblFileName(input);
       if (how === "view") {
         const url = renderHblPdf(input).output("bloburl") as unknown as string;
@@ -229,13 +262,54 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
         if (!row?.hbl_no) throw new Error("It is not numbered yet: name the consignee and save.");
         if (missing.length) throw new Error(`An issued B/L needs ${missing.join(", ")}.`);
         const what = release === "express" ? "the sea waybill" : `${originals} original${originals === 1 ? "" : "s"}`;
-        if (!window.confirm(`Issue ${what}? The B/L locks, and only an administrator can reopen it.`)) return;
-      } else if (!window.confirm("Set the issued B/L back to draft for a correction?")) return;
-      await setHblIssued(s.id, issued);
+        const asks = [issueWarning(row), ...masterProblems.map(problemText)].filter(Boolean);
+        const ask = asks.length ? `Before issuing:\n- ${asks.join("\n- ")}\n\n` : "";
+        if (!window.confirm(`${ask}Issue ${what}? The B/L locks, and only an administrator can reopen it.`)) return;
+      }
+      let reason = "";
+      if (!issued) {
+        reason = window.prompt(`Why is ${row?.hbl_no ?? "the B/L"} being reopened? It becomes amendment ${(row?.amendment ?? 0) + 1}, the shipper approves the corrected draft again, and the release starts again with the new originals.`)?.trim() ?? "";
+        if (!reason) return;
+      }
+      await setHblIssued(s.id, issued, reason);
       await load();
       onChanged();
       if (history) setHistory(await hblHistory(s.id));
-      return issued ? "Issued. The B/L is locked." : "Back to draft for correction.";
+      return issued ? "Issued. The B/L is locked." : `Back to draft as amendment ${(row?.amendment ?? 0) + 1}. Correct it, then send the shipper the corrected draft.`;
+    });
+
+  const openDraftMail = () =>
+    run("draft-mail", async () => {
+      if (!row) throw new Error("Save the B/L first.");
+      if (dirty) throw new Error("Save first: the shipper is sent what is saved.");
+      const token = await hblDraftToken(s.id);
+      const url = hblDraftUrl(token);
+      const input = { data: row.data, hblNo: row.hbl_no, release: row.release_mode, originals: row.originals, print: "draft" as const, amendment: row.amendment };
+      setCompose({
+        to: s.shipper_email ?? "",
+        subject: hblDraftSubject({ hblNo: row.hbl_no, ref: s.enquiry_ref, amendment: row.amendment }),
+        body: hblDraftHtml({
+          hblNo: row.hbl_no,
+          data: row.data,
+          url: isReachable(url) ? url : null,
+          amendment: row.amendment,
+          fromName: session?.name,
+          logoSrc: `${window.location.origin}${MAIL_LOGO_PATH}`,
+        }),
+        attachments: [{ name: hblFileName(input), contentType: "application/pdf", bytes: hblPdfBytes(input) }],
+      });
+      return isReachable(url) ? undefined : "This copy of the app runs on your own machine, so the mail goes without the approve buttons: the shipper can reply instead.";
+    });
+
+  const approvedAnotherWay = () =>
+    run("approve", async () => {
+      if (dirty) throw new Error("Save first: the approval is of what is saved.");
+      const how = window.prompt("How did the shipper approve this draft? e.g. By mail from Ravi, 5 Oct")?.trim();
+      if (!how) return;
+      await recordHblApproval(s.id, how);
+      await load();
+      if (history) setHistory(await hblHistory(s.id));
+      return "Recorded as approved by the shipper.";
     });
 
   const openHistory = () =>
@@ -340,7 +414,8 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
             <span className="text-text-warning">Unsaved changes</span>
           ) : (
             <span className="text-text-muted">
-              {row.hbl_no ?? "Not numbered"} · saved {formatDate(row.updated_at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+              {row.hbl_no ?? "Not numbered"}
+              {row.amendment ? ` · amendment ${row.amendment}` : ""} · saved {formatDate(row.updated_at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
         </span>
@@ -376,7 +451,7 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
       )}
       {locked && (
         <p className="mb-3 flex items-start gap-2 rounded-lg bg-bg-warning px-3 py-2.5 text-[12px] text-text-warning">
-          <Lock size={13} className="mt-px shrink-0" /> This B/L has been issued, so it is locked.
+          <Lock size={13} className="mt-px shrink-0" /> This B/L has been issued{row && row.amendment ? ` as amendment ${row.amendment}` : ""}, so it is locked.
           {isAdmin ? " Set Issued back to No to correct it." : " An administrator can reopen it for a correction."}
         </p>
       )}
@@ -384,6 +459,41 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
         <p className="mb-3 flex items-start gap-2 rounded-lg bg-surface-2 px-3 py-2.5 text-[12px] text-text-secondary">
           <AlertTriangle size={13} className="mt-px shrink-0" /> Before it can be issued it needs {missing.join(", ")}.
         </p>
+      )}
+
+      {/* ---- the shipper's approval of the draft (123) ---- */}
+      {row && !locked && (
+        <ApprovalStrip
+          row={row}
+          busy={busy}
+          disabled={dirty || !row.hbl_no}
+          onSend={() => void openDraftMail()}
+          onApproved={() => void approvedAnotherWay()}
+        />
+      )}
+
+      {/* ---- against the master it sits under (123) ---- */}
+      {master && againstMaster.length > 0 && (
+        <div className={`mb-3 rounded-lg px-3 py-2.5 text-[12px] ${masterProblems.length ? "bg-bg-warning text-text-warning" : "bg-surface-2 text-text-secondary"}`}>
+          {masterProblems.length ? (
+            <>
+              <p className="flex items-center gap-1.5 font-medium">
+                <AlertTriangle size={13} className="shrink-0" /> Differs from the master B/L on console {master.console_no ?? ""}
+              </p>
+              <ul className="mt-1 space-y-0.5 pl-5">
+                {masterProblems.map((r) => (
+                  <li key={r.key} className="list-disc">
+                    {problemText(r)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="flex items-center gap-1.5">
+              <Check size={13} className="shrink-0 text-text-success" /> Agrees with the master on console {master.console_no ?? ""}: {againstMaster.map((r) => r.label.toLowerCase()).join(", ")}.
+            </p>
+          )}
+        </div>
       )}
 
       {/* Once issued, what happens to it next (089). */}
@@ -401,6 +511,72 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
       <HblBoxes d={d} set={set} ro={ro} variant="ours" express={release === "express"} />
 
       {history && <HistoryPanel history={history} people={people} onClose={() => setHistory(null)} />}
+
+      {compose && (
+        <ComposeMail
+          mailbox={session?.email ?? ""}
+          fromName={session?.name ?? ""}
+          signature={session?.signature ?? ""}
+          initial={{ to: compose.to, subject: compose.subject, body: compose.body }}
+          attachments={compose.attachments}
+          onClose={() => setCompose(null)}
+          onSent={({ to }) => {
+            setCompose(null);
+            void run("draft-sent", async () => {
+              await markHblDraftSent(s.id, to.join(", "));
+              await load();
+              if (history) setHistory(await hblHistory(s.id));
+              return "Draft sent. The shipper's answer shows here when they approve it or ask for a correction.";
+            });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Where the shipper's approval stands, and what to do about it (123). */
+function ApprovalStrip({ row, busy, disabled, onSend, onApproved }: { row: HblRow; busy: string | null; disabled: boolean; onSend: () => void; onApproved: () => void }) {
+  const line = approvalLine(row);
+  const tone = { muted: "bg-surface-2 text-text-secondary", waiting: "bg-surface-2 text-text-primary", good: "bg-bg-success text-text-success", warn: "bg-bg-warning text-text-warning" }[line.tone];
+  const when = (iso: string | null) => (iso ? formatDate(iso, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }) : "");
+  const sentBefore = row.approval !== "none";
+  return (
+    <div className={`mb-3 rounded-lg px-3 py-2.5 text-[12px] ${tone}`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium">
+          {line.tone === "good" ? <Check size={13} className="shrink-0" /> : line.tone === "warn" ? <AlertTriangle size={13} className="shrink-0" /> : <UserCheck size={13} className="shrink-0" />}
+          {line.text}
+          {row.approval === "approved" && row.approval_at && <span className="font-normal opacity-80">· {when(row.approval_at)}</span>}
+          {row.approval === "sent" && row.draft_sent_at && <span className="font-normal opacity-80">· sent {when(row.draft_sent_at)}</span>}
+        </span>
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={disabled || busy !== null}
+          title={disabled ? "Save the B/L, numbered, first" : undefined}
+          className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-50"
+        >
+          {busy === "draft-mail" ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
+          {row.approval === "changes" ? "Send the corrected draft" : sentBefore ? "Send the draft again" : "Email the draft to the shipper"}
+        </button>
+        {row.approval !== "approved" && (
+          <button
+            type="button"
+            onClick={onApproved}
+            disabled={disabled || busy !== null}
+            className="h-8 rounded-lg border border-current/25 bg-white/50 px-3 text-[12px] hover:bg-white/80 disabled:opacity-50"
+          >
+            Approved another way
+          </button>
+        )}
+      </div>
+      {row.approval === "changes" && row.approval_note && (
+        <p className="mt-2 whitespace-pre-line rounded-md bg-white/60 px-2.5 py-2 text-[12.5px] text-text-primary">
+          {row.approval_by ? <span className="font-medium">{row.approval_by}: </span> : null}&ldquo;{row.approval_note}&rdquo;
+          {row.approval_at && <span className="ml-1 text-[11px] text-text-muted">{when(row.approval_at)}</span>}
+        </p>
+      )}
     </div>
   );
 }
@@ -465,6 +641,9 @@ function HistoryPanel({ history, people, onClose }: { history: HblHistory[]; peo
     reopened: "Reopened",
     printed: "Printed",
     released: "Release",
+    draft_sent: "Draft sent",
+    approved: "Approved",
+    changes_requested: "Corrections asked",
   };
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose} role="dialog" aria-modal="true" aria-label="House B/L history">

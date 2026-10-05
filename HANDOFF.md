@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **122**, so the next one is `123-….sql`.
+  migration filename (§6). The last migration is **123**, so the next one is `124-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 122 migrations
+## 4. Data model — 123 migrations
 
-`supabase-v2/001…122`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…123`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -246,6 +246,7 @@ transaction).
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
+| `123` | **The shipper approves our house B/L draft; a correction after issue is an amendment.** `house_bills` gains `approval` (none/sent/approved/changes), `approval_token` (unique), `draft_sent` (the snapshot sent: data, hbl_no, release_mode, originals, amendment), `draft_sent_at/_to`, `approval_at/_by/_note`, `amendment` (≥ 0), `reopen_reason`; history actions + draft_sent, approved, changes_requested. `house_bill_write` (089's, extended): reopening needs a reason, refuses once `released_on` is set, counts the amendment, resets the approval; reissuing an amendment clears the release steps (not `charges_received_on`). RPCs `hbl_draft_link`, `hbl_draft_sent`, `hbl_record_approval` (authenticated); `hbl_draft_by_token`, `hbl_answer_by_token` (anon, security definer, fixed shape). Checked rolled back as employee, anon and admin: every rule, anon denied the table and the desk's functions |
 | `122` | **Who files the CSN on a co-load.** `consoles` gains `csn_by` ('us' default / 'coloader', checked; only read on a co-load — our own box is always us), `csn_list_sent_at / csn_list_sent_to`. Their CSN number goes in `csn_no / csn_date` and the jobs' customs records, as ours does. Checked rolled back as an employee |
 | `121` | **A console on space bought from a co-loader.** `consoles` gains `space_from` ('line' default / 'coloader', checked), `coloader_id` (partners, on delete set null, indexed), `coloader_rate` (per W/M, ≥ 0), `coloader_currency` (3 capitals, default USD), `coloader_min_wm` (≥ 0, default 1). Under the existing consoles policies. Checked rolled back as an employee: saved, and a bad source, a negative rate, a lower-case currency or a negative minimum refused |
 | `120` | **An import console's master B/L at this end.** `consoles` gains `mbl_copy` (the origin agent's copy as read: `{bill: HblData, bl_no, issuer, originals}`) / `mbl_copy_at`, `release_in_hand_at / _ref`, `line_invoice_no`, `line_charges_inr` (≥ 0, checked), `line_paid_at`, `line_do_no / line_do_at / line_do_valid_till`, `cfs_name / cfs_nominated_at / cfs_nominated_to`, `destuffed_on`; how the master is released reuses 119's `mbl_release / mbl_originals`. Under the existing consoles policies. Checked rolled back as an employee: every field recorded, a negative charge refused |
@@ -907,6 +908,27 @@ B/L copy, their release, their charges, their DO, and their CFS noted rather tha
 shows a Co-load pill and W/M in place of the load factor; "Carrier" reads "Line they ship on".
 **Costs**: every console now shows `BillsPanel` for its own bills (`bills.console_id`) when the
 accounts desk is on. Tests: `scripts/tests/coload.test.ts`.
+
+**House B/L: shipper approval, amendments, the house against its master (123, 5 Oct).** Three gaps
+the user agreed to close. (1) **The shipper approves the draft.** On the house B/L form (`HblForm`) a
+strip under the toolbar says where it stands (`lib/hblApproval.ts` `approvalLine`) with **Email the
+draft to the shipper** (to `shipments.shipper_email`; the draft PDF attached; a branded letter with
+**Approve the draft** / **Ask for a correction** buttons to `/b/<token>?approve=1|correct=1` on
+`VITE_PUBLIC_APP_URL`, `hblDraftHtml`) and **Approved another way** (by mail or phone, with how). The
+public page `pages/HblDraft.tsx` (route `/b/:token`, also under maintenance) shows the draft as sent,
+downloads it as PDF, and records approve or the correction only on a press (`services/publicHbl.ts`).
+The shipper's corrections show on the form. An approval is of the draft as sent: a B/L changed after
+it reads "changed since" (`changedSinceSent`, a key-order-proof compare). Issuing asks first when the
+shipper has not approved this very draft (`issueWarning`) — not refused. (2) **A correction after
+issue is an amendment.** Reopening (admin) asks why; the database refuses it without a reason, while
+originals are out (089) or once the cargo is released; it counts `amendment`, withdraws the approval,
+and the reprint says "AMENDMENT n" on every page (`hblPdf`); reissuing starts the release again with
+the new set. (3) **The house against its master** (`lib/houseMaster.ts`): vessel, voyage, ports, each
+of its boxes on the master and the seal, and not the master's own number (ICEGATE 2.0). The master is
+the console: its particulars, and its boxes from the master copy (import, once read) or the jobs'.
+Shown on the form when the job is on a console (and asked before issuing), and per console in
+**House B/Ls against the master** (`components/ConsoleHouseCheck.tsx`), ours or the received one per
+job. Tests: `scripts/tests/hblApproval.test.ts`.
 
 **Who files the CSN on a co-load (122, 5 Oct).** The user's answer: sometimes us, sometimes the
 co-loader, so it is chosen per console. On a co-load console the CSN panel (`ConsoleCsn`) shows "Who

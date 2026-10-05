@@ -69,6 +69,7 @@ const AcPayDetail  = accountsPage(() => import("./pages/accounts/PaymentDetails"
 const AcAgentSOA   = accountsPage(() => import("./pages/accounts/AgentSOA"));
 const QuoteAccept = lazy(() => import("./pages/QuoteAccept"));
 const TrackShipment = lazy(() => import("./pages/TrackShipment"));
+const HblDraft = lazy(() => import("./pages/HblDraft"));
 const RateMaster = lazy(() => import("./pages/RateMaster"));
 const QuoteApprovals = lazy(() => import("./pages/QuoteApprovals"));
 const SailingSchedules = lazy(() => import("./pages/SailingSchedules"));
@@ -84,13 +85,14 @@ const PartnerThreads = lazy(() => import("./pages/PartnerThreads"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 
 export default function App() {
-  // Closed for maintenance: the customers' two pages still answer, everything else says so.
+  // Closed for maintenance: the customers' pages still answer, everything else says so.
   if (MAINTENANCE) {
     return (
       <Suspense fallback={<BootScreen />}>
         <Routes>
           <Route path="/q/:token" element={<QuoteAccept />} />
           <Route path="/t/:token" element={<TrackShipment />} />
+          <Route path="/b/:token" element={<HblDraft />} />
           <Route path="*" element={<Maintenance />} />
         </Routes>
       </Suspense>
@@ -115,6 +117,8 @@ export default function App() {
         */}
         <Route path="/q/:token" element={<QuoteAccept />} />
         <Route path="/t/:token" element={<TrackShipment />} />
+        {/* The shipper approving a draft house B/L (123): the same rules as the quotation page. */}
+        <Route path="/b/:token" element={<HblDraft />} />
 
         {/* Admin area. */}
         <Route element={<RequireAuth role="admin" />}>

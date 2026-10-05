@@ -17,7 +17,7 @@
   # as mail and its history only.
   VITE_CASE_FILE = "full"
   # Maintenance: every screen of the desk shows "Under maintenance" (the
-  # customers' /q/ and /t/ pages keep working). Set to "off" and push to open
+  # customers' /q/, /t/ and /b/ pages keep working). Set to "off" and push to open
   # the desk again.
   VITE_MAINTENANCE = "on"
   # VITE_API_BASE and VITE_MOCK_BACKEND were removed on 1 Oct 2026, with the

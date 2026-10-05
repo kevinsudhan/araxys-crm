@@ -27,6 +27,10 @@ import { consigneeText, INSURANCE_LABEL, originalsInWords, partyLines, titleOf, 
  *             issued; a sea waybill has no originals and prints as itself
  *   copy      one page, "COPY — NON-NEGOTIABLE", to send anybody who needs
  *             to see it without holding title
+ *
+ * A B/L corrected after issue (123) says so on every page from then on:
+ * "AMENDMENT 1" beside the copy label, so the new set cannot be mistaken
+ * for the one it replaces.
  * ---------------------------------------------------------------------------
  */
 
@@ -38,6 +42,8 @@ export interface HblPdfInput {
   release: ReleaseMode;
   originals: number;
   print: HblPrint;
+  /** Times reopened after issue and corrected (123); printed when above 0. */
+  amendment?: number;
 }
 
 const INK: [number, number, number] = [17, 24, 39];
@@ -66,7 +72,7 @@ export function renderHblPdf(i: HblPdfInput): jsPDF {
       : [i.print === "copy" ? "COPY — NON-NEGOTIABLE" : i.print === "draft" ? "DRAFT — FOR APPROVAL" : "SEA WAYBILL — NON-NEGOTIABLE"];
   pages.forEach((label, n) => {
     if (n > 0) doc.addPage();
-    drawPage(doc, i, label);
+    drawPage(doc, i, i.amendment ? `${label} · AMENDMENT ${i.amendment}` : label);
   });
   return doc;
 }
@@ -294,9 +300,9 @@ function drawPage(doc: jsPDF, i: HblPdfInput, copyLabel: string) {
 }
 
 /** "HBL-26-27-0001-original.pdf": no slashes, so it saves and attaches as one name. */
-export function hblFileName(i: Pick<HblPdfInput, "hblNo" | "print" | "release">): string {
+export function hblFileName(i: Pick<HblPdfInput, "hblNo" | "print" | "release" | "amendment">): string {
   const kind = i.print === "original" && i.release === "express" ? "waybill" : i.print;
-  return `${(i.hblNo ?? "HBL-draft").replace(/[\\/:*?"<>|]+/g, "-")}-${kind}.pdf`;
+  return `${(i.hblNo ?? "HBL-draft").replace(/[\\/:*?"<>|]+/g, "-")}-${kind}${i.amendment ? `-amendment${i.amendment}` : ""}.pdf`;
 }
 
 export function hblPdfBytes(i: HblPdfInput): Uint8Array {

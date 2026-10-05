@@ -30,6 +30,7 @@ import ConsoleCsn from "../components/ConsoleCsn";
 import ConsoleMasterBill from "../components/ConsoleMasterBill";
 import ConsoleImportMaster from "../components/ConsoleImportMaster";
 import ConsoleCoload from "../components/ConsoleCoload";
+import ConsoleHouseCheck from "../components/ConsoleHouseCheck";
 import BillsPanel from "../components/BillsPanel";
 import { ACCOUNTS_DESK } from "../lib/features";
 import { wmOf } from "../lib/coload";
@@ -661,6 +662,9 @@ export default function Consoles() {
                         </p>
                       )}
                     </section>
+
+                    {/* ---- each house against the master it sits under (123) ---- */}
+                    <ConsoleHouseCheck console={c} jobs={list.length} />
 
                     {/* ---- the list for the agent at the other end (090) ---- */}
                     <ConsoleManifest console={c} jobs={list.length} onChanged={() => void load()} />
