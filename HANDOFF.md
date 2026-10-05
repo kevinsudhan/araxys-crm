@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **125**, so the next one is `126-….sql`.
+  migration filename (§6). The last migration is **127**, so the next one is `128-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 125 migrations
+## 4. Data model — 127 migrations
 
-`supabase-v2/001…125`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…127`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -246,6 +246,8 @@ transaction).
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
+| `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
+| `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
 | `124` | **Selling space on our console to another forwarder.** `customers.forwarder` (boolean, default false); `shipments.coload_instructions_sent_at / _to`. The stuffing CFS is `consoles.cfs_name` (120). Checked rolled back as an employee |
 | `123` | **The shipper approves our house B/L draft; a correction after issue is an amendment.** `house_bills` gains `approval` (none/sent/approved/changes), `approval_token` (unique), `draft_sent` (the snapshot sent: data, hbl_no, release_mode, originals, amendment), `draft_sent_at/_to`, `approval_at/_by/_note`, `amendment` (≥ 0), `reopen_reason`; history actions + draft_sent, approved, changes_requested. `house_bill_write` (089's, extended): reopening needs a reason, refuses once `released_on` is set, counts the amendment, resets the approval; reissuing an amendment clears the release steps (not `charges_received_on`). RPCs `hbl_draft_link`, `hbl_draft_sent`, `hbl_record_approval` (authenticated); `hbl_draft_by_token`, `hbl_answer_by_token` (anon, security definer, fixed shape). Checked rolled back as employee, anon and admin: every rule, anon denied the table and the desk's functions |
@@ -886,7 +888,7 @@ The version the customer has keeps its figures. The paste box's "or revise it ch
 
 **Consol build plan (5 Oct), one step at a time.** 1 master B/L, export (done) · 2 master B/L,
 import (done) · 3 co-loading, buying space
-on another consolidator's box (done) · 4 co-loading, selling space on ours (done) · 5 console P&L (done) · 6 CFS and containers (done) · 7 destination deconsolidation (outturn, auto arrival notices, DO gate) · 8
+on another consolidator's box (done) · 4 co-loading, selling space on ours (done) · 5 console P&L (done) · 6 CFS and containers (done) · 7 destination deconsolidation (done) · 8
 destination filings (UAE MPCI, EU ICS2, US AMS/ISF — when the user names the provider) · 9 agent
 profit share, DG acceptance · 10 own MTO registration, consolidator bond, eBL. No GST e-invoicing:
 turnover under ₹5 crore (user, 5 Oct).
@@ -908,6 +910,29 @@ B/L copy, their release, their charges, their DO, and their CFS noted rather tha
 shows a Co-load pill and W/M in place of the load factor; "Carrier" reads "Line they ship on".
 **Costs**: every console now shows `BillsPanel` for its own bills (`bills.console_id`) when the
 accounts desk is on. Tests: `scripts/tests/coload.test.ts`.
+
+**At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
+consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**
+(`lib/arrivalNotice.ts`, copied verbatim into `supabase-v2/functions/arrival-notices` with
+`company.ts`; a test keeps them identical): per house, from the records (`arrivalHouseFrom`: their
+HBL, the master, vessel, ETA, IGM, the boxes, packages, the CFS, how their B/L is released, freight
+collect) to the job's consignee address or the customer's (`consigneeEmail`), with what they need to
+take delivery (`deliveryNeeds`). The desk sends one from its Outlook (**Email**, recorded `desk`), or
+the CRM sends them: **Send the waiting now** (function mode `console`, from the console's mailbox or
+the caller's) and **Send automatically** per console (mailbox and days before the ETA; the sweep
+sends each waiting house once the ETA is within the days and not more than a week past it,
+`arrivalDue`). The function claims a house (sets its sent_at) before sending so nobody gets two,
+undoes the claim on a refusal, logs every send in `arrival_notice_sends`, puts a sent notice on the
+timeline, paces two seconds apart for 100 s a run. **It needs the Azure app's Mail.Send (application)
+with admin consent, as live rates does; "Can the CRM send?" (mode `check`) says whether it has it;
+until then sends are refused and shown on the console.** Deployed with `--verify-jwt`; smoke-tested
+5 Oct (sweep with nothing on: ok, sent 0; anon refused; the scheduler refused anything but the
+sweep). **Outturn** (`lib/outturn.ts`, `lib/documents/outturnReportPdf.ts`): per house manifested
+(their HBL's packages, else the job's) against landed (its warehouse receipts, recorded here at
+destuffing with condition and remarks: **Record**), clean / short / excess / damaged / not tallied;
+PDF and mail to the origin agent, recorded. **Release and DO**: each house's release checklist
+(088's, with the console's line DO and destuffing, 120) as chips, DO issued / ready / n to do; the DO
+itself is issued on the job's Bill tab. Tests: `scripts/tests/destination.test.ts`.
 
 **At the CFS (step 6, 125, 5 Oct).** `components/ConsoleCfs.tsx` on export and cross-trade
 consoles, data from `services/consoleCfs.ts` `cfsFor` (jobs, warehouse receipts, enquiry piece sizes

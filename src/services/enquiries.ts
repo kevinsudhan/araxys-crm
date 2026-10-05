@@ -418,6 +418,10 @@ export interface Shipment {
   /** Our delivery instructions to a co-loader whose cargo this is (124). */
   coload_instructions_sent_at?: string | null;
   coload_instructions_sent_to?: string;
+  /** The house's arrival notice (126): when, to whom, by the scheduler or the desk. */
+  arrival_notice_sent_at?: string | null;
+  arrival_notice_sent_to?: string;
+  arrival_notice_via?: "auto" | "desk" | null;
 
   /** Job-level particulars that sit under the container grid (032). */
   agent_code: string | null;

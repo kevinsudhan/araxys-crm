@@ -145,6 +145,12 @@ export interface Console {
   stuffed_on?: string | null;
   stuffing_report_sent_at?: string | null;
   stuffing_report_sent_to?: string;
+  /* At destination (126, lib/arrivalNotice.ts, lib/outturn.ts). */
+  arrival_auto?: boolean;
+  arrival_from?: string;
+  arrival_days?: number;
+  outturn_sent_at?: string | null;
+  outturn_sent_to?: string;
 
   /** Joined in by the loaders, not columns. */
   agent_label?: string | null;

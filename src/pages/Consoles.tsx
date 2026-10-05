@@ -34,6 +34,7 @@ import ConsoleHouseCheck from "../components/ConsoleHouseCheck";
 import ConsoleColoaders from "../components/ConsoleColoaders";
 import ConsolePnlPanel from "../components/ConsolePnlPanel";
 import ConsoleCfs from "../components/ConsoleCfs";
+import ConsoleDestination from "../components/ConsoleDestination";
 import { BOX_TYPES, type BoxType } from "../lib/loadPlan";
 import BillsPanel from "../components/BillsPanel";
 import { ACCOUNTS_DESK } from "../lib/features";
@@ -684,6 +685,9 @@ export default function Consoles() {
 
                     {/* ---- an import's master at this end: copy, CFS, release, line paid, line DO, destuffed (120) ---- */}
                     {c.direction === "import" && <ConsoleImportMaster console={c} jobs={list.length} onChanged={() => void load()} />}
+
+                    {/* ---- at destination: arrival notices, the outturn, each house's release (126) ---- */}
+                    {c.direction === "import" && <ConsoleDestination console={c} jobs={list.length} onChanged={() => void load()} />}
 
                     {/* ---- the CSN for ICEGATE, as consol agent: on entry for an import, on exit for an export (097) ---- */}
                     {(c.direction === "import" || c.direction === "export") && <ConsoleCsn console={c} onChanged={() => void load()} />}
