@@ -1,7 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { conversationMessages, sendTrackedMail, type MailMessage } from "./backend";
 import type { Enquiry } from "./enquiries";
-import { MODE_WORD, cleanServices, requestSubject, withReference } from "../lib/rateRequest";
+import { MODE_WORD, cleanServices, requestSubject, signOff, withReference } from "../lib/rateRequest";
 
 /**
  * Asking partners for a rate, and tracking what comes back.
@@ -93,7 +93,9 @@ export async function listQuotes(ref: string): Promise<PartnerQuote[]> {
  */
 export function draftRequest(
   enquiry: Enquiry,
-  fromName: string
+  fromName: string,
+  /** The sender's saved signature (Settings): it signs the mail, as on every other mail they send. */
+  signature = ""
 ): { subject: string; body: string } {
   const rows = ([
     ["Origin", enquiry.origin],
@@ -136,7 +138,7 @@ export function draftRequest(
     `<p>Kindly include, where it applies: the basis of each rate, space and the next departure,` +
       ` transit time and free days, and how long the rates are valid.</p>`,
     `<p>We would be grateful for your reply at the earliest so we may revert to our customer.</p>`,
-    `<p>Best regards,<br>${escapeHtml(fromName)}<br>Aashish Logistics Global</p>`,
+    signOff(fromName, signature),
   ].join("");
 
   return { subject: requestSubject(enquiry), body };
@@ -201,7 +203,10 @@ export async function draftRequestWithAi(input: {
   fromName: string;
   /** What the operator says this particular request should do. */
   instruction: string;
+  /** The sender's saved signature: when there is one, the model writes no sign-off and the signature goes under its text. */
+  signature?: string;
 }): Promise<string> {
+  const signature = input.signature?.trim() ?? "";
   const { data, error } = await supabase.functions.invoke("classify-enquiry", {
     body: {
       mode: "rfq",
@@ -217,6 +222,9 @@ export async function draftRequestWithAi(input: {
         // this text when it is sent (lib/rateRequest.ts), so it must not repeat them.
         "LAYOUT: each partner's mail opens with their own greeting and the list of services they are asked to price, added above your text. So do NOT write a greeting line and do NOT list the services; start with the shipment details.",
         "",
+        ...(signature
+          ? ["SIGN-OFF: do NOT write a closing line, a name or a signature; the sender's own signature is added below your text.", ""]
+          : []),
         `WHAT THIS REQUEST SHOULD DO: ${input.instruction.trim()}`,
       ].join("\n"),
     },
@@ -226,7 +234,7 @@ export async function draftRequestWithAi(input: {
   const d = data as { draft?: string; error?: string; detail?: string };
   if (d.error) throw new Error(d.detail ? `${d.error} ${d.detail}` : d.error);
   if (!d.draft) throw new Error("The model returned an empty request.");
-  return d.draft;
+  return signature ? `${d.draft}${signOff(input.fromName, signature)}` : d.draft;
 }
 
 export interface BurstResult {

@@ -134,6 +134,16 @@ export function cleanServices(list: string[]): string[] {
   return out;
 }
 
+/**
+ * How a rate request is signed: with the sender's saved signature where they
+ * have one — their "Thanks and Regards", name, title and the office, as on
+ * every other mail they write — else a plain sign-off with their name.
+ */
+export function signOff(fromName: string, signature = ""): string {
+  const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return signature.trim() ? `<br>${signature.trim()}` : `<p>Best regards,<br>${esc(fromName)}<br>Aashish Logistics Global</p>`;
+}
+
 export const subjectTokenFor = (ref: string) => `[${ref.toUpperCase()}]`;
 
 /** "Rate request · Chennai → Hamburg · Sea LCL · Textile machinery [ALG09009-26]" */

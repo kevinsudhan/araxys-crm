@@ -7,6 +7,7 @@ import {
   requestSubject,
   serviceCatalogue,
   serviceContext,
+  signOff,
   withReference,
   type RequestJob,
 } from "../../src/lib/rateRequest";
@@ -66,6 +67,11 @@ is("their greeting replaces the message's own", [mail.startsWith("<p>Dear Omar,<
 is("their services, each with where it applies", mail.includes("<li><strong>Destination charges</strong> — at Hamburg</li><li><strong>Delivery to consignee</strong> — at Hamburg</li>"), true);
 is("then the message about the shipment", mail.endsWith("<p>The shipment:</p><table></table>"), true);
 is("a partner's name is escaped", personalise("", { name: "", organisation: "A<b>" }, ["X"], job).includes("A&lt;b&gt; team"), true);
+
+console.log("\nhow it is signed (5 Oct)");
+const sig = "<p>Thanks and Regards,</p><p><b>Aashish Murali Krishnan</b></p><p>Director / Legal Head</p>";
+is("the saved signature, as on every other mail, and no second sign-off", [signOff("Aashish Murali Krishnan", sig).includes("Thanks and Regards"), signOff("Aashish Murali Krishnan", sig).includes("Best regards")], [true, false]);
+is("no saved signature: a plain sign-off with the name, escaped", signOff("A <b>", "  "), "<p>Best regards,<br>A &lt;b&gt;<br>Aashish Logistics Global</p>");
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

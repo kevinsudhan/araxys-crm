@@ -67,7 +67,9 @@ export default function RateRequestForm({
   const [picked, setPicked] = useState<Array<{ id: string; services: string[] }>>([]);
   const [adding, setAdding] = useState<Record<string, string>>({});
 
-  const initial = useMemo(() => draftRequest(enquiry, fromName), [enquiry, fromName]);
+  // Signed with their saved signature, as every other mail they send is.
+  const signature = session?.signature ?? "";
+  const initial = useMemo(() => draftRequest(enquiry, fromName, signature), [enquiry, fromName, signature]);
   const [subject, setSubject] = useState(initial.subject);
   const [body, setBody] = useState(initial.body);
 
@@ -140,7 +142,7 @@ export default function RateRequestForm({
     setWriting(true);
     setError(null);
     try {
-      setBody(await draftRequestWithAi({ enquiry, fromName, instruction: brief }));
+      setBody(await draftRequestWithAi({ enquiry, fromName, instruction: brief, signature }));
       setWrote(true);
       setBriefing(false);
     } catch (e) {
