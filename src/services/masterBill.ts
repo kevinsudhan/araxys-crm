@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { dgHousesOn } from "./consoleDg";
 import { billFromReading, type BillReading } from "../lib/receivedHbl";
 import { normaliseHbl, type HblData } from "../lib/hbl";
 import { boxesFrom, stageIndex, type ConsoleBox, type JobBoxLine, type MasterConsole, type MasterRelease, type MasterStage, type SiTerms } from "../lib/masterBill";
@@ -40,10 +41,12 @@ export interface MasterInputs {
   /** On a co-load (121), who the space is bought from. */
   coloader: { name: string; email: string } | null;
   houseBillNos: string[];
+  /** DG houses on the console not yet accepted into it (131). */
+  dgWaiting: string[];
 }
 
 export async function masterFor(c: Console): Promise<MasterInputs> {
-  const [manifest, partners] = await Promise.all([manifestFor(c), listPartners(true).catch(() => [])]);
+  const [manifest, partners, dg] = await Promise.all([manifestFor(c), listPartners(true).catch(() => []), dgHousesOn(c).catch(() => [])]);
   const ids = manifest.lines.map((l) => l.shipmentId);
   const { data, error } = ids.length
     ? await supabase.from("shipment_containers").select("shipment_id, container_no, size_type, seal_no, package_count, weight_kg, volume_cbm").in("shipment_id", ids)
@@ -60,6 +63,7 @@ export async function masterFor(c: Console): Promise<MasterInputs> {
     carrierEmail: (c.space_from === "coloader" ? coloader?.emails[0] : carrier?.emails[0]) ?? "",
     coloader: coloader ? { name: coloader.organisation || coloader.name, email: coloader.emails[0] ?? "" } : null,
     houseBillNos: manifest.lines.map((l) => l.hblNo).filter(Boolean),
+    dgWaiting: dg.filter((h) => !h.acceptedAt).map((h) => h.ref ?? h.shipmentId),
   };
 }
 

@@ -56,6 +56,9 @@ export default function PartnerForm({
   const [notes, setNotes] = useState(partner?.notes ?? "");
   const [address, setAddress] = useState(partner?.address ?? "");
   const [mto, setMto] = useState(partner?.mto_registration ?? "");
+  // The agency agreement (130): their share of the profit, and whether a loss is shared.
+  const [share, setShare] = useState(partner?.profit_share_pct != null ? String(partner.profit_share_pct) : "");
+  const [shareLosses, setShareLosses] = useState(partner?.profit_share_losses ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,6 +120,10 @@ export default function PartnerForm({
     const countryError = countryProblem(country);
     if (countryError) return setError(countryError);
 
+    const sharePct = share.trim() === "" ? null : Number(share);
+    if (sharePct !== null && !(sharePct > 0 && sharePct <= 100))
+      return setError("The profit share is a per cent: more than 0, at most 100 — or leave it empty.");
+
     const emailList = list(emails);
     const bad = emailList.find((a) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a));
     if (bad) return setError(`"${bad}" is not a valid email address.`);
@@ -137,6 +144,8 @@ export default function PartnerForm({
         notes: notes.trim(),
         address: address.trim(),
         mto_registration: mto.trim().toUpperCase(),
+        profit_share_pct: sharePct,
+        profit_share_losses: shareLosses,
       };
       onSaved(partner ? await updatePartner(partner.id, body) : await createPartner(body));
     } catch (err) {
@@ -275,6 +284,38 @@ export default function PartnerForm({
               autoComplete="off"
             />
           </Field>
+
+          {role === "overseas_agent" && (
+            // Not a <Field>: that is a <label>, and the checkbox inside has its own.
+            <div>
+              <span className="block text-[11px] text-text-secondary mb-1">Profit share</span>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="flex items-center gap-1">
+                  <input
+                    value={share}
+                    onChange={(e) => setShare(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="50"
+                    aria-label="Their share of the profit, per cent"
+                    className="h-8 w-20 text-right tabular-nums"
+                  />
+                  <span className="text-[12.5px] text-text-secondary">% of the profit</span>
+                </span>
+                <label className="flex items-center gap-1.5 text-[12.5px] text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={shareLosses}
+                    onChange={(e) => setShareLosses(e.target.checked)}
+                    className="size-3.5 accent-[var(--brand)]"
+                  />
+                  A loss is shared too
+                </label>
+              </div>
+              <p className="mt-0.5 text-[11px] text-text-muted">
+                The agency agreement, if there is one: worked out on each console and job with them, and settled by a note on them.
+              </p>
+            </div>
+          )}
 
           {/* ---- tags ---- */}
           <Field label="Tags">

@@ -110,6 +110,8 @@ export interface Bill {
   vendor_gstin: string | null;
   remarks: string;
   disputed_reason: string | null;
+  /** The agent's note settling their profit share (130): kept out of the profit the share is worked on. */
+  profit_share: boolean;
 
   created_at: string;
   updated_at: string;

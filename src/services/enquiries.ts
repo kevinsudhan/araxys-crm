@@ -440,6 +440,14 @@ export interface Shipment {
   flash_point_c: number | null;
   msds_provided: boolean | null;
 
+  /* Dangerous goods accepted into a console (131, lib/dgAcceptance.ts). */
+  msds_date?: string | null;
+  dg_declaration_at?: string | null;
+  dg_line_ref?: string | null;
+  dg_accepted_at?: string | null;
+  dg_accepted_by?: string | null;
+  dg_accept_note?: string | null;
+
   /* Booking particulars — the shipment's own once it exists (047, 065). */
   cfs_location: string | null;
   cargo_cutoff: string | null;

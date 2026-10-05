@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **129**, so the next one is `130-….sql`.
+  migration filename (§6). The last migration is **131**, so the next one is `132-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 129 migrations
+## 4. Data model — 131 migrations
 
-`supabase-v2/001…129`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…131`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -248,6 +248,8 @@ transaction).
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
 | `128` | **The partner's original rate on an enquiry.** Table `enquiry_buy_rates` (one per enquiry, `enquiry_ref` PK → enquiries on delete cascade): `partner_id`, `partner_label`, `pasted_text`, `lines` (jsonb array, checked), `roe`, `total_inr` (≥ 0 or null), who/when, touched by a trigger. Staff read and write. Checked rolled back as an employee |
 | `129` | **The original rate built up over several pastes.** `enquiry_buy_rates.history` (jsonb array, checked, default `[]`): each paste's when, from whom, what was pasted, and what it changed (updated, added, unchanged, or replaced the whole rate). Each line in `lines` now also carries `from`, `at` and `was`. Checked rolled back as an employee |
+| `130` | **The overseas agent's profit share.** `partners.profit_share_pct` (0–100, null = none agreed) and `profit_share_losses` (default true); `consoles.profit_share_pct` (a console agreed differently, 0 = none); `invoices.profit_share_pct` / `profit_share_base_inr` mark our note settling a share (checked: a debit or credit note to a partner); `bills.profit_share` marks the agent's own (checked: an agent note). `issue_invoice` no longer asks a note on an agent for the invoice it corrects (042's Rule 53(1A) check now only for notes to customers, which 037's agent notes never could pass). `raise_profit_share(partner, console | job, kind, currency, roe, amount, pct, base, description)`: drafts our OCN/ODN with the one line, export LUT, one draft at a time per console or job (advisory lock). Checked rolled back as an employee |
+| `131` | **Dangerous goods accepted into a console.** `shipments.msds_date`, `dg_declaration_at`, `dg_line_ref`, `dg_accepted_at/by`, `dg_accept_note`. Trigger `shipments_dg_acceptance`: a change of UN number, class, packing group or console clears the acceptance, and a signed-in user cannot set it directly. `accept_dg_house(shipment, note)` refuses class 1, 6.2 and 7, no UN number, no MSDS, an MSDS over five years old, no declaration, no line approval; logs `dg_accepted` on the enquiry. Checked rolled back as an employee |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -892,7 +894,7 @@ The version the customer has keeps its figures. The paste box's "or revise it ch
 import (done) · 3 co-loading, buying space
 on another consolidator's box (done) · 4 co-loading, selling space on ours (done) · 5 console P&L (done) · 6 CFS and containers (done) · 7 destination deconsolidation (done) · 8
 destination filings (UAE MPCI, EU ICS2, US AMS/ISF — when the user names the provider) · 9 agent
-profit share, DG acceptance · 10 own MTO registration, consolidator bond, eBL. No GST e-invoicing:
+profit share, DG acceptance (done) · 10 own MTO registration, consolidator bond, eBL. No GST e-invoicing:
 turnover under ₹5 crore (user, 5 Oct).
 
 **Co-loading: space bought from another consolidator (121, 5 Oct).** A console's **Space** section
@@ -945,6 +947,38 @@ charge not in the paste stays; "This is a whole new rate" in the dialog replaces
 and destination THC are two charges. Rates of exchange are merged, the total worked out again, and
 the timeline says "Partner's rate from X: 1 charge updated, 2 added — the original rate is now
 ₹…". Tests: `scripts/tests/buyRate.test.ts`.
+
+**The overseas agent's profit share (130, 6 Oct; consol build plan step 9).** The agreement is on the
+agent (Partners: "Profit share … % of the profit", "A loss is shared too"); a console can be agreed
+differently ("This console only", 0 for none). `components/ProfitSharePanel.tsx` sits on the console
+under its P&L and, for a job on no console, on the job's Costs tab (the routing agent, or the
+overseas agent assigned on the enquiry). It works the console's (job's) profit out as the P&L does,
+less the notes that settle a share (`lib/profitShare.ts` `withoutShares`: our notes marked on the
+invoice, the agent's marked on the bill with "Their profit share" in Costs), takes the agreed share —
+a profit: we owe them, our **credit note** (OCN); a loss shared: they owe us, our **debit note**
+(ODN); a loss not shared: nothing — and nets every note either way, drafts included, against it, so
+a late bill is settled by one more note for the difference, never by sharing twice. **Draft the
+credit/debit note** (in their currency at the rate of exchange, from their last note or bill)
+calls `raise_profit_share`; **Issue it** here or in Accounts → Overseas credit/debit notes; it nets
+on their statement of account (037). "Not final" says when a house is still at its quotation or a
+cost is a draft bill. **Email the statement**: each house's revenue, cost and profit, the share,
+every note and what is left. Tests: `scripts/tests/profitShare.test.ts`.
+
+**Dangerous goods accepted into a console (131, 6 Oct; step 9).** `components/ConsoleDg.tsx`, on an
+export console above the CFS section: every house marked hazardous (or with a UN number or class).
+Its UN number, class, packing group, flash point and "MSDS in hand" are edited there but written to
+the enquiry, which the job follows (065); the MSDS date, the shipper's signed DG declaration and the
+line's (co-loader's) DG approval reference are the job's. `lib/dgAcceptance.ts`: classes 1, 6.2 and
+7 are never taken; 2.3, 4.x, 5.x and 6.1 warn (many refuse them in LCL); UN number four digits, a
+UN0… number only for class 1; packing group required for 3, 4.2, 4.3, 5.1, 6.1, 8 (a warning for
+4.1 and 9, and when one is given to a class that has none); flash point for class 3 (a warning above
+60 °C); MSDS in hand and under five years old; the declaration; the approval; and the IMDG
+segregation table (7.2.4) by primary class against every other DG house — "away from" is a warning
+(the same box only with the competent authority's approval), 2–4 stop it; 2.3, 6.1 and 8 warn to keep
+them from foodstuffs. **Accept into the console** (`accept_dg_house`) once nothing is red, with a
+note for the warnings. An accepted house that a later house conflicts with says so in red; changing
+its class, UN number, packing group or console takes the acceptance back. The master B/L
+instruction's checks list a DG house not yet accepted. Tests: `scripts/tests/dgAcceptance.test.ts`.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

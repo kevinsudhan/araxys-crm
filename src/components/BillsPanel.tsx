@@ -480,6 +480,25 @@ export default function BillsPanel({
                             />
                           </label>
                         )}
+                        {(b.kind === "agent_debit_note" || b.kind === "agent_credit_note") && (
+                          <label className="flex items-start gap-2 sm:col-span-2">
+                            <input
+                              type="checkbox"
+                              checked={b.profit_share}
+                              onChange={(e) =>
+                                void run(() => updateBill(b.id, { profit_share: e.target.checked }))
+                              }
+                              className="mt-0.5 size-3.5 accent-[var(--brand)]"
+                            />
+                            <span className="text-[12px] text-text-secondary">
+                              Their profit share
+                              <span className="block text-[11px] text-text-muted">
+                                The agent's own note settling their share of the profit. Kept out of the
+                                profit the share is worked on, and counted as settling it.
+                              </span>
+                            </span>
+                          </label>
+                        )}
                         <label className="flex items-start gap-2 sm:col-span-2">
                           <input
                             type="checkbox"

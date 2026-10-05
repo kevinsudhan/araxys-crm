@@ -151,6 +151,8 @@ export interface Console {
   arrival_days?: number;
   outturn_sent_at?: string | null;
   outturn_sent_to?: string;
+  /** The agent's share on this console when agreed differently from the agreement on the agent; 0 for none (130). */
+  profit_share_pct?: number | null;
 
   /** Joined in by the loaders, not columns. */
   agent_label?: string | null;

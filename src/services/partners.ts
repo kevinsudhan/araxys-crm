@@ -57,6 +57,10 @@ export interface Partner {
   tags: string[];
   notes: string;
   active: boolean;
+  /** The agent's share of the profit on cargo they handle with us, per cent; null when none is agreed (130). */
+  profit_share_pct: number | null;
+  /** Whether a loss is shared in the same proportion. */
+  profit_share_losses: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -94,6 +98,8 @@ export async function createPartner(input: {
   notes: string;
   address?: string;
   mto_registration?: string;
+  profit_share_pct?: number | null;
+  profit_share_losses?: boolean;
 }): Promise<Partner> {
   const { data, error } = await supabase
     .from("partners")

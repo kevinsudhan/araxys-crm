@@ -253,7 +253,7 @@ export function siData(c: MasterConsole, terms: SiTerms, boxes: ConsoleBox[], ho
  * still be sent, because the line wants the booking's SI by its cut-off even
  * while a seal is being chased.
  */
-export function siIssues(c: MasterConsole, si: HblData, boxes: ConsoleBox[], houseBillNos: string[]): string[] {
+export function siIssues(c: MasterConsole, si: HblData, boxes: ConsoleBox[], houseBillNos: string[], dgWaiting: string[] = []): string[] {
   const out: string[] = [];
   if (!up(c.carrier_booking_no)) out.push(`No booking number from ${c.coload ? "the co-loader" : "the line"}`);
   if (!si.consignee_name.trim()) out.push("No consignee: appoint the overseas agent, or name one");
@@ -269,6 +269,8 @@ export function siIssues(c: MasterConsole, si: HblData, boxes: ConsoleBox[], hou
   const mbl = boxKey(c.mbl_number);
   const clash = mbl ? houseBillNos.filter((h) => boxKey(h) === mbl) : [];
   if (clash.length) out.push(`House B/L ${clash.join(", ")} has the master's number: Customs refuses that`);
+  // Dangerous goods go on the line's booking only once accepted into the console (131).
+  if (dgWaiting.length) out.push(`Dangerous goods not accepted into the console yet: ${dgWaiting.join(", ")}`);
   return out;
 }
 

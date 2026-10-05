@@ -22,8 +22,8 @@ const dayOf = (v: unknown) => (v ? istDay(String(v)) : null);
 
 const SHIPMENT_COLS =
   "id, enquiry_ref, stage, transport_mode, trade_direction, origin, destination, etd, created_at, signed_off_at, console_id, volume_cbm, gross_weight_kg, customer:customers(name, company, forwarder), enquiry:enquiries(assigned_to)";
-const INVOICE_COLS = "id, number, kind, status, invoice_date, created_at, shipment_id, console_id, bill_to_name, taxable_value";
-const BILL_COLS = "id, bill_no, kind, status, bill_date, created_at, shipment_id, console_id, partner_id, exchange_rate, taxable_value";
+const INVOICE_COLS = "id, number, kind, status, invoice_date, created_at, shipment_id, console_id, bill_to_name, taxable_value, profit_share_pct";
+const BILL_COLS = "id, bill_no, kind, status, bill_date, created_at, shipment_id, console_id, partner_id, exchange_rate, taxable_value, profit_share";
 const OWED_COLS = "shipment_id, billed_inr, collected_inr, cost_inr, paid_out_inr, open_drafts, disputed_bills";
 
 export async function loadPnl(): Promise<PnlData> {
@@ -56,6 +56,18 @@ export async function loadConsolePnl(consoleId: string): Promise<PnlData> {
   // A document on a job of the console and on the console too is one document.
   const live = (rows: Row[]) => [...new Map(rows.filter((r) => r.status !== "cancelled").map((r) => [String(r.id), r])).values()];
   return assemble(shipments, live([...invJobs, ...invConsole]), live([...billJobs, ...billConsole]), owed, people);
+}
+
+/** One job's invoices and bills (130): its P&L for a share with the agent, when it is on no console. */
+export async function loadJobPnl(shipmentId: string): Promise<PnlData> {
+  const [shipments, invoices, bills, owed, people] = await Promise.all([
+    all((a, b) => supabase.from("shipments").select(SHIPMENT_COLS).eq("id", shipmentId).range(a, b)),
+    all((a, b) => supabase.from("invoices").select(INVOICE_COLS).eq("shipment_id", shipmentId).neq("status", "cancelled").range(a, b)),
+    all((a, b) => supabase.from("bills").select(BILL_COLS).eq("shipment_id", shipmentId).neq("status", "cancelled").range(a, b)),
+    all((a, b) => supabase.from("job_final_bill").select(OWED_COLS).eq("shipment_id", shipmentId).range(a, b)),
+    all((a, b) => supabase.from("profiles").select("id, full_name").range(a, b)),
+  ]);
+  return assemble(shipments, invoices, bills, owed, people);
 }
 
 async function assemble(shipments: Row[], invoices: Row[], bills: Row[], owed: Row[], people: Row[]): Promise<PnlData> {
@@ -146,6 +158,7 @@ async function assemble(shipments: Row[], invoices: Row[], bills: Row[], owed: R
         party: str(i.bill_to_name),
         fx: 1, // invoice lines carry their own INR amount (038)
         taxableInr: Number(i.taxable_value) || 0,
+        profitShare: i.profit_share_pct != null,
         lines: (invLinesBy.get(String(i.id)) ?? []).map((l) => ({
           description: String(l.description ?? ""),
           amount: Number(l.amount_inr) || 0,
@@ -167,6 +180,7 @@ async function assemble(shipments: Row[], invoices: Row[], bills: Row[], owed: R
         party: b.partner_id ? (partnerName.get(String(b.partner_id)) ?? null) : null,
         fx,
         taxableInr: (Number(b.taxable_value) || 0) * fx,
+        profitShare: Boolean(b.profit_share),
         lines: (billLinesBy.get(String(b.id)) ?? []).map((l) => ({
           description: String(l.description ?? ""),
           amount: Number(l.amount) || 0,

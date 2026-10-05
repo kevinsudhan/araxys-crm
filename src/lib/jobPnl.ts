@@ -87,6 +87,8 @@ export interface PnlDoc {
   /** The document's value before tax, in rupees — used when it has no lines. */
   taxableInr: number;
   lines: Array<{ description: string; amount: number; reimbursement: boolean }>;
+  /** A note that settles an agent's profit share (130): ours on them, or theirs on us. */
+  profitShare?: boolean;
 }
 
 export interface PnlEntry {

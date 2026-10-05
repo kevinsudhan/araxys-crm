@@ -33,6 +33,8 @@ import ConsoleCoload from "../components/ConsoleCoload";
 import ConsoleHouseCheck from "../components/ConsoleHouseCheck";
 import ConsoleColoaders from "../components/ConsoleColoaders";
 import ConsolePnlPanel from "../components/ConsolePnlPanel";
+import ConsoleDg from "../components/ConsoleDg";
+import ProfitSharePanel from "../components/ProfitSharePanel";
 import ConsoleCfs from "../components/ConsoleCfs";
 import ConsoleDestination from "../components/ConsoleDestination";
 import { BOX_TYPES, type BoxType } from "../lib/loadPlan";
@@ -668,6 +670,9 @@ export default function Consoles() {
                       )}
                     </section>
 
+                    {/* ---- dangerous goods: checked and accepted before they go in the box (131) ---- */}
+                    {c.direction !== "import" && <ConsoleDg console={c} jobs={list.length} />}
+
                     {/* ---- at the CFS: declared against measured, the load plan, the stuffing report (125) ---- */}
                     {c.direction !== "import" && <ConsoleCfs console={c} jobs={list.length} sailingBox={sailingBox} onChanged={() => void load()} />}
 
@@ -701,6 +706,9 @@ export default function Consoles() {
                         boxCode={boxCode}
                       />
                     )}
+
+                    {/* ---- the overseas agent's share of the profit, as a note on them (130) ---- */}
+                    {ACCOUNTS_DESK && <ProfitSharePanel subject={{ kind: "console", console: c }} onChanged={() => void load()} />}
 
                     {/* ---- what the console cost: the line's or the co-loader's invoice, the agent's (121) ---- */}
                     {ACCOUNTS_DESK && (

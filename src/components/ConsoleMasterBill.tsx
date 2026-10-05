@@ -81,7 +81,7 @@ export default function ConsoleMasterBill({ console: c, jobs, onChanged }: { con
 
   const totals = inputs ? manifestTotals(inputs.lines) : { bills: 0, packages: 0, grossKg: 0, cbm: 0, containers: [], collect: 0 };
   const si = siData({ ...mc, carrier_booking_no: booking }, terms, inputs?.boxes ?? [], { packages: totals.packages, grossKg: totals.grossKg, cbm: totals.cbm });
-  const issues = inputs ? siIssues({ ...mc, carrier_booking_no: booking }, si, inputs.boxes, inputs.houseBillNos) : [];
+  const issues = inputs ? siIssues({ ...mc, carrier_booking_no: booking }, si, inputs.boxes, inputs.houseBillNos, inputs.dgWaiting) : [];
   const stage = c.mbl_stage ?? "none";
   const at = stageIndex(stage);
   const draft = draftOf(c);
