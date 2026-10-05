@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { ChevronRight, ClipboardPaste, Handshake, Send } from "lucide-react";
+import { ChevronRight, Handshake, Send } from "lucide-react";
 import AskPartners from "./AskPartners";
-import PasteQuoteDialog from "./PasteQuoteDialog";
 import { useJobProfit } from "./useJobProfit";
 import { bestOf, type PartnerQuote } from "../services/rfq";
 import type { Enquiry, Quote } from "../services/enquiries";
@@ -24,9 +23,10 @@ const inr = (n: number) => `${n < -0.5 ? "−" : ""}₹${Math.abs(Math.round(n))
  * partner not yet in the directory can be added on the spot. The replies
  * themselves are read on the Partners tab.
  *
- * The partner's original rate is pasted from here too (128), whichever way it
- * came, and the line then says what it costs and the profit against the
- * quotation; the charge-by-charge view is under the quotation.
+ * The partner's original rate is pasted in the box right under this line
+ * (OriginalRate, 128), whichever way it came; this line then says what it
+ * costs and the profit against the quotation; the charge-by-charge view is
+ * under the quotation.
  * ---------------------------------------------------------------------------
  */
 export default function PartnerRatesBar({
@@ -50,8 +50,7 @@ export default function PartnerRatesBar({
   onProfit: () => void;
 }) {
   const [asking, setAsking] = useState(false);
-  const [pasting, setPasting] = useState(false);
-  const { buy, quote, profit, reload } = useJobProfit(enquiry.ref, customerQuotes);
+  const { buy, quote, profit } = useJobProfit(enquiry.ref, customerQuotes);
 
   const asked = quotes.length;
   const answered = quotes.filter((q) => q.status === "replied" || q.status === "quoted" || q.status === "declined").length;
@@ -71,7 +70,7 @@ export default function PartnerRatesBar({
             {!asked && buy ? (
               "Rate pasted from the partner"
             ) : !asked ? (
-              "Not asked yet — ask your partners for their rates, or paste the rate they gave you, then quote the customer."
+              "Not asked yet — ask your partners for their rates, or paste the rate they gave you below, then quote the customer."
             ) : (
               <>
                 {asked} asked · {answered} replied
@@ -89,7 +88,7 @@ export default function PartnerRatesBar({
           </p>
           {buy && profit && (
             <p className="text-[12px] text-text-secondary">
-              {buy.partner_label || "Partner"}'s rate <span className="font-medium text-text-primary tabular-nums">{inr(profit.buyInr)}</span>
+              Original rate <span className="font-medium text-text-primary tabular-nums">{inr(profit.buyInr)}</span>
               {quote ? (
                 <>
                   {" · quoted "}
@@ -123,14 +122,6 @@ export default function PartnerRatesBar({
         )}
         <button
           type="button"
-          onClick={() => setPasting(true)}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[12px] text-text-secondary hover:border-border-strong hover:text-text-primary"
-        >
-          <ClipboardPaste size={13} />
-          {buy ? "Paste the partner's rate again" : "Paste the partner's rate"}
-        </button>
-        <button
-          type="button"
           onClick={() => setAsking(true)}
           className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark"
         >
@@ -140,20 +131,7 @@ export default function PartnerRatesBar({
       </div>
 
       {asking && <AskPartners enquiry={enquiry} onClose={() => setAsking(false)} onSent={() => onAsked()} />}
-      {pasting && (
-        <PasteQuoteDialog
-          enquiry={enquiry}
-          live={null}
-          liveCount={0}
-          purpose="cost"
-          partnerQuoteLabel={buy?.partner_label}
-          onClose={() => setPasting(false)}
-          onApplied={() => {
-            setPasting(false);
-            void reload();
-          }}
-        />
-      )}
+
     </div>
   );
 }

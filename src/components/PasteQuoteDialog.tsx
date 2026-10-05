@@ -21,7 +21,8 @@ import PasteInput from "./PasteInput";
 import { applyPastedQuote, isAirQuote, readPastedQuote, tableLayout } from "../services/pasteQuote";
 import { airTableHtml, chargesHtml } from "../lib/quotationMail";
 import type { Enquiry, Quote } from "../services/enquiries";
-import { saveBuyRate } from "../services/buyRates";
+import { addToBuyRate } from "../services/buyRates";
+import { mergeBuyLines, pasteSummary, type StoredBuyLine } from "../lib/buyRate";
 import { listPartners, type Partner } from "../services/partners";
 
 /**
@@ -54,6 +55,7 @@ export default function PasteQuoteDialog({
   onApplied,
   purpose = "quote",
   partnerQuoteLabel,
+  existing = [],
 }: {
   enquiry: Enquiry;
   /** The quotation being written, if any: a draft has its charges replaced. */
@@ -68,12 +70,16 @@ export default function PasteQuoteDialog({
   purpose?: "quote" | "cost";
   /** The partner the rate is from, when the desk already said (cost only). */
   partnerQuoteLabel?: string;
+  /** The original rate as it stands (cost only): this paste is added to it (129). */
+  existing?: StoredBuyLine[];
 }) {
   const cost = purpose === "cost";
   const what = cost ? "partner's rate" : "quotation";
   const [partners, setPartners] = useState<Partner[]>([]);
   const [partnerId, setPartnerId] = useState<string>("");
   const [partnerLabel, setPartnerLabel] = useState(partnerQuoteLabel ?? "");
+  /** A completely new rate from the partner: replaces the original rate instead of adding to it. */
+  const [replaceAll, setReplaceAll] = useState(false);
   useEffect(() => {
     if (!cost) return;
     void listPartners(true)
@@ -171,7 +177,7 @@ export default function PasteQuoteDialog({
     try {
       if (cost) {
         const p = partners.find((x) => x.id === partnerId);
-        await saveBuyRate({ enquiry, pasted: current, pastedText: text, partnerId: partnerId || null, partnerLabel: partnerLabel.trim() || (p ? p.organisation || p.name : "") });
+        await addToBuyRate({ enquiry, pasted: current, pastedText: text, partnerId: partnerId || null, partnerLabel: partnerLabel.trim() || (p ? p.organisation || p.name : ""), replaceAll });
       } else await applyPastedQuote({ enquiry, live, pasted: current, pastedText: text });
       onApplied();
     } catch (e) {
@@ -422,6 +428,17 @@ export default function PasteQuoteDialog({
                     Or their name
                     <input value={partnerLabel} onChange={(e) => setPartnerLabel(e.target.value)} placeholder="Not in the directory" className="mt-1 h-8 w-full text-[12.5px]" />
                   </label>
+                  {existing.length > 0 && current && (
+                    <div className="w-full text-[12px]">
+                      <p className="text-text-primary">
+                        {pasteSummary(mergeBuyLines(existing, current.lines, { from: "", at: "", pastedText: "" }, replaceAll).entry)}
+                        <span className="text-text-muted"> — added to the original rate of {existing.length} charge{existing.length === 1 ? "" : "s"}: a charge already there is updated, a new one added, the rest stay.</span>
+                      </p>
+                      <label className="mt-1 flex items-center gap-1.5 text-text-secondary">
+                        <input type="checkbox" checked={replaceAll} onChange={(e) => setReplaceAll(e.target.checked)} /> This is a whole new rate: replace the original rate with it
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
               {!cost && live?.status === "draft" && liveCount > 0 && (

@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **128**, so the next one is `129-….sql`.
+  migration filename (§6). The last migration is **129**, so the next one is `130-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 128 migrations
+## 4. Data model — 129 migrations
 
-`supabase-v2/001…128`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…129`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -247,6 +247,7 @@ transaction).
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
 | `128` | **The partner's original rate on an enquiry.** Table `enquiry_buy_rates` (one per enquiry, `enquiry_ref` PK → enquiries on delete cascade): `partner_id`, `partner_label`, `pasted_text`, `lines` (jsonb array, checked), `roe`, `total_inr` (≥ 0 or null), who/when, touched by a trigger. Staff read and write. Checked rolled back as an employee |
+| `129` | **The original rate built up over several pastes.** `enquiry_buy_rates.history` (jsonb array, checked, default `[]`): each paste's when, from whom, what was pasted, and what it changed (updated, added, unchanged, or replaced the whole rate). Each line in `lines` now also carries `from`, `at` and `was`. Checked rolled back as an employee |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -914,9 +915,8 @@ accounts desk is on. Tests: `scripts/tests/coload.test.ts`.
 
 **The partner's rate and the profit on the job (128, 5 Oct; the user: "paste the original rates
 their partners give … the original rate and the quoted rate … profit or loss per job, done
-properly").** The partner's rate is pasted as it came — **Paste the partner's rate** on the partner
-rates bar (every tab but Partners) or on the **Partner's rate and profit** card under the quotation
-(Shipment process) — in `PasteQuoteDialog` with `purpose="cost"` (same AI reader and checking; a
+properly").** The partner's rate is pasted as it came in the **Original rate** box (below), in
+`PasteQuoteDialog` with `purpose="cost"` (same AI reader and checking; a
 partner picker or a name; no terms, validity or mail preview) and kept in `enquiry_buy_rates` by
 `services/buyRates.ts`, apart from the quotation, so a quotation pasted again, revised or sent leaves
 it standing; each save is on the timeline. `lib/jobProfit.ts`: charges matched on a key
@@ -926,12 +926,25 @@ once; a matched pair counted on the quotation's quantity (each its own when the 
 rupees at the partner's rates of exchange, before GST; a partner-only charge is a cost the desk
 carries, a desk-only charge all margin, an "at actuals" charge nothing; a currency with no rate of
 exchange is said, not counted as free. The quotation is the accepted one, else the latest draft or
-sent (`profitQuoteOf`). The card shows partner's rate, your quotation, profit or loss and margin, and
+sent (`profitQuoteOf`). The **Profit on the job** card under the quotation (Shipment process) shows the original rate, your quotation, profit or loss and margin, and
 every charge side by side; with no quotation yet, **Start the quotation from it** makes a draft with
-the same charges for the commission to go on in the grid (`quoteFromBuyRate`). The bar says
-"Partner's rate ₹… · quoted ₹… · profit ₹… (n%)". The job P&L's quoted cost (Job Closing) is this
+the same charges for the commission to go on in the grid (`quoteFromBuyRate`). The partner rates bar says
+"Original rate ₹… · quoted ₹… · profit ₹… (n%)". The job P&L's quoted cost (Job Closing) is this
 rate, worked out the same way (`services/jobPnl.ts`), else the quotation lines' typed costs as
 before. Tests: `scripts/tests/jobProfit.test.ts`.
+
+**The Original rate box and pastes that add up (129, 5 Oct; the user: "a partner might revise the
+rate, or send rates for half the things and send later, and all this should properly go and sit in
+the original rate place").** `components/OriginalRate.tsx` sits right under the partner rates bar
+on every tab: the charges so far (charge, whose and when, rate with "was …" when revised, qty, ₹,
+× to take one off), the total before GST, a paste box always open, the paste history (what each
+paste changed, and what was pasted), and Clear. A paste is merged into the rate
+(`lib/buyRate.ts` `mergeBuyLines`, saved by `addToBuyRate`): the same charge (the `chargeKey`)
+in the same group is updated in place and keeps its old figure; a charge not there is added; a
+charge not in the paste stays; "This is a whole new rate" in the dialog replaces it all. Origin THC
+and destination THC are two charges. Rates of exchange are merged, the total worked out again, and
+the timeline says "Partner's rate from X: 1 charge updated, 2 added — the original rate is now
+₹…". Tests: `scripts/tests/buyRate.test.ts`.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

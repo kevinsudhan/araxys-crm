@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { AlertTriangle, ClipboardPaste, Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { formatDate } from "../lib/dates";
 import type { ProfitRow } from "../lib/jobProfit";
-import { quoteFromBuyRate, removeBuyRate } from "../services/buyRates";
+import { quoteFromBuyRate } from "../services/buyRates";
 import type { Enquiry, Quote } from "../services/enquiries";
-import PasteQuoteDialog from "./PasteQuoteDialog";
 import { useJobProfit } from "./useJobProfit";
 
 const inr = (n: number) => `${n < -0.5 ? "−" : ""}₹${Math.abs(Math.round(n)).toLocaleString("en-IN")}`;
@@ -19,7 +18,6 @@ const rate = (r: { currency: string; rate: number; unit: string } | null) =>
  */
 export default function JobProfit({ enquiry, quotes, onChanged }: { enquiry: Enquiry; quotes: Quote[]; onChanged: () => void }) {
   const { buy, quote, profit, loading, error, reload } = useJobProfit(enquiry.ref, quotes);
-  const [pasting, setPasting] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -49,24 +47,7 @@ export default function JobProfit({ enquiry, quotes, onChanged }: { enquiry: Enq
   return (
     <section className="card mt-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="mr-auto text-[13px] font-medium text-text-primary">Partner's rate and profit</h3>
-        <button
-          type="button"
-          onClick={() => setPasting(true)}
-          className={`flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[12px] font-medium ${buy ? "border border-border text-text-secondary hover:text-text-primary" : "bg-brand text-white hover:bg-brand-dark"}`}
-        >
-          <ClipboardPaste size={13} /> {buy ? "Paste it again" : "Paste the partner's rate"}
-        </button>
-        {buy && (
-          <button
-            type="button"
-            onClick={() => window.confirm("Remove the partner's rate from this enquiry?") && void act("remove", () => removeBuyRate(enquiry.ref))}
-            disabled={busy !== null}
-            className="h-8 rounded-lg px-2.5 text-[12px] text-text-muted hover:text-text-danger"
-          >
-            Remove
-          </button>
-        )}
+        <h3 className="mr-auto text-[13px] font-medium text-text-primary">Profit on the job</h3>
       </div>
 
       {(error || failed) && <p className="mt-2 rounded-lg bg-bg-danger px-3 py-2 text-[12px] text-text-danger">{failed ?? error}</p>}
@@ -77,17 +58,17 @@ export default function JobProfit({ enquiry, quotes, onChanged }: { enquiry: Enq
         </p>
       ) : !buy ? (
         <p className="mt-1.5 max-w-prose text-[12.5px] leading-relaxed text-text-secondary">
-          Paste the rate your partner gave you, as they sent it. Quote the customer with your commission on top, and the profit — or the loss — on this job is
-          worked out here, charge by charge.
+          Paste the rate your partner gave you in <strong className="font-medium text-text-primary">Original rate</strong> at the top, under Ask partners. Quote the customer
+          with your commission on top, and the profit — or the loss — on this job is worked out here, charge by charge.
         </p>
       ) : (
         profit && (
           <>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {tile(
-                "Partner's rate (cost)",
+                "Original rate (cost)",
                 inr(profit.buyInr),
-                `${buy.partner_label || "Partner"} · ${buy.lines.length} charge${buy.lines.length === 1 ? "" : "s"}${buy.updated_at ? ` · ${formatDate(buy.updated_at, { day: "numeric", month: "short" })}` : ""}`
+                `${[...new Set(buy.lines.map((l) => l.from).filter(Boolean))].join(", ") || buy.partner_label || "Partner"} · ${buy.lines.length} charge${buy.lines.length === 1 ? "" : "s"}${buy.updated_at ? ` · ${formatDate(buy.updated_at, { day: "numeric", month: "short" })}` : ""}`
               )}
               {tile("Your quotation", quote ? inr(profit.sellInr) : "—", quote ? `Version ${quote.version} · ${quote.status}` : "Not quoted yet")}
               {tile(
@@ -164,21 +145,6 @@ export default function JobProfit({ enquiry, quotes, onChanged }: { enquiry: Enq
         )
       )}
 
-      {pasting && (
-        <PasteQuoteDialog
-          enquiry={enquiry}
-          live={null}
-          liveCount={0}
-          purpose="cost"
-          partnerQuoteLabel={buy?.partner_label}
-          onClose={() => setPasting(false)}
-          onApplied={() => {
-            setPasting(false);
-            void reload();
-            onChanged();
-          }}
-        />
-      )}
     </section>
   );
 }

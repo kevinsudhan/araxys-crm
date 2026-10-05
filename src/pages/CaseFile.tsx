@@ -20,6 +20,7 @@ import { sectionsFor, type Section } from "../lib/caseFileSections";
 import { listQuotes, type PartnerQuote } from "../services/rfq";
 import QuotePanel from "../components/QuotePanel";
 import JobProfit from "../components/JobProfit";
+import OriginalRate from "../components/OriginalRate";
 import PromotePanel from "../components/PromotePanel";
 import ConfirmPanel from "../components/ConfirmPanel";
 import PartnersPanel from "../components/PartnersPanel";
@@ -410,6 +411,8 @@ export default function CaseFile() {
               onProfit={() => goTo("shipment")}
             />
           )}
+          {/* The partner's original rate, under asking them, on every tab (128, 129). */}
+          <OriginalRate enquiry={enquiry} onChanged={load} />
         </div>
       )}
 
