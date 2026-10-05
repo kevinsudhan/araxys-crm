@@ -36,8 +36,8 @@ export interface ArrivalHouse {
   description: string;
   /** Where it is destuffed and delivered from. */
   cfs: string;
-  /** How their B/L is released: an original to surrender, a telex release, or a sea waybill. */
-  release: "original" | "telex" | "express" | null;
+  /** How their B/L is released: an original to surrender, a telex release, a sea waybill, or an electronic B/L. */
+  release: "original" | "telex" | "express" | "ebl" | null;
   freightCollect: boolean;
 }
 
@@ -82,7 +82,9 @@ export function deliveryNeeds(h: Pick<ArrivalHouse, "release" | "freightCollect"
       ? "The B/L is released by telex: no original is needed; we confirm the release once it is with us"
       : h.release === "express"
         ? "A sea waybill: no original is needed, delivery is to you as named consignee"
-        : "One original house B/L, duly endorsed, surrendered to us",
+        : h.release === "ebl"
+          ? "An electronic B/L: surrender it to us on the platform it was issued on"
+          : "One original house B/L, duly endorsed, surrendered to us",
     h.freightCollect ? "Payment of the freight (collect) and our delivery order charges" : "Payment of our delivery order charges",
     "Your KYC documents and an authorisation letter for your customs broker (CHA)",
     "Your CHA files the Bill of Entry once the IGM is filed",
@@ -183,7 +185,7 @@ export function arrivalHouseFrom(r: ArrivalRows): ArrivalHouse {
     cbm: figure(r.job.volume_cbm),
     description: d.description ?? "",
     cfs: r.console.cfs_name ?? "",
-    release: release === "original" || release === "telex" || release === "express" ? release : null,
+    release: release === "original" || release === "telex" || release === "express" || release === "ebl" ? release : null,
     freightCollect: /collect/i.test(d.freight_terms ?? ""),
   };
 }

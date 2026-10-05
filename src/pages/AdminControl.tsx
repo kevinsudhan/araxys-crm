@@ -10,6 +10,7 @@ import { CompanyBrand, PoweredByAraxys } from "../components/Brand";
 import ReplyLog from "../components/ReplyLog";
 import StaffAccounts from "../components/StaffAccounts";
 import BackupsPanel from "../components/BackupsPanel";
+import CompanyRegistrations from "../components/CompanyRegistrations";
 
 /**
  * The administrator's landing page.
@@ -100,6 +101,11 @@ export default function AdminControl() {
         {/* Who can sign in. Public sign-up is off (25 Sep 2026): this is the door. */}
         <div className="mt-6">
           <StaffAccounts />
+        </div>
+
+        {/* The company's own registrations, the bond and the eBL platform (132). */}
+        <div className="mt-6">
+          <CompanyRegistrations />
         </div>
 
         {/* The nightly backups (093): whether last night's ran, and the files. */}

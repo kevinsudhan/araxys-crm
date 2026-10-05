@@ -27,19 +27,27 @@
  * ---------------------------------------------------------------------------
  */
 
-export type ReleaseMode = "original" | "telex" | "express";
+export type ReleaseMode = "original" | "telex" | "express" | "ebl";
+
+/** The ways a B/L is released, in the order they are offered. */
+export const RELEASE_MODES: ReleaseMode[] = ["original", "telex", "express", "ebl"];
+
+/** No paper originals: a sea waybill, or an electronic B/L (132). */
+export const paperless = (r: ReleaseMode) => r === "express" || r === "ebl";
 export type ConsigneeMode = "named" | "to_order";
 
 export const RELEASE_LABEL: Record<ReleaseMode, string> = {
   original: "Original B/Ls",
   telex: "Telex release",
   express: "Express release (sea waybill)",
+  ebl: "Electronic B/L (eBL)",
 };
 
 export const RELEASE_HINT: Record<ReleaseMode, string> = {
   original: "Originals are issued; the consignee surrenders one at destination to take the cargo.",
   telex: "Originals are issued, then surrendered back at origin; our agent releases on our message.",
   express: "No originals. A non-negotiable sea waybill; the consignee collects against identity.",
+  ebl: "Issued as an electronic record on a platform; title passes there, and the cargo is released once it is surrendered there to our agent. No paper originals.",
 };
 
 export interface HblContainer {
@@ -466,7 +474,9 @@ export const originalsInWords = (n: number) => (n > 0 ? `${numberInWords(n)} (${
 export function titleOf(release: ReleaseMode): { title: string; subtitle: string } {
   return release === "express"
     ? { title: "SEA WAYBILL", subtitle: "NON-NEGOTIABLE · NO ORIGINALS ISSUED" }
-    : { title: "BILL OF LADING", subtitle: "MULTIMODAL TRANSPORT DOCUMENT" };
+    : release === "ebl"
+      ? { title: "BILL OF LADING", subtitle: "ELECTRONIC · MULTIMODAL TRANSPORT DOCUMENT" }
+      : { title: "BILL OF LADING", subtitle: "MULTIMODAL TRANSPORT DOCUMENT" };
 }
 
 /**
@@ -508,7 +518,7 @@ export function missingForIssue(d: HblData, release: ReleaseMode, originals: num
   need(Boolean(d.place_of_issue.trim()) && Boolean(d.date_of_issue.trim()), "the place and date of issue");
   need(Boolean(d.on_board_date.trim()), "the shipped on board date");
   need(Boolean(d.mto_registration.trim()), "the MTO registration it is issued under");
-  if (release !== "express") need(originals >= 1 && originals <= 3, "how many originals");
+  if (!paperless(release)) need(originals >= 1 && originals <= 3, "how many originals");
   return out;
 }
 

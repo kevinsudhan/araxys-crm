@@ -33,6 +33,7 @@ export default function HblBoxes({
   ro,
   variant,
   express = false,
+  ownMto = false,
 }: {
   d: HblData;
   set: Setter;
@@ -41,6 +42,8 @@ export default function HblBoxes({
   variant: "ours" | "theirs";
   /** A sea waybill: made out to a named consignee. */
   express?: boolean;
+  /** Issued under our own MTO registration (132). */
+  ownMto?: boolean;
 }) {
   const base = inputBase;
   const T = (k: keyof HblData, placeholder = "") => (
@@ -329,7 +332,9 @@ export default function HblBoxes({
 
         {variant === "ours" && (
           <p className="mt-3 text-[11.5px] text-text-muted">
-            {d.mto_registration
+            {d.mto_registration && ownMto
+              ? `Issued under our own MTO registration ${d.mto_registration}.`
+              : d.mto_registration
               ? `Issued under MTO registration ${d.mto_registration}${d.mto_name ? ` of ${d.mto_name}` : ""}, with Aashish Logistics signing as agent.`
               : "Pick the partner whose MTO registration it is issued under, above."}
           </p>

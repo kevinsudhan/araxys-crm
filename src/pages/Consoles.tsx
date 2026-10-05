@@ -35,6 +35,7 @@ import ConsoleColoaders from "../components/ConsoleColoaders";
 import ConsolePnlPanel from "../components/ConsolePnlPanel";
 import ConsoleDg from "../components/ConsoleDg";
 import ProfitSharePanel from "../components/ProfitSharePanel";
+import RegistrationAlerts from "../components/RegistrationAlerts";
 import ConsoleCfs from "../components/ConsoleCfs";
 import ConsoleDestination from "../components/ConsoleDestination";
 import { BOX_TYPES, type BoxType } from "../lib/loadPlan";
@@ -260,6 +261,9 @@ export default function Consoles() {
           </div>
         }
       />
+
+      {/* The company's registrations run out or running out: the bond, the MTO, the consol agent's (132). */}
+      <RegistrationAlerts className="mb-4" />
 
       {error && (
         <div className="mb-4 flex items-start gap-2 rounded-lg bg-bg-danger px-3 py-2.5 text-[12px] text-text-danger">

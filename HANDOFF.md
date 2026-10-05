@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **131**, so the next one is `132-….sql`.
+  migration filename (§6). The last migration is **132**, so the next one is `133-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 131 migrations
+## 4. Data model — 132 migrations
 
-`supabase-v2/001…131`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…132`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -250,6 +250,7 @@ transaction).
 | `129` | **The original rate built up over several pastes.** `enquiry_buy_rates.history` (jsonb array, checked, default `[]`): each paste's when, from whom, what was pasted, and what it changed (updated, added, unchanged, or replaced the whole rate). Each line in `lines` now also carries `from`, `at` and `was`. Checked rolled back as an employee |
 | `130` | **The overseas agent's profit share.** `partners.profit_share_pct` (0–100, null = none agreed) and `profit_share_losses` (default true); `consoles.profit_share_pct` (a console agreed differently, 0 = none); `invoices.profit_share_pct` / `profit_share_base_inr` mark our note settling a share (checked: a debit or credit note to a partner); `bills.profit_share` marks the agent's own (checked: an agent note). `issue_invoice` no longer asks a note on an agent for the invoice it corrects (042's Rule 53(1A) check now only for notes to customers, which 037's agent notes never could pass). `raise_profit_share(partner, console | job, kind, currency, roe, amount, pct, base, description)`: drafts our OCN/ODN with the one line, export LUT, one draft at a time per console or job (advisory lock). Checked rolled back as an employee |
 | `131` | **Dangerous goods accepted into a console.** `shipments.msds_date`, `dg_declaration_at`, `dg_line_ref`, `dg_accepted_at/by`, `dg_accept_note`. Trigger `shipments_dg_acceptance`: a change of UN number, class, packing group or console clears the acceptance, and a signed-in user cannot set it directly. `accept_dg_house(shipment, note)` refuses class 1, 6.2 and 7, no UN number, no MSDS, an MSDS over five years old, no declaration, no line approval; logs `dg_accepted` on the enquiry. Checked rolled back as an employee |
+| `132` | **The company's registrations, our own MTO, the eBL.** Table `company_registrations` (kind mto · consol_agent · customs_bond · bank_guarantee · ebl_platform · other; number, authority, issued_on, valid_until, amount_inr, notes, active; one active mto, consol_agent and ebl_platform at a time): everybody reads, only an administrator writes (RLS), anon nothing. `house_bills.mto_own` (not with a partner) and the eBL: `release_mode` adds `ebl` (no paper originals, as `express`), `ebl_platform`, `ebl_ref`, `ebl_issued_on`, `ebl_holder`, `ebl_surrendered_on`. `house_bill_write` (123's, extended): issuing under our own MTO is refused unless the number on the B/L is the active registration in force today; an eBL is issued only with platform and reference, released only after it is surrendered, not reopened while it is out; its moments go on the timeline (`ebl_issued`, `ebl_transferred`, `ebl_surrendered`). `received_house_bills.release_mode` adds `ebl` too. Checked rolled back as an employee and an admin |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -894,7 +895,7 @@ The version the customer has keeps its figures. The paste box's "or revise it ch
 import (done) · 3 co-loading, buying space
 on another consolidator's box (done) · 4 co-loading, selling space on ours (done) · 5 console P&L (done) · 6 CFS and containers (done) · 7 destination deconsolidation (done) · 8
 destination filings (UAE MPCI, EU ICS2, US AMS/ISF — when the user names the provider) · 9 agent
-profit share, DG acceptance (done) · 10 own MTO registration, consolidator bond, eBL. No GST e-invoicing:
+profit share, DG acceptance (done) · 10 own MTO registration, consolidator bond, eBL (done). No GST e-invoicing:
 turnover under ₹5 crore (user, 5 Oct).
 
 **Co-loading: space bought from another consolidator (121, 5 Oct).** A console's **Space** section
@@ -979,6 +980,25 @@ them from foodstuffs. **Accept into the console** (`accept_dg_house`) once nothi
 note for the warnings. An accepted house that a later house conflicts with says so in red; changing
 its class, UN number, packing group or console takes the acceptance back. The master B/L
 instruction's checks list a DG house not yet accepted. Tests: `scripts/tests/dgAcceptance.test.ts`.
+
+**Company setup: registrations, our own MTO, the eBL (132, 6 Oct; step 10).** Admin → **Registrations
+and bond** (`components/CompanyRegistrations.tsx`): the MTO registration (DG Shipping), the consol
+agent registration with Customs, the customs bond, the bank guarantee, the eBL platform and anything
+else with an end date — number, who issued it, dates, amount — each said in force, running out
+(inside 60 days), run out or with no end date (`lib/registrations.ts`). Renewed: **Retire** the old
+one (kept) and add the new. `components/RegistrationAlerts.tsx` tells the console desk (top of
+Consoles) what has run out or is running out. **None of the real numbers are in yet: the user enters
+them.** The house B/L form offers "Our own · <number>" as the MTO it is issued under once the
+registration is on file and in force, and takes it by default for a new B/L; the B/L then says
+"Issued under our own MTO registration …" and is signed for Aashish as carrier. **Electronic B/L**:
+a fourth release mode on our house B/L and on an agent's received one. No paper originals; the PDF
+is one page, "print of the electronic B/L — not a document of title", with platform terms. The
+release card: eBL issued on the platform (reference, issued to) → title transfers recorded →
+surrendered to our agent on the platform → released (the database refuses the release before the
+surrender). On an import, the agent's eBL surrendered to us is the release-checklist line; the
+arrival notice tells the consignee to surrender it on the platform (the `arrival-notices` function
+redeployed with that). No platform API is connected: references are typed from the platform. Tests:
+`scripts/tests/companySetup.test.ts`.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

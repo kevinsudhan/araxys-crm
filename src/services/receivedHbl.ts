@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { normaliseHbl, type HblData, type ReleaseMode } from "../lib/hbl";
+import { normaliseHbl, paperless, type HblData, type ReleaseMode } from "../lib/hbl";
 import type { CustomsRecord } from "../lib/customs";
 import { billFromReading, jobBlanksFromBill, type BillReading, type JobBlanks, type ReceivedStage } from "../lib/receivedHbl";
 import { uploadFile } from "./attachments";
@@ -49,7 +49,7 @@ export async function getReceivedHbl(shipmentId: string): Promise<ReceivedHblRow
 }
 
 export async function saveReceivedHbl(shipmentId: string, input: ReceivedHblInput, exists: boolean): Promise<ReceivedHblRow> {
-  const values = { ...input, originals: input.release_mode === "express" ? 0 : Math.min(3, Math.max(1, input.originals || 3)) };
+  const values = { ...input, originals: paperless(input.release_mode) ? 0 : Math.min(3, Math.max(1, input.originals || 3)) };
   const { error } = exists
     ? await supabase.from("received_house_bills").update(values).eq("shipment_id", shipmentId)
     : await supabase.from("received_house_bills").insert({ shipment_id: shipmentId, ...values });

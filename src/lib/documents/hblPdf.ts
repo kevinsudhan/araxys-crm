@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import { COMPANY } from "../company";
 import { formatDate } from "../dates";
-import { consigneeText, INSURANCE_LABEL, originalsInWords, partyLines, titleOf, totalInWords, type HblData, type ReleaseMode } from "../hbl";
+import { consigneeText, INSURANCE_LABEL, originalsInWords, paperless, partyLines, titleOf, totalInWords, type HblData, type ReleaseMode } from "../hbl";
 
 /**
  * The house bill of lading, printed box for box the way a B/L is laid out
@@ -64,12 +64,23 @@ const TERMS =
 const WAYBILL_TERMS =
   "RECEIVED in apparent good order and condition, unless otherwise stated, the goods described above for carriage to the port of discharge or place of delivery, subject to the terms and conditions of the issuing operator. This sea waybill is not a document of title and is non-negotiable. Delivery will be made to the named consignee, or to their authorised agent, on proof of identity and without surrender of this or any other document.";
 
+const EBL_TERMS =
+  "RECEIVED in apparent good order and condition, unless otherwise stated, the goods or packages said to contain goods described above, for carriage from the place of receipt or port of loading to the port of discharge or place of delivery, subject to the terms and conditions of the issuing operator's multimodal transport document and the rules of the platform on which this bill of lading is issued. This bill of lading is an electronic record: title passes, and it is surrendered in exchange for the goods or a delivery order, only on that platform. A print of it is not a document of title.";
+
 export function renderHblPdf(i: HblPdfInput): jsPDF {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pages =
-    i.print === "original" && i.release !== "express"
+    i.print === "original" && !paperless(i.release)
       ? Array.from({ length: Math.max(1, i.originals) }, (_, n) => `ORIGINAL ${n + 1} OF ${i.originals}`)
-      : [i.print === "copy" ? "COPY — NON-NEGOTIABLE" : i.print === "draft" ? "DRAFT — FOR APPROVAL" : "SEA WAYBILL — NON-NEGOTIABLE"];
+      : [
+          i.print === "copy"
+            ? "COPY — NON-NEGOTIABLE"
+            : i.print === "draft"
+              ? "DRAFT — FOR APPROVAL"
+              : i.release === "ebl"
+                ? "PRINT OF THE ELECTRONIC B/L — NOT A DOCUMENT OF TITLE"
+                : "SEA WAYBILL — NON-NEGOTIABLE",
+        ];
   pages.forEach((label, n) => {
     if (n > 0) doc.addPage();
     drawPage(doc, i, i.amendment ? `${label} · AMENDMENT ${i.amendment}` : label);
@@ -260,7 +271,7 @@ function drawPage(doc: jsPDF, i: HblPdfInput, copyLabel: string) {
   // ---- payable at, originals, issue ----
   const q = W / 3;
   box(M, y, q, 10, "Freight payable at", d.freight_payable_at);
-  box(M + q, y, q, 10, "Number of original B/Ls", i.release === "express" ? "NIL — SEA WAYBILL" : originalsInWords(i.originals), { bold: true });
+  box(M + q, y, q, 10, "Number of original B/Ls", i.release === "express" ? "NIL — SEA WAYBILL" : i.release === "ebl" ? "NIL — ELECTRONIC B/L" : originalsInWords(i.originals), { bold: true });
   box(M + 2 * q, y, q, 10, "Place and date of issue", [d.place_of_issue, day(d.date_of_issue)].filter(Boolean).join(", "));
   y += 10;
 
@@ -283,7 +294,7 @@ function drawPage(doc: jsPDF, i: HblPdfInput, copyLabel: string) {
   doc.rect(M, y, half, 34);
   label(M + 1.2, y + 2.6, "Shipped on board");
   value(M + 1.4, y + 6.6, [day(d.on_board_date), [d.vessel, d.voyage].filter(Boolean).join(" / ")].filter(Boolean).join("   "), { bold: true, size: 7.8, width: half - 2.8 });
-  value(M + 1.4, y + 11.5, i.release === "express" ? WAYBILL_TERMS : TERMS, { size: 5.3, width: half - 2.8, maxLines: 9 });
+  value(M + 1.4, y + 11.5, i.release === "express" ? WAYBILL_TERMS : i.release === "ebl" ? EBL_TERMS : TERMS, { size: 5.3, width: half - 2.8, maxLines: 9 });
 
   doc.rect(M + half, y, half, 34);
   label(M + half + 1.2, y + 2.6, "Signed for the operator");
@@ -301,7 +312,7 @@ function drawPage(doc: jsPDF, i: HblPdfInput, copyLabel: string) {
 
 /** "HBL-26-27-0001-original.pdf": no slashes, so it saves and attaches as one name. */
 export function hblFileName(i: Pick<HblPdfInput, "hblNo" | "print" | "release" | "amendment">): string {
-  const kind = i.print === "original" && i.release === "express" ? "waybill" : i.print;
+  const kind = i.print === "original" && i.release === "express" ? "waybill" : i.print === "original" && i.release === "ebl" ? "ebl-print" : i.print;
   return `${(i.hblNo ?? "HBL-draft").replace(/[\\/:*?"<>|]+/g, "-")}-${kind}${i.amendment ? `-amendment${i.amendment}` : ""}.pdf`;
 }
 

@@ -18,6 +18,11 @@ import { inputBase, Section } from "./HblBoxes";
  * instructions) is written here and sent from the person's own mailbox to
  * the destination agent; sending it ticks its step. Every tick is on the
  * B/L's history, and the ones a colleague needs on the case file's timeline.
+ *
+ * An electronic B/L (132) is issued on its platform — its reference there and
+ * who holds it are recorded — passed on (the holder updated as it moves), and
+ * surrendered there to our agent before the cargo is released; the database
+ * refuses the release before the surrender.
  */
 
 const todayIst = () => new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
@@ -31,6 +36,10 @@ export default function HblRelease({ shipment: s, row, onChanged }: { shipment: 
   const [agent, setAgent] = useState<{ name: string; email: string } | null>(null);
   const [takenBy, setTakenBy] = useState("");
   const [back, setBack] = useState(row.originals_returned);
+  const [eblRef, setEblRef] = useState(row.ebl_ref);
+  const [eblPlatform, setEblPlatform] = useState(row.ebl_platform);
+  const [holder, setHolder] = useState(row.ebl_holder || row.data.shipper_name);
+  const [nextHolder, setNextHolder] = useState("");
   const [compose, setCompose] = useState<{ to: string; subject: string; body: string } | null>(null);
 
   useEffect(() => {
@@ -39,6 +48,11 @@ export default function HblRelease({ shipment: s, row, onChanged }: { shipment: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.id]);
   useEffect(() => setBack(row.originals_returned), [row.originals_returned]);
+  useEffect(() => {
+    setEblRef(row.ebl_ref);
+    setEblPlatform(row.ebl_platform);
+    setHolder(row.ebl_holder || row.data.shipper_name);
+  }, [row.ebl_ref, row.ebl_platform, row.ebl_holder, row.data.shipper_name]);
 
   const state = { ...row, status: row.status };
   const { steps, complete } = releaseSteps(state);
@@ -98,13 +112,15 @@ export default function HblRelease({ shipment: s, row, onChanged }: { shipment: 
         ? { originals_released_on: null, originals_released_to: "" }
         : st.key === "release_sent_on"
           ? { release_sent_on: null, release_sent_to: "" }
-          : { [st.key]: null };
+          : st.key === "ebl_issued_on"
+            ? { ebl_issued_on: null }
+            : { [st.key]: null };
 
   const button = "inline-flex h-7 items-center gap-1 rounded-lg border border-border bg-surface-1 px-2.5 text-[11.5px] text-text-secondary hover:border-border-strong hover:text-text-primary disabled:opacity-50";
 
   return (
     <Section
-      title={`Release — ${row.release_mode === "express" ? "sea waybill" : row.release_mode === "telex" ? "telex release" : "original B/Ls"}`}
+      title={`Release — ${row.release_mode === "express" ? "sea waybill" : row.release_mode === "telex" ? "telex release" : row.release_mode === "ebl" ? "electronic B/L" : "original B/Ls"}`}
       action={<span className={`text-[12px] font-medium ${complete ? "text-text-success" : "text-text-secondary"}`}>{summary}</span>}
     >
       {error && (
@@ -177,6 +193,54 @@ export default function HblRelease({ shipment: s, row, onChanged }: { shipment: 
                     className={button}
                   >
                     Record today
+                  </button>
+                </>
+              ) : st.key === "ebl_issued_on" ? (
+                <>
+                  {!row.ebl_platform.trim() && (
+                    <input value={eblPlatform} onChange={(e) => setEblPlatform(e.target.value)} placeholder="Platform" className={`${inputBase} h-7 w-32`} aria-label="eBL platform" />
+                  )}
+                  <input value={eblRef} onChange={(e) => setEblRef(e.target.value)} placeholder="eBL reference there" className={`${inputBase} h-7 w-40 font-mono`} aria-label="eBL reference" />
+                  <input value={holder} onChange={(e) => setHolder(e.target.value)} placeholder="Issued to" className={`${inputBase} h-7 w-44`} aria-label="Issued to" />
+                  <button
+                    type="button"
+                    disabled={busy !== null || !eblRef.trim() || !eblPlatform.trim()}
+                    title={!eblPlatform.trim() ? "Say which platform: add it in Admin → Registrations and bond, or type it here" : !eblRef.trim() ? "Give its reference on the platform first" : undefined}
+                    onClick={() =>
+                      void run(
+                        st.key,
+                        { ebl_platform: eblPlatform.trim(), ebl_ref: eblRef.trim().toUpperCase(), ebl_holder: holder.trim().toUpperCase(), ebl_issued_on: todayIst() },
+                        "Issue the eBL"
+                      )
+                    }
+                    className={button}
+                  >
+                    Issued today
+                  </button>
+                </>
+              ) : st.key === "ebl_surrendered_on" ? (
+                <>
+                  {row.ebl_issued_on && (
+                    <>
+                      <input value={nextHolder} onChange={(e) => setNextHolder(e.target.value)} placeholder="Title passed to" className={`${inputBase} h-7 w-44`} aria-label="Title passed to" />
+                      <button
+                        type="button"
+                        disabled={busy !== null || !nextHolder.trim()}
+                        onClick={() => void run("ebl_holder", { ebl_holder: nextHolder.trim().toUpperCase() }).then(() => setNextHolder(""))}
+                        className={button}
+                      >
+                        Record the transfer
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy !== null || !row.ebl_issued_on}
+                    title={row.ebl_issued_on ? undefined : "Record the eBL issued first"}
+                    onClick={() => void run(st.key, { ebl_surrendered_on: todayIst() })}
+                    className={button}
+                  >
+                    Surrendered today
                   </button>
                 </>
               ) : st.key === "release_sent_on" ? (

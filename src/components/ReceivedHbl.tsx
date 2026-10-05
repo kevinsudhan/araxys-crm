@@ -5,7 +5,7 @@ import { useAuth } from "../lib/auth";
 import { COMPANY } from "../lib/company";
 import { formatDate } from "../lib/dates";
 import { failureText } from "../lib/errorText";
-import { emptyHbl, RELEASE_HINT, RELEASE_LABEL, type HblData, type ReleaseMode } from "../lib/hbl";
+import { emptyHbl, paperless, RELEASE_HINT, RELEASE_LABEL, RELEASE_MODES, type HblData, type ReleaseMode } from "../lib/hbl";
 import { useLiveVersion } from "../lib/liveVersions";
 import {
   checkAgainstJob,
@@ -344,12 +344,12 @@ export default function ReceivedHbl({ shipment: s, onChanged }: { shipment: Ship
                 value={f.release_mode}
                 onChange={(e) => {
                   const r = e.target.value as ReleaseMode;
-                  setF((x) => (x ? { ...x, release_mode: r, originals: r === "express" ? 0 : x.originals || 3 } : x));
+                  setF((x) => (x ? { ...x, release_mode: r, originals: paperless(r) ? 0 : x.originals || 3 } : x));
                 }}
                 title={RELEASE_HINT[f.release_mode]}
                 className={`${base} h-8 w-full`}
               >
-                {(["original", "telex", "express"] as ReleaseMode[]).map((r) => (
+                {RELEASE_MODES.map((r) => (
                   <option key={r} value={r}>
                     {RELEASE_LABEL[r]}
                   </option>
@@ -357,8 +357,8 @@ export default function ReceivedHbl({ shipment: s, onChanged }: { shipment: Ship
               </select>
             </Labelled>
             <Labelled label="Originals">
-              <select value={f.originals} disabled={f.release_mode === "express"} onChange={(e) => set("originals", Number(e.target.value))} className={`${base} h-8 w-full`}>
-                {f.release_mode === "express" ? <option value={0}>None</option> : [1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
+              <select value={f.originals} disabled={paperless(f.release_mode)} onChange={(e) => set("originals", Number(e.target.value))} className={`${base} h-8 w-full`}>
+                {paperless(f.release_mode) ? <option value={0}>None</option> : [1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </Labelled>
           </div>

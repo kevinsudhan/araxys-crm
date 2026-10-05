@@ -5,7 +5,9 @@ import { useAuth } from "../lib/auth";
 import { failureText } from "../lib/errorText";
 import { formatDate } from "../lib/dates";
 import { useLiveVersion } from "../lib/liveVersions";
-import { FIELD_LABEL, missingForIssue, refetch, RELEASE_HINT, RELEASE_LABEL, type HblData, type ReleaseMode } from "../lib/hbl";
+import { FIELD_LABEL, missingForIssue, paperless, refetch, RELEASE_HINT, RELEASE_LABEL, RELEASE_MODES, type HblData, type ReleaseMode } from "../lib/hbl";
+import { eblPlatform, ownMto, type Registration } from "../lib/registrations";
+import { listRegistrations } from "../services/registrations";
 import { hblFileName, hblPdfBytes, renderHblPdf, type HblPrint } from "../lib/documents/hblPdf";
 import { uploadFile } from "../services/attachments";
 import { listPeople, nameOf, type Person, type Shipment } from "../services/enquiries";
@@ -42,9 +44,12 @@ import { SectionSkeleton } from "./Loading";
  * the form. "Issued" locks it, because the shipper, the bank or the consignee
  * is holding it; only an administrator can set it back to draft.
  *
- * It is issued under a partner's MTO registration until Aashish has its own:
- * the partner is picked here, and its name and number are copied onto the
- * B/L, so a partner record edited later does not rewrite one already out.
+ * It is issued under our own MTO registration once it is on file and in
+ * force (Admin → Registrations and bond, 132), or under a partner's: the one
+ * is picked here, and its name and number are copied onto the B/L, so a
+ * record edited later does not rewrite one already out. Released as an
+ * electronic B/L, it has no paper originals; the eBL is issued, passed on
+ * and surrendered on its platform (the release card).
  *
  * Printing uses what is saved, never what is on screen and unsaved, so the
  * paper and the record cannot disagree.
@@ -64,6 +69,9 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
   const [release, setRelease] = useState<ReleaseMode>("original");
   const [originals, setOriginals] = useState(3);
   const [mtoId, setMtoId] = useState<string | null>(null);
+  /** Issued under our own MTO registration (132). */
+  const [mtoOwn, setMtoOwn] = useState(false);
+  const [regs, setRegs] = useState<Registration[]>([]);
   const [saved, setSaved] = useState("");
   const [partners, setPartners] = useState<Partner[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -79,31 +87,38 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
   /** The customer, when a forwarder buying space on our console (124): our B/L names them as shipper. */
   const [coloader, setColoader] = useState<{ name: string; address: string } | null>(null);
 
-  const snapshot = (data: HblData | null, r: ReleaseMode, o: number, m: string | null) => JSON.stringify([data, r, o, m]);
-  const dirty = d !== null && snapshot(d, release, originals, mtoId) !== saved;
+  const snapshot = (data: HblData | null, r: ReleaseMode, o: number, m: string | null, own: boolean) => JSON.stringify([data, r, o, m, own]);
+  const dirty = d !== null && snapshot(d, release, originals, mtoId, mtoOwn) !== saved;
+  const today = new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+  const own = ownMto(regs, today);
   const locked = row?.status === "issued";
   const isAdmin = session?.role === "admin";
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [existing, mtos] = await Promise.all([getHbl(s.id), mtoPartners().catch(() => [] as Partner[])]);
+      const [existing, mtos, registrations] = await Promise.all([getHbl(s.id), mtoPartners().catch(() => [] as Partner[]), listRegistrations().catch(() => [] as Registration[])]);
       setPartners(mtos);
+      setRegs(registrations);
       setRow(existing);
       if (existing) {
         setD(existing.data);
         setRelease(existing.release_mode);
         setOriginals(existing.originals);
         setMtoId(existing.mto_partner_id);
-        setSaved(snapshot(existing.data, existing.release_mode, existing.originals, existing.mto_partner_id));
+        setMtoOwn(existing.mto_own);
+        setSaved(snapshot(existing.data, existing.release_mode, existing.originals, existing.mto_partner_id, existing.mto_own));
       } else {
-        // The only MTO on file is the one it is issued under; with several,
-        // the first, and the desk changes it before saving if need be.
-        const mto = mtos[0]?.id ?? null;
-        setD(hblFromJob(await jobForHbl(s, mto)));
+        // Our own registration when it is in force (132); else the only
+        // partner's on file, or the first, changed before saving if need be.
+        const mine = ownMto(registrations, new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10));
+        const useOwn = Boolean(mine?.usable);
+        const mto = useOwn ? null : (mtos[0]?.id ?? null);
+        setD(hblFromJob(await jobForHbl(s, mto, useOwn && mine ? { name: mine.name, registration: mine.registration } : null)));
         setRelease("original");
         setOriginals(3);
         setMtoId(mto);
+        setMtoOwn(useOwn);
         // Nothing saved yet: the whole form is unsaved, and says so.
         setSaved("");
       }
@@ -209,6 +224,13 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
   }
 
   const pickMto = (id: string | null) => {
+    if (id === "own") {
+      setMtoOwn(true);
+      setMtoId(null);
+      setD((x) => (x && own ? { ...x, mto_name: own.name, mto_registration: own.registration } : x));
+      return;
+    }
+    setMtoOwn(false);
     setMtoId(id);
     const p = partners.find((x) => x.id === id);
     setD((x) => (x ? { ...x, mto_name: p ? (p.organisation || p.name).toUpperCase() : "", mto_registration: p?.mto_registration.toUpperCase() ?? "" } : x));
@@ -216,22 +238,27 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
 
   const pickRelease = (r: ReleaseMode) => {
     setRelease(r);
-    // A sea waybill has no originals, and is made out to a named consignee.
-    if (r === "express") {
-      setOriginals(0);
-      if (d.consignee_mode === "to_order") set("consignee_mode", "named");
-    } else if (originals < 1) setOriginals(3);
+    // A sea waybill and an eBL have no paper originals; a sea waybill is made out to a named consignee.
+    if (paperless(r)) setOriginals(0);
+    else if (originals < 1) setOriginals(3);
+    if (r === "express" && d.consignee_mode === "to_order") set("consignee_mode", "named");
   };
 
   const save = () =>
     run("save", async () => {
-      const { row: r, numberError } = await saveHbl(s.id, { release_mode: release, originals, mto_partner_id: mtoId, data: d }, Boolean(row));
+      const { row: r, numberError } = await saveHbl(
+        s.id,
+        // An eBL is on the platform on file, unless one was already recorded on it.
+        { release_mode: release, originals, mto_partner_id: mtoId, mto_own: mtoOwn, ebl_platform: row?.ebl_platform?.trim() || eblPlatform(regs) || "", data: d },
+        Boolean(row)
+      );
       setRow(r);
       setD(r.data);
       setRelease(r.release_mode);
       setOriginals(r.originals);
       setMtoId(r.mto_partner_id);
-      setSaved(snapshot(r.data, r.release_mode, r.originals, r.mto_partner_id));
+      setMtoOwn(r.mto_own);
+      setSaved(snapshot(r.data, r.release_mode, r.originals, r.mto_partner_id, r.mto_own));
       setTheirs(false);
       if (history) setHistory(await hblHistory(s.id));
       onChanged();
@@ -242,7 +269,7 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
   const fetchDetails = () =>
     run("fetch", async () => {
       if (row && !window.confirm("Refresh the parties, vessel, ports, containers and figures from the job? The description, remarks and issue details stay as they are.")) return;
-      const fresh = hblFromJob(await jobForHbl(s, mtoId));
+      const fresh = hblFromJob(await jobForHbl(s, mtoId, mtoOwn && own ? { name: own.name, registration: own.registration } : null));
       setD(row ? refetch(d, fresh) : fresh);
       return "Filled from the job. Check it, then Save.";
     });
@@ -268,7 +295,16 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
           protected: kind === "original",
         });
       }
-      const what = kind === "original" ? (row!.release_mode === "express" ? "Sea waybill" : `${row!.originals} original${row!.originals === 1 ? "" : "s"}`) : kind === "copy" ? "Copy" : "Draft";
+      const what =
+        kind === "original"
+          ? row!.release_mode === "express"
+            ? "Sea waybill"
+            : row!.release_mode === "ebl"
+              ? "Print of the eBL"
+              : `${row!.originals} original${row!.originals === 1 ? "" : "s"}`
+          : kind === "copy"
+            ? "Copy"
+            : "Draft";
       await logHblPrint(s.id, `${what} ${how === "file" ? "filed to Documents" : how === "view" ? "viewed" : "downloaded"}`).catch(() => {});
       if (history) setHistory(await hblHistory(s.id));
       return how === "file" ? `${name} filed on the Documents tab.` : undefined;
@@ -280,7 +316,8 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
         if (dirty) throw new Error("Save first: it is issued as saved.");
         if (!row?.hbl_no) throw new Error("It is not numbered yet: name the consignee and save.");
         if (missing.length) throw new Error(`An issued B/L needs ${missing.join(", ")}.`);
-        const what = release === "express" ? "the sea waybill" : `${originals} original${originals === 1 ? "" : "s"}`;
+        const what = release === "express" ? "the sea waybill" : release === "ebl" ? "the electronic B/L" : `${originals} original${originals === 1 ? "" : "s"}`;
+        if (mtoOwn && !own?.usable) throw new Error(`Our own MTO registration cannot be used: ${own?.problem ?? "it is not on file"}. Renew it in Admin, or issue it under a partner's.`);
         const asks = [issueWarning(row), ...masterProblems.map(problemText)].filter(Boolean);
         const ask = asks.length ? `Before issuing:\n- ${asks.join("\n- ")}\n\n` : "";
         if (!window.confirm(`${ask}Issue ${what}? The B/L locks, and only an administrator can reopen it.`)) return;
@@ -361,7 +398,7 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
               <div className="absolute left-0 top-full z-20 mt-1 w-64 rounded-lg border border-border bg-surface-1 p-1 shadow-lg">
                 {locked ? (
                   <>
-                    <MenuHead>{row.release_mode === "express" ? "Sea waybill" : `Originals (${row.originals})`}</MenuHead>
+                    <MenuHead>{row.release_mode === "express" ? "Sea waybill" : row.release_mode === "ebl" ? "Print of the eBL (not a document of title)" : `Originals (${row.originals})`}</MenuHead>
                     <MenuItem icon={<Eye size={13} />} onClick={() => void print("original", "view")}>View</MenuItem>
                     <MenuItem icon={<Download size={13} />} onClick={() => void print("original", "download")}>Download PDF</MenuItem>
                     <MenuItem icon={<FileUp size={13} />} onClick={() => void print("original", "file")}>File to Documents</MenuItem>
@@ -385,7 +422,7 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
 
         <Labelled label="Release">
           <select value={release} disabled={ro} onChange={(e) => pickRelease(e.target.value as ReleaseMode)} className={`${base} h-8 w-52`} title={RELEASE_HINT[release]}>
-            {(["original", "telex", "express"] as ReleaseMode[]).map((r) => (
+            {RELEASE_MODES.map((r) => (
               <option key={r} value={r}>
                 {RELEASE_LABEL[r]}
               </option>
@@ -393,14 +430,26 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
           </select>
         </Labelled>
         <Labelled label="Originals">
-          <select value={originals} disabled={ro || release === "express"} onChange={(e) => setOriginals(Number(e.target.value))} className={`${base} h-8 w-20`}>
-            {release === "express" ? <option value={0}>None</option> : [1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
+          <select value={originals} disabled={ro || paperless(release)} onChange={(e) => setOriginals(Number(e.target.value))} className={`${base} h-8 w-20`}>
+            {paperless(release) ? <option value={0}>None</option> : [1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </Labelled>
         <Labelled label="Issued under MTO of">
-          {partners.length ? (
-            <select value={mtoId ?? ""} disabled={ro} onChange={(e) => pickMto(e.target.value || null)} className={`${base} h-8 w-60`}>
+          {partners.length || own ? (
+            <select
+              value={mtoOwn ? "own" : (mtoId ?? "")}
+              disabled={ro}
+              onChange={(e) => pickMto(e.target.value || null)}
+              className={`${base} h-8 w-60`}
+              title={own && !own.usable ? `Our own MTO registration ${own.problem}` : undefined}
+            >
               <option value="">Not chosen</option>
+              {own && (
+                <option value="own" disabled={!own.usable && !mtoOwn}>
+                  Our own · {own.registration || "no number"}
+                  {own.usable ? "" : ` (${own.problem})`}
+                </option>
+              )}
               {partners.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.organisation || p.name} · {p.mto_registration}
@@ -547,7 +596,7 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
         />
       )}
 
-      <HblBoxes d={d} set={set} ro={ro} variant="ours" express={release === "express"} />
+      <HblBoxes d={d} set={set} ro={ro} variant="ours" express={release === "express"} ownMto={mtoOwn} />
 
       {history && <HistoryPanel history={history} people={people} onClose={() => setHistory(null)} />}
 

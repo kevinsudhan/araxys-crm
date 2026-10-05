@@ -107,6 +107,7 @@ export const RELEASE_SHORT: Record<ReleaseMode, (originals: number) => string> =
   original: (n) => `${n} ORIGINAL${n === 1 ? "" : "S"}`,
   telex: () => "TELEX RELEASE",
   express: () => "SEA WAYBILL",
+  ebl: () => "ELECTRONIC B/L",
 };
 
 /** One line per job on the console, from its B/L where one is saved. */

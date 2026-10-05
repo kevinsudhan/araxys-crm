@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { hblFromJob, normaliseHbl, type HblData, type JobForHbl, type ReleaseMode } from "../lib/hbl";
+import { hblFromJob, normaliseHbl, paperless, type HblData, type JobForHbl, type ReleaseMode } from "../lib/hbl";
 import { getConsole } from "./consoles";
 import type { Shipment } from "./enquiries";
 import { listPartners, type Partner } from "./partners";
@@ -21,6 +21,8 @@ export interface HblRow {
   release_mode: ReleaseMode;
   originals: number;
   mto_partner_id: string | null;
+  /** Issued under our own MTO registration (132), not a partner's. */
+  mto_own: boolean;
   data: HblData;
   issued_at: string | null;
   updated_at: string;
@@ -35,6 +37,12 @@ export interface HblRow {
   release_sent_to: string;
   released_on: string | null;
   release_note: string;
+  /* An electronic B/L (132): where, its reference there, who holds it, when given up to our agent. */
+  ebl_platform: string;
+  ebl_ref: string;
+  ebl_issued_on: string | null;
+  ebl_holder: string;
+  ebl_surrendered_on: string | null;
   /* The shipper's approval of the draft, and corrections after issue (123). */
   /** How many times it has been reopened after issue; printed on it from then on. */
   amendment: number;
@@ -64,6 +72,11 @@ export type HblReleasePatch = Partial<
     | "release_sent_to"
     | "released_on"
     | "release_note"
+    | "ebl_platform"
+    | "ebl_ref"
+    | "ebl_issued_on"
+    | "ebl_holder"
+    | "ebl_surrendered_on"
   >
 >;
 
@@ -92,13 +105,15 @@ export async function getHbl(shipmentId: string): Promise<HblRow | null> {
  */
 export async function saveHbl(
   shipmentId: string,
-  input: { release_mode: ReleaseMode; originals: number; mto_partner_id: string | null; data: HblData },
+  input: { release_mode: ReleaseMode; originals: number; mto_partner_id: string | null; mto_own: boolean; ebl_platform?: string; data: HblData },
   exists: boolean
 ): Promise<{ row: HblRow; numberError: string | null }> {
   const values = {
     release_mode: input.release_mode,
-    originals: input.release_mode === "express" ? 0 : Math.min(3, Math.max(1, input.originals || 3)),
-    mto_partner_id: input.mto_partner_id,
+    originals: paperless(input.release_mode) ? 0 : Math.min(3, Math.max(1, input.originals || 3)),
+    mto_partner_id: input.mto_own ? null : input.mto_partner_id,
+    mto_own: input.mto_own,
+    ...(input.release_mode === "ebl" && input.ebl_platform !== undefined ? { ebl_platform: input.ebl_platform.trim() } : {}),
     data: input.data,
   };
   const { error } = exists
@@ -208,7 +223,7 @@ const contactOf = (p: Partner) => [p.name, ...(p.phones ?? []), ...(p.emails ?? 
  * delivers it — the console's where it is on one, the job's own otherwise —
  * and the MTO it is issued under.
  */
-export async function jobForHbl(shipment: Shipment, mtoPartnerId: string | null): Promise<JobForHbl> {
+export async function jobForHbl(shipment: Shipment, mtoPartnerId: string | null, own: { name: string; registration: string } | null = null): Promise<JobForHbl> {
   const [boxes, partners, con] = await Promise.all([
     listShipmentContainers(shipment.id).catch(() => []),
     listPartners(true).catch(() => [] as Partner[]),
@@ -221,7 +236,8 @@ export async function jobForHbl(shipment: Shipment, mtoPartnerId: string | null)
     shipment,
     containers: boxes,
     agent: agent ? { name: agent.organisation || agent.name, address: agent.address ?? "", contact: contactOf(agent) } : null,
-    mto: mto ? { name: mto.organisation || mto.name, registration: mto.mto_registration } : null,
+    // Our own registration (132), or the partner's it is issued under.
+    mto: own ?? (mto ? { name: mto.organisation || mto.name, registration: mto.mto_registration } : null),
     place: "Chennai",
     today: new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10),
   };

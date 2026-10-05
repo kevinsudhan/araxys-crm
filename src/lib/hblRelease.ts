@@ -13,6 +13,10 @@ import { originalsInWords, type ReleaseMode } from "./hbl";
  *             release sent to our agent · released
  *   express   charges received · release instructions sent to our agent ·
  *             released (a sea waybill has no originals)
+ *   ebl       charges received · the eBL issued to the shipper on the
+ *             platform (its reference) · surrendered there to our agent ·
+ *             released (132). Who holds the title in between is recorded as
+ *             it passes.
  *
  * On a telex release the originals may have gone out first and come back;
  * handing them over is shown, and not required.
@@ -36,9 +40,15 @@ export interface OurRelease {
   release_sent_on: string | null;
   release_sent_to: string;
   released_on: string | null;
+  /* The electronic B/L (132). */
+  ebl_platform?: string;
+  ebl_ref?: string;
+  ebl_issued_on?: string | null;
+  ebl_holder?: string;
+  ebl_surrendered_on?: string | null;
 }
 
-export type StepKey = "charges_received_on" | "originals_released_on" | "originals_returned_on" | "release_sent_on" | "released_on";
+export type StepKey = "charges_received_on" | "originals_released_on" | "originals_returned_on" | "release_sent_on" | "ebl_issued_on" | "ebl_surrendered_on" | "released_on";
 
 export interface ReleaseStep {
   key: StepKey;
@@ -67,6 +77,7 @@ export function releaseSteps(r: OurRelease): { steps: ReleaseStep[]; next: Relea
       optional
     );
   const released = step("released_on", "Released at destination", r.release_mode === "original" ? "Our agent took one original from the consignee and released the cargo." : "Our agent confirmed the cargo released to the consignee.", Boolean(r.released_on), r.released_on);
+  const platform = r.ebl_platform?.trim() || "the platform";
 
   const steps: ReleaseStep[] =
     r.release_mode === "original"
@@ -86,7 +97,27 @@ export function releaseSteps(r: OurRelease): { steps: ReleaseStep[]; next: Relea
             step("release_sent_on", "Telex release sent to our agent", "The message telling our agent to release without an original.", Boolean(r.release_sent_on), r.release_sent_on, r.release_sent_to.trim() ? `to ${r.release_sent_to.trim()}` : ""),
             released,
           ]
-        : [
+        : r.release_mode === "ebl"
+          ? [
+              charges,
+              step(
+                "ebl_issued_on",
+                `eBL issued on ${platform}`,
+                "Issued to the shipper on the platform. Give its reference there.",
+                Boolean(r.ebl_issued_on),
+                r.ebl_issued_on ?? null,
+                [r.ebl_ref?.trim() && `ref ${r.ebl_ref.trim()}`, r.ebl_holder?.trim() && `held by ${r.ebl_holder.trim()}`].filter(Boolean).join(" · ")
+              ),
+              step(
+                "ebl_surrendered_on",
+                "Surrendered to our agent on the platform",
+                "The holder gives the eBL up to our agent there, as an original is surrendered: only then is the cargo released.",
+                Boolean(r.ebl_surrendered_on),
+                r.ebl_surrendered_on ?? null
+              ),
+              released,
+            ]
+          : [
             charges,
             step("release_sent_on", "Release instructions sent to our agent", "A sea waybill: the consignee collects against identity, on our word to the agent.", Boolean(r.release_sent_on), r.release_sent_on, r.release_sent_to.trim() ? `to ${r.release_sent_to.trim()}` : ""),
             released,
@@ -105,6 +136,7 @@ export function releaseSummary(r: OurRelease): string {
   if (complete) return "Released at destination.";
   if (r.release_mode === "original" && r.originals_released_on) return `Originals with ${r.originals_released_to.trim() || "the shipper"}; waiting for one to be surrendered at destination.`;
   if (r.release_mode === "telex" && r.originals_returned < r.originals && r.originals_returned > 0) return `${r.originals_returned} of ${r.originals} originals back; waiting for the rest before the telex release.`;
+  if (r.release_mode === "ebl" && r.ebl_issued_on && !r.ebl_surrendered_on) return `eBL with ${r.ebl_holder?.trim() || "the shipper"} on ${r.ebl_platform?.trim() || "the platform"}; waiting for it to be surrendered to our agent.`;
   return next ? `Next: ${next.label.charAt(0).toLowerCase()}${next.label.slice(1)}.` : "";
 }
 

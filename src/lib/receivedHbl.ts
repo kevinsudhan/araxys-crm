@@ -276,6 +276,9 @@ export function releaseChecklist(r: ReleaseInput): { items: ReleaseItem[]; ready
     items.push({ key: "originals_surrendered_on", label: "An original B/L surrendered by the consignee", done: Boolean(r.originals_surrendered_on), on: r.originals_surrendered_on });
   } else if (r.release_mode === "telex") {
     items.push({ key: "telex_received_on", label: `Telex release received from ${r.issuer_name.trim() || "the agent"}`, done: Boolean(r.telex_received_on), on: r.telex_received_on });
+  } else if (r.release_mode === "ebl") {
+    // An electronic B/L is given up on its platform, to us, as an original is at the counter (132).
+    items.push({ key: "originals_surrendered_on", label: "The eBL surrendered to us on its platform", done: Boolean(r.originals_surrendered_on), on: r.originals_surrendered_on });
   }
   if (r.console) {
     const no = r.console.console_no ?? "its console";
