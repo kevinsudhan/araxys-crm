@@ -33,6 +33,8 @@ import ConsoleCoload from "../components/ConsoleCoload";
 import ConsoleHouseCheck from "../components/ConsoleHouseCheck";
 import ConsoleColoaders from "../components/ConsoleColoaders";
 import ConsolePnlPanel from "../components/ConsolePnlPanel";
+import ConsoleCfs from "../components/ConsoleCfs";
+import { BOX_TYPES, type BoxType } from "../lib/loadPlan";
 import BillsPanel from "../components/BillsPanel";
 import { ACCOUNTS_DESK } from "../lib/features";
 import { wmOf } from "../lib/coload";
@@ -275,10 +277,10 @@ export default function Consoles() {
             const isOpen = openId === c.id;
             const s = c.summary;
             const sailing = containers.find((x) => x.id === c.sailing_id);
-            const lf = loadFactor(
-              Number(s?.volume_cbm ?? 0),
-              sailing ? (CAPACITY_CBM[sailing.container_code] ?? null) : null
-            );
+            // The box: the sailing's where the console was opened against one, else the one chosen on it (125).
+            const sailingBox = sailing && (BOX_TYPES as string[]).includes(sailing.container_code) ? (sailing.container_code as BoxType) : null;
+            const boxCode = sailing?.container_code ?? c.box_type ?? null;
+            const lf = loadFactor(Number(s?.volume_cbm ?? 0), boxCode ? (CAPACITY_CBM[boxCode] ?? null) : null);
             const list = onBoard[c.id] ?? [];
 
             return (
@@ -665,6 +667,9 @@ export default function Consoles() {
                       )}
                     </section>
 
+                    {/* ---- at the CFS: declared against measured, the load plan, the stuffing report (125) ---- */}
+                    {c.direction !== "import" && <ConsoleCfs console={c} jobs={list.length} sailingBox={sailingBox} onChanged={() => void load()} />}
+
                     {/* ---- space on our box sold to other forwarders (124) ---- */}
                     {c.direction !== "import" && <ConsoleColoaders console={c} jobs={list.length} onChanged={() => void load()} />}
 
@@ -688,8 +693,8 @@ export default function Consoles() {
                       <ConsolePnlPanel
                         console={c}
                         jobs={list.length}
-                        capacityCbm={sailing ? (CAPACITY_CBM[sailing.container_code] ?? null) : null}
-                        boxCode={sailing?.container_code ?? null}
+                        capacityCbm={boxCode ? (CAPACITY_CBM[boxCode] ?? null) : null}
+                        boxCode={boxCode}
                       />
                     )}
 

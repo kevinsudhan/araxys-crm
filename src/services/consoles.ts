@@ -140,6 +140,11 @@ export interface Console {
   csn_by?: "us" | "coloader";
   csn_list_sent_at?: string | null;
   csn_list_sent_to?: string;
+  /* The console at the CFS (125, lib/loadPlan.ts, lib/stuffingReport.ts). */
+  box_type?: import("../lib/loadPlan").BoxType | null;
+  stuffed_on?: string | null;
+  stuffing_report_sent_at?: string | null;
+  stuffing_report_sent_to?: string;
 
   /** Joined in by the loaders, not columns. */
   agent_label?: string | null;
