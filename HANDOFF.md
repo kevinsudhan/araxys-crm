@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **123**, so the next one is `124-….sql`.
+  migration filename (§6). The last migration is **124**, so the next one is `125-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 123 migrations
+## 4. Data model — 124 migrations
 
-`supabase-v2/001…123`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…124`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -246,6 +246,7 @@ transaction).
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
+| `124` | **Selling space on our console to another forwarder.** `customers.forwarder` (boolean, default false); `shipments.coload_instructions_sent_at / _to`. The stuffing CFS is `consoles.cfs_name` (120). Checked rolled back as an employee |
 | `123` | **The shipper approves our house B/L draft; a correction after issue is an amendment.** `house_bills` gains `approval` (none/sent/approved/changes), `approval_token` (unique), `draft_sent` (the snapshot sent: data, hbl_no, release_mode, originals, amendment), `draft_sent_at/_to`, `approval_at/_by/_note`, `amendment` (≥ 0), `reopen_reason`; history actions + draft_sent, approved, changes_requested. `house_bill_write` (089's, extended): reopening needs a reason, refuses once `released_on` is set, counts the amendment, resets the approval; reissuing an amendment clears the release steps (not `charges_received_on`). RPCs `hbl_draft_link`, `hbl_draft_sent`, `hbl_record_approval` (authenticated); `hbl_draft_by_token`, `hbl_answer_by_token` (anon, security definer, fixed shape). Checked rolled back as employee, anon and admin: every rule, anon denied the table and the desk's functions |
 | `122` | **Who files the CSN on a co-load.** `consoles` gains `csn_by` ('us' default / 'coloader', checked; only read on a co-load — our own box is always us), `csn_list_sent_at / csn_list_sent_to`. Their CSN number goes in `csn_no / csn_date` and the jobs' customs records, as ours does. Checked rolled back as an employee |
 | `121` | **A console on space bought from a co-loader.** `consoles` gains `space_from` ('line' default / 'coloader', checked), `coloader_id` (partners, on delete set null, indexed), `coloader_rate` (per W/M, ≥ 0), `coloader_currency` (3 capitals, default USD), `coloader_min_wm` (≥ 0, default 1). Under the existing consoles policies. Checked rolled back as an employee: saved, and a bad source, a negative rate, a lower-case currency or a negative minimum refused |
@@ -884,7 +885,7 @@ The version the customer has keeps its figures. The paste box's "or revise it ch
 
 **Consol build plan (5 Oct), one step at a time.** 1 master B/L, export (done) · 2 master B/L,
 import (done) · 3 co-loading, buying space
-on another consolidator's box (done) · 4 co-loading, selling space on ours · 5 console P&L (bought vs sold,
+on another consolidator's box (done) · 4 co-loading, selling space on ours (done) · 5 console P&L (bought vs sold,
 load factor, margin) · 6 CFS and containers (measured vs declared, tally, stuffing, load plan,
 container space) · 7 destination deconsolidation (outturn, auto arrival notices, DO gate) · 8
 destination filings (UAE MPCI, EU ICS2, US AMS/ISF — when the user names the provider) · 9 agent
@@ -908,6 +909,20 @@ B/L copy, their release, their charges, their DO, and their CFS noted rather tha
 shows a Co-load pill and W/M in place of the load factor; "Carrier" reads "Line they ship on".
 **Costs**: every console now shows `BillsPanel` for its own bills (`bills.console_id`) when the
 accounts desk is on. Tests: `scripts/tests/coload.test.ts`.
+
+**Co-loading, selling space on our console (124, 5 Oct).** A co-loader is a customer marked
+**Freight forwarder (co-loader)** on their customer record (`CustomerEdit`); they come through the
+normal flow (enquiry, quotation per W/M, booking, a job put on the console), so price and invoice are
+the job's. On an export or cross-trade console, **Space sold to co-loaders**
+(`components/ConsoleColoaders.tsx`, `lib/coloaderSale.ts`, `services/coloaderSale.ts`) lists the jobs
+whose customer is a forwarder: W/M, the latest accepted quotation's ₹, our house B/L to them (draft /
+issued), and the share of the box (`coloaderShare`); `coloaderIssues` flags a missing email, no
+instructions sent, our B/L naming somebody else as shipper, no accepted quotation. **Stuffing CFS**
+(`consoles.cfs_name`) and **Email** per co-loader: the delivery instructions (`instructionsHtml`:
+console, vessel, ETD, CFS cut-off, the CFS, our reference, and the shipping instructions we need for
+our B/L), recorded on the job. On the house B/L form a forwarder's job says "Co-load for …" with
+**Make … the shipper** (from the customer's billing name and address). Tests:
+`scripts/tests/coloaderSale.test.ts`.
 
 **Quotations go for a single unit (5 Oct, user: "all quotes shud go for a single unit do not calculate
 full").** What the customer sees quotes every charge for one unit — its rate per kg, CBM, container or

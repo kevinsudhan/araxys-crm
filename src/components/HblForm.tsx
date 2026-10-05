@@ -14,6 +14,8 @@ import { approvalLine, hblDraftHtml, hblDraftSubject, issueWarning } from "../li
 import { checkHouseAgainstMaster, houseProblems, problemText, type MasterFacts } from "../lib/houseMaster";
 import { MAIL_LOGO_PATH } from "../lib/company";
 import { getConsole } from "../services/consoles";
+import { getCustomer } from "../services/customers";
+import { sameName } from "../lib/receivedHbl";
 import { masterFactsFor } from "../services/houseMaster";
 import { hblDraftUrl } from "../services/publicHbl";
 import { isReachable } from "../services/publicQuote";
@@ -74,6 +76,8 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
   const [compose, setCompose] = useState<{ to: string; subject: string; body: string; attachments: Array<{ name: string; contentType: string; bytes: Uint8Array }> } | null>(null);
   /** The master this house sits under, when the job is on a console (123). */
   const [master, setMaster] = useState<MasterFacts | null>(null);
+  /** The customer, when a forwarder buying space on our console (124): our B/L names them as shipper. */
+  const [coloader, setColoader] = useState<{ name: string; address: string } | null>(null);
 
   const snapshot = (data: HblData | null, r: ReleaseMode, o: number, m: string | null) => JSON.stringify([data, r, o, m]);
   const dirty = d !== null && snapshot(d, release, originals, mtoId) !== saved;
@@ -124,6 +128,21 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
       gone = true;
     };
   }, [s.console_id]);
+
+  useEffect(() => {
+    let gone = false;
+    void getCustomer(s.customer_id)
+      .then((cu) => {
+        if (gone) return;
+        if (!cu?.forwarder) return setColoader(null);
+        const place = [cu.billing_city, cu.billing_state, cu.billing_pincode].filter(Boolean).join(" ");
+        setColoader({ name: cu.company || cu.name, address: [cu.billing_address, place, cu.billing_country].filter(Boolean).join(", ") });
+      })
+      .catch(() => !gone && setColoader(null));
+    return () => {
+      gone = true;
+    };
+  }, [s.customer_id]);
 
   /*
     Somebody else saving this B/L (084). With nothing unsaved here the form
@@ -459,6 +478,26 @@ export default function HblForm({ shipment: s, onChanged }: { shipment: Shipment
         <p className="mb-3 flex items-start gap-2 rounded-lg bg-surface-2 px-3 py-2.5 text-[12px] text-text-secondary">
           <AlertTriangle size={13} className="mt-px shrink-0" /> Before it can be issued it needs {missing.join(", ")}.
         </p>
+      )}
+
+      {/* ---- a co-loader's cargo on our console (124): our B/L is to them ---- */}
+      {coloader && !locked && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-surface-2 px-3 py-2.5 text-[12px] text-text-secondary">
+          <span className="min-w-0 flex-1">
+            <span className="font-medium text-text-primary">Co-load for {coloader.name}.</span> Our house B/L names them as shipper and their agent at destination as
+            consignee; they issue their own B/L to their shipper.
+            {d.shipper_name.trim() && !sameName(d.shipper_name, coloader.name) && <span className="text-text-warning"> The shipper here is {d.shipper_name}.</span>}
+          </span>
+          {!sameName(d.shipper_name, coloader.name) && (
+            <button
+              type="button"
+              onClick={() => setD((x) => (x ? { ...x, shipper_name: coloader.name.toUpperCase(), shipper_address: coloader.address.toUpperCase() } : x))}
+              className="h-8 rounded-lg border border-border bg-surface-1 px-3 text-[12px] font-medium text-text-primary hover:border-border-strong"
+            >
+              Make {coloader.name} the shipper
+            </button>
+          )}
+        </div>
       )}
 
       {/* ---- the shipper's approval of the draft (123) ---- */}

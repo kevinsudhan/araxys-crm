@@ -415,6 +415,9 @@ export interface Shipment {
    * one would put a master bill number on a shipment that does not have one.
    */
   console_id: string | null;
+  /** Our delivery instructions to a co-loader whose cargo this is (124). */
+  coload_instructions_sent_at?: string | null;
+  coload_instructions_sent_to?: string;
 
   /** Job-level particulars that sit under the container grid (032). */
   agent_code: string | null;

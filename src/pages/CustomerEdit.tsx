@@ -132,6 +132,7 @@ export default function CustomerEdit() {
         billing_country: blankToNull(form.billing_country),
         billing_email: blankToNull(form.billing_email),
         payment_terms_days: form.payment_terms_days ?? null,
+        forwarder: Boolean(form.forwarder),
       };
 
       if (editing && id) {
@@ -372,6 +373,16 @@ export default function CustomerEdit() {
           <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wide text-text-secondary">
             For the desk
           </h2>
+          {/* A forwarder buying space on our consoles (124): co-loaded, our house B/L to them. */}
+          <label className="mb-4 flex cursor-pointer items-start gap-2.5">
+            <input type="checkbox" checked={Boolean(form.forwarder)} onChange={(e) => set("forwarder", e.target.checked)} className="mt-1" />
+            <span>
+              <span className="block text-[13px] font-medium text-text-primary">Freight forwarder (co-loader)</span>
+              <span className="block text-[11.5px] leading-relaxed text-text-muted">
+                Their cargo on our consoles is co-loaded: our house B/L names them as shipper, and the console lists them under space sold to co-loaders.
+              </span>
+            </span>
+          </label>
           <Field label="Tags" hint="Comma separated. Used to group and filter the directory.">
             <input
               value={(form.tags ?? []).join(", ")}

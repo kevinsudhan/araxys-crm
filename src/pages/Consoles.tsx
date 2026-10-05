@@ -31,6 +31,7 @@ import ConsoleMasterBill from "../components/ConsoleMasterBill";
 import ConsoleImportMaster from "../components/ConsoleImportMaster";
 import ConsoleCoload from "../components/ConsoleCoload";
 import ConsoleHouseCheck from "../components/ConsoleHouseCheck";
+import ConsoleColoaders from "../components/ConsoleColoaders";
 import BillsPanel from "../components/BillsPanel";
 import { ACCOUNTS_DESK } from "../lib/features";
 import { wmOf } from "../lib/coload";
@@ -662,6 +663,9 @@ export default function Consoles() {
                         </p>
                       )}
                     </section>
+
+                    {/* ---- space on our box sold to other forwarders (124) ---- */}
+                    {c.direction !== "import" && <ConsoleColoaders console={c} jobs={list.length} onChanged={() => void load()} />}
 
                     {/* ---- each house against the master it sits under (123) ---- */}
                     <ConsoleHouseCheck console={c} jobs={list.length} />

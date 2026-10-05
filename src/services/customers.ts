@@ -39,6 +39,8 @@ export interface Customer {
 
   /** False = archived. Never deleted: invoices reference them with restrict. */
   active: boolean;
+  /** A freight forwarder: their cargo on our consoles is co-loaded (124). */
+  forwarder?: boolean;
   notes: string;
   tags: string[];
 
