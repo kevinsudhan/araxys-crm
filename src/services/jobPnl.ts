@@ -1,6 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { istDay } from "../lib/enquiryRegister";
 import type { PnlDoc, PnlJob } from "../lib/jobPnl";
+import { jobProfit, type BuyLine, type SellLine } from "../lib/jobProfit";
 import { all, group, num, str, whereIn, type Row } from "./paging";
 
 /**
@@ -74,7 +75,12 @@ async function assemble(shipments: Row[], invoices: Row[], bills: Row[], owed: R
     const had = accepted.get(String(q.enquiry_ref));
     if (!had || Number(q.version) > Number(had.version)) accepted.set(String(q.enquiry_ref), q);
   }
-  const quoteLines = await whereIn("quote_lines", "quote_id, amount_inr, cost_inr", "quote_id", [...accepted.values()].map((q) => String(q.id)));
+  const [quoteLines, buyRates] = await Promise.all([
+    whereIn("quote_lines", "quote_id, description, section, unit, quantity, rate, currency, fx_rate, amount_inr, cost_inr", "quote_id", [...accepted.values()].map((q) => String(q.id))),
+    // The partner's original rate where it was pasted (128): what the job costs, charge by charge against the quotation.
+    whereIn("enquiry_buy_rates", "enquiry_ref, lines, roe", "enquiry_ref", refs),
+  ]);
+  const buyBy = new Map(buyRates.map((b) => [String(b.enquiry_ref), b]));
   const quoteLinesBy = group(quoteLines, "quote_id");
 
   const name = new Map(people.map((p) => [String(p.id), str(p.full_name)]));
@@ -92,7 +98,12 @@ async function assemble(shipments: Row[], invoices: Row[], bills: Row[], owed: R
     const o = owedBy.get(String(s.id));
     const q = accepted.get(String(s.enquiry_ref));
     const ql = q ? (quoteLinesBy.get(String(q.id)) ?? []) : [];
-    const quotedCost = ql.some((l) => l.cost_inr != null) ? ql.reduce((n, l) => n + (Number(l.cost_inr) || 0), 0) : null;
+    const buy = buyBy.get(String(s.enquiry_ref));
+    const quotedCost = buy
+      ? jobProfit((buy.lines ?? []) as BuyLine[], (buy.roe ?? {}) as Record<string, number>, ql as unknown as SellLine[]).buyInr
+      : ql.some((l) => l.cost_inr != null)
+        ? ql.reduce((n, l) => n + (Number(l.cost_inr) || 0), 0)
+        : null;
     return {
       id: String(s.id),
       enquiryRef: str(s.enquiry_ref),

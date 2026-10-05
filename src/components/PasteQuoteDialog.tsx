@@ -21,6 +21,8 @@ import PasteInput from "./PasteInput";
 import { applyPastedQuote, isAirQuote, readPastedQuote, tableLayout } from "../services/pasteQuote";
 import { airTableHtml, chargesHtml } from "../lib/quotationMail";
 import type { Enquiry, Quote } from "../services/enquiries";
+import { saveBuyRate } from "../services/buyRates";
+import { listPartners, type Partner } from "../services/partners";
 
 /**
  * "Paste a quotation": the rate as the desk has it — from a mail, a WhatsApp
@@ -33,6 +35,10 @@ import type { Enquiry, Quote } from "../services/enquiries";
  * lines shown here, which can be corrected before anything is saved: a
  * misread figure is one wrong line on this screen, not a wrong total in a
  * customer's inbox.
+ *
+ * The same dialog takes the partner's own rate (128, `purpose="cost"`): read
+ * and checked the same way, then kept on the enquiry as what the job costs —
+ * never sent to anybody — for the profit against the quotation.
  */
 const MODE_NAME: Record<string, string> = { sea_fcl: "Sea FCL", sea_lcl: "Sea LCL", road: "Road" };
 
@@ -46,6 +52,8 @@ export default function PasteQuoteDialog({
   initialText,
   onClose,
   onApplied,
+  purpose = "quote",
+  partnerQuoteLabel,
 }: {
   enquiry: Enquiry;
   /** The quotation being written, if any: a draft has its charges replaced. */
@@ -56,7 +64,22 @@ export default function PasteQuoteDialog({
   initialText?: string;
   onClose: () => void;
   onApplied: () => void;
+  /** "cost": the partner's original rate, kept on the enquiry for the profit (128), not the quotation. */
+  purpose?: "quote" | "cost";
+  /** The partner the rate is from, when the desk already said (cost only). */
+  partnerQuoteLabel?: string;
 }) {
+  const cost = purpose === "cost";
+  const what = cost ? "partner's rate" : "quotation";
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [partnerId, setPartnerId] = useState<string>("");
+  const [partnerLabel, setPartnerLabel] = useState(partnerQuoteLabel ?? "");
+  useEffect(() => {
+    if (!cost) return;
+    void listPartners(true)
+      .then(setPartners)
+      .catch(() => setPartners([]));
+  }, [cost]);
   const airEnquiry = isAirQuote(enquiry);
   const [text, setText] = useState(initialText ?? "");
   /** Goes out as the desk's rate table, with GST: an air enquiry, or a rate pasted as a table. */
@@ -71,7 +94,7 @@ export default function PasteQuoteDialog({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if ((text.trim() || q) && !window.confirm("Close without saving this quotation?")) return;
+      if ((text.trim() || q) && !window.confirm(`Close without saving this ${what}?`)) return;
       onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
@@ -88,7 +111,7 @@ export default function PasteQuoteDialog({
   }, []);
 
   async function read() {
-    if (!text.trim()) return setError("Paste the quotation first.");
+    if (!text.trim()) return setError(`Paste the ${what} first.`);
     setBusy("read");
     setError(null);
     try {
@@ -96,7 +119,7 @@ export default function PasteQuoteDialog({
       setQ(got);
       setTermsText(got.terms.join("\n"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The quotation could not be read.");
+      setError(e instanceof Error ? e.message : `The ${what} could not be read.`);
     } finally {
       setBusy(null);
     }
@@ -110,7 +133,8 @@ export default function PasteQuoteDialog({
   const foreign = useMemo(() => [...new Set((q?.lines ?? []).filter((l) => l.percent == null).map((l) => l.currency).filter((c) => c !== "INR"))], [q]);
   const missingRoe = foreign.filter((c) => !(q?.roe[c] && q.roe[c] > 0));
   // The charges exactly as the mail will show them (lib/quotationMail): one unit of each (5 Oct).
-  const preview = current ? (air ? airTableHtml(airTable(current, enquiry, { singleUnit: true })) : chargesHtml(chargesLayout(singleUnit(current)))) : "";
+  // The partner's rate is never mailed: it is shown in full, quantities and all, as it costs the job.
+  const preview = current ? (cost ? chargesHtml(chargesLayout(current)) : air ? airTableHtml(airTable(current, enquiry, { singleUnit: true })) : chargesHtml(chargesLayout(singleUnit(current)))) : "";
 
   const setLine = (i: number, patch: Partial<PastedLine>) =>
     setQ((prev) => (prev ? { ...prev, lines: prev.lines.map((l, k) => (k === i ? { ...l, ...patch } : l)) } : prev));
@@ -141,13 +165,17 @@ export default function PasteQuoteDialog({
     const loose = current.lines.find((l) => l.percent != null && (!l.percent || !l.percentOf?.length));
     if (loose) return setError(`Say what ${loose.description || "the percentage charge"} is a percentage of.`);
     if (missingRoe.length) return setError(`Give the rate of exchange for ${missingRoe.join(", ")}.`);
+    if (cost && !partnerId && !partnerLabel.trim()) return setError("Say whose rate this is.");
     setBusy("save");
     setError(null);
     try {
-      await applyPastedQuote({ enquiry, live, pasted: current, pastedText: text });
+      if (cost) {
+        const p = partners.find((x) => x.id === partnerId);
+        await saveBuyRate({ enquiry, pasted: current, pastedText: text, partnerId: partnerId || null, partnerLabel: partnerLabel.trim() || (p ? p.organisation || p.name : "") });
+      } else await applyPastedQuote({ enquiry, live, pasted: current, pastedText: text });
       onApplied();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The quotation could not be saved.");
+      setError(e instanceof Error ? e.message : `The ${what} could not be saved.`);
       setBusy(null);
     }
   }
@@ -333,13 +361,13 @@ export default function PasteQuoteDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-6">
-      <div className="flex max-h-[94vh] w-full flex-col rounded-t-card bg-surface-1 shadow-xl sm:card sm:max-w-5xl" role="dialog" aria-label="Paste a quotation">
+      <div className="flex max-h-[94vh] w-full flex-col rounded-t-card bg-surface-1 shadow-xl sm:card sm:max-w-5xl" role="dialog" aria-label={cost ? "Paste the partner's rate" : "Paste a quotation"}>
         <header className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="flex items-center gap-2 text-[14px] font-medium text-text-primary">
-            <ClipboardPaste size={15} /> Paste a quotation
+            <ClipboardPaste size={15} /> {cost ? "Paste the partner's rate" : "Paste a quotation"}
           </h2>
           <button
-            onClick={() => ((text.trim() || q) && !window.confirm("Close without saving this quotation?") ? null : onClose())}
+            onClick={() => ((text.trim() || q) && !window.confirm(`Close without saving this ${what}?`) ? null : onClose())}
             className="text-text-muted hover:text-text-primary"
             aria-label="Close"
           >
@@ -348,7 +376,15 @@ export default function PasteQuoteDialog({
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {!q ? (
+          {!q && cost ? (
+            <>
+              <p className="mb-2 text-[12.5px] text-text-secondary">
+                Paste the partner's rate exactly as they sent it — a mail, a WhatsApp message, a rate sheet. The AI sorts the charges; you check them
+                next. It is kept on the enquiry as what the job costs, for the profit against your quotation, and is <strong className="font-medium text-text-primary">never sent to the customer</strong>.
+              </p>
+              <PasteInput value={text} onChange={setText} air={airEnquiry} autoFocus />
+            </>
+          ) : !q ? (
             <>
               <p className="mb-2 text-[12.5px] text-text-secondary">
                 Paste the rate as you have it — a table, a mail, a WhatsApp message. The AI sorts the charges into
@@ -361,12 +397,39 @@ export default function PasteQuoteDialog({
             </>
           ) : (
             <>
-              {live?.status === "draft" && liveCount > 0 && (
+              {cost && (
+                <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg bg-surface-2 px-3 py-2">
+                  <label className="block min-w-[14rem] flex-1 text-[12px] text-text-secondary">
+                    Whose rate
+                    <select
+                      value={partnerId}
+                      onChange={(e) => {
+                        setPartnerId(e.target.value);
+                        const p = partners.find((x) => x.id === e.target.value);
+                        if (p) setPartnerLabel(p.organisation || p.name);
+                      }}
+                      className="mt-1 h-8 w-full text-[12.5px]"
+                    >
+                      <option value="">Choose the partner</option>
+                      {partners.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.organisation || p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block min-w-[12rem] flex-1 text-[12px] text-text-secondary">
+                    Or their name
+                    <input value={partnerLabel} onChange={(e) => setPartnerLabel(e.target.value)} placeholder="Not in the directory" className="mt-1 h-8 w-full text-[12.5px]" />
+                  </label>
+                </div>
+              )}
+              {!cost && live?.status === "draft" && liveCount > 0 && (
                 <p className="mb-2 rounded-lg bg-bg-warning px-3 py-2 text-[12px] text-text-warning">
                   Saving replaces the {liveCount} charge{liveCount === 1 ? "" : "s"} on version {live.version}.
                 </p>
               )}
-              {!air && looksAir && (
+              {!cost && !air && looksAir && (
                 <p className="mb-2 rounded-lg bg-bg-warning px-3 py-2 text-[12px] text-text-warning">
                   This reads like an air rate, but the enquiry is {MODE_NAME[enquiry.transport_mode ?? ""] ?? "not marked as air"} and it was pasted as text, so
                   the mail will set it out as text. Paste it as a table, or change the enquiry's mode to Air, for your rate table.
@@ -379,7 +442,7 @@ export default function PasteQuoteDialog({
 
               <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <div>
-                  {air && (
+                  {air && !cost && (
                     <div className="mb-3 grid grid-cols-3 gap-2">
                       {(
                         [
@@ -420,6 +483,8 @@ export default function PasteQuoteDialog({
                       ))}
                     </div>
                   )}
+                  {!cost && (
+                  <>
                   <label className="mt-3 block text-[12px] text-text-secondary">
                     Valid until
                     <input
@@ -433,19 +498,21 @@ export default function PasteQuoteDialog({
                     Terms, one per line
                     <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={4} className="mt-1 w-full text-[12.5px]" />
                   </label>
+                  </>
+                  )}
                   <p className="mt-2 text-[12.5px] text-text-primary">
                     Total: <strong className="font-semibold tabular-nums">{inr === null ? "needs every rate of exchange" : `₹${figure(inr)}`}</strong>
                     {air && <span className="text-text-muted"> before GST</span>}
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">The charges, as the mail shows them</p>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">{cost ? "The partner's charges, in full" : "The charges, as the mail shows them"}</p>
                   {/* Our own markup, every value in it escaped (lib/quotationMail.ts). */}
                   <div
                     className="max-h-[26rem] overflow-auto rounded-lg border border-border bg-white p-3"
                     dangerouslySetInnerHTML={{ __html: preview }}
                   />
-                  <p className="mt-1 text-[11px] text-text-muted">In the quotation letter as usual, with the PDF attached.</p>
+                  <p className="mt-1 text-[11px] text-text-muted">{cost ? "Kept on the enquiry for the profit; never sent." : "In the quotation letter as usual, with the PDF attached."}</p>
                 </div>
               </div>
             </>
@@ -485,7 +552,7 @@ export default function PasteQuoteDialog({
                 className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark disabled:opacity-60"
               >
                 {busy === "save" && <Loader2 size={13} className="animate-spin" />}
-                Save the quotation
+                {cost ? "Save the partner's rate" : "Save the quotation"}
               </button>
             )}
           </div>

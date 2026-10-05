@@ -19,6 +19,7 @@ import { ACCOUNTS_DESK, MAIL_ONLY_CASE_FILE } from "../lib/features";
 import { sectionsFor, type Section } from "../lib/caseFileSections";
 import { listQuotes, type PartnerQuote } from "../services/rfq";
 import QuotePanel from "../components/QuotePanel";
+import JobProfit from "../components/JobProfit";
 import PromotePanel from "../components/PromotePanel";
 import ConfirmPanel from "../components/ConfirmPanel";
 import PartnersPanel from "../components/PartnersPanel";
@@ -405,6 +406,8 @@ export default function CaseFile() {
               quotes={partnerQuotes}
               onAsked={() => void listQuotes(enquiry.ref).then(setPartnerQuotes)}
               onOpen={() => goTo("quote")}
+              customerQuotes={quotes}
+              onProfit={() => goTo("shipment")}
             />
           )}
         </div>
@@ -473,6 +476,9 @@ export default function CaseFile() {
             partnerQuotes={partnerQuotes}
             customer={customer}
           />
+
+          {/* The partner's original rate against the quotation: the profit on the job (128). */}
+          <JobProfit enquiry={enquiry} quotes={quotes} onChanged={load} />
 
           {/* Directly under the quote, because it is the answer to it. */}
           <AcceptancePanel

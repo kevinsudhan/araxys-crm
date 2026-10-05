@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **127**, so the next one is `128-….sql`.
+  migration filename (§6). The last migration is **128**, so the next one is `129-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 127 migrations
+## 4. Data model — 128 migrations
 
-`supabase-v2/001…127`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…128`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -246,6 +246,7 @@ transaction).
 | `114` | **The customer's quotation page answers back.** `quote_links` gains `revision_requested_at / revision_note / revision_name` and `shipper` (jsonb) / `shipper_at`; `enquiries` gains `shipper_name / shipper_address / shipper_contact / shipper_email`, copied onto a new shipment by `shipment_from_enquiry`. Anonymous, token-keyed, security definer: `request_revision_by_token` (open or expired, not accepted/revoked/declined; a repeat within 10 minutes is not recorded twice; timeline `revision_requested`) and `shipper_by_token` (only after acceptance; fills the enquiry's and the shipment's shipper fields where blank, never over the desk's; timeline `shipper_given`). `quote_by_token` returns both. Checked rolled back as `anon` |
 | `115` | **A pasted air quotation as the desk's rate table.** `quote_lines.section` gains `freight` and `destination` (beside `ex_works`, `other`); `quote_lines.gst_rate` (per cent as quoted, 0 = none, null = not stated, 0–28); `quotes.routing / carrier / transit_time`. `copy_quote_lines_to_invoice` charges `coalesce(gst_rate, 18)`; `quote_lines_reset_approval` also un-approves on a change of `gst_rate` or `section`. Checked rolled back |
 | `116` | **Partners say which country they are in.** `partners.country` (text, default `''`); trigger `partners_country_required` (`guard_partner_country`, no grant) refuses a new partner without one and blanking one once given, and trims it. Older partners keep `''` until edited. The spelling is the form's (`lib/countries.ts`). Dry-run rolled back as an employee (new without a country refused, "  Taiwan " kept as "Taiwan", blanking refused, an older partner still editable, the guard not callable by anon or authenticated), then **applied 1 Oct**; the 4 partners then on the directory (2 active) have no country yet |
+| `128` | **The partner's original rate on an enquiry.** Table `enquiry_buy_rates` (one per enquiry, `enquiry_ref` PK → enquiries on delete cascade): `partner_id`, `partner_label`, `pasted_text`, `lines` (jsonb array, checked), `roe`, `total_inr` (≥ 0 or null), who/when, touched by a trigger. Staff read and write. Checked rolled back as an employee |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -910,6 +911,27 @@ B/L copy, their release, their charges, their DO, and their CFS noted rather tha
 shows a Co-load pill and W/M in place of the load factor; "Carrier" reads "Line they ship on".
 **Costs**: every console now shows `BillsPanel` for its own bills (`bills.console_id`) when the
 accounts desk is on. Tests: `scripts/tests/coload.test.ts`.
+
+**The partner's rate and the profit on the job (128, 5 Oct; the user: "paste the original rates
+their partners give … the original rate and the quoted rate … profit or loss per job, done
+properly").** The partner's rate is pasted as it came — **Paste the partner's rate** on the partner
+rates bar (every tab but Partners) or on the **Partner's rate and profit** card under the quotation
+(Shipment process) — in `PasteQuoteDialog` with `purpose="cost"` (same AI reader and checking; a
+partner picker or a name; no terms, validity or mail preview) and kept in `enquiry_buy_rates` by
+`services/buyRates.ts`, apart from the quotation, so a quotation pasted again, revised or sent leaves
+it standing; each save is on the timeline. `lib/jobProfit.ts`: charges matched on a key
+(`chargeKey`: brackets, "charge(s)"/"fee(s)" dropped, O/F, OF, AF, THC, D/O, B/L-documentation,
+EXW, C/C, FSC, SSC, BAF read as one), within the group first then anywhere, each partner charge used
+once; a matched pair counted on the quotation's quantity (each its own when the units differ), in
+rupees at the partner's rates of exchange, before GST; a partner-only charge is a cost the desk
+carries, a desk-only charge all margin, an "at actuals" charge nothing; a currency with no rate of
+exchange is said, not counted as free. The quotation is the accepted one, else the latest draft or
+sent (`profitQuoteOf`). The card shows partner's rate, your quotation, profit or loss and margin, and
+every charge side by side; with no quotation yet, **Start the quotation from it** makes a draft with
+the same charges for the commission to go on in the grid (`quoteFromBuyRate`). The bar says
+"Partner's rate ₹… · quoted ₹… · profit ₹… (n%)". The job P&L's quoted cost (Job Closing) is this
+rate, worked out the same way (`services/jobPnl.ts`), else the quotation lines' typed costs as
+before. Tests: `scripts/tests/jobProfit.test.ts`.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

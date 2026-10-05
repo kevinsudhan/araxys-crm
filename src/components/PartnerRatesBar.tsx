@@ -1,8 +1,12 @@
 import { useState } from "react";
-import { ChevronRight, Handshake, Send } from "lucide-react";
+import { ChevronRight, ClipboardPaste, Handshake, Send } from "lucide-react";
 import AskPartners from "./AskPartners";
+import PasteQuoteDialog from "./PasteQuoteDialog";
+import { useJobProfit } from "./useJobProfit";
 import { bestOf, type PartnerQuote } from "../services/rfq";
-import type { Enquiry } from "../services/enquiries";
+import type { Enquiry, Quote } from "../services/enquiries";
+
+const inr = (n: number) => `${n < -0.5 ? "−" : ""}₹${Math.abs(Math.round(n)).toLocaleString("en-IN")}`;
 
 /**
  * Partner rates, on every tab of the enquiry (1 Oct).
@@ -19,6 +23,10 @@ import type { Enquiry } from "../services/enquiries";
  * same form as the Partners tab (components/AskPartners.tsx), where a
  * partner not yet in the directory can be added on the spot. The replies
  * themselves are read on the Partners tab.
+ *
+ * The partner's original rate is pasted from here too (128), whichever way it
+ * came, and the line then says what it costs and the profit against the
+ * quotation; the charge-by-charge view is under the quotation.
  * ---------------------------------------------------------------------------
  */
 export default function PartnerRatesBar({
@@ -26,6 +34,8 @@ export default function PartnerRatesBar({
   quotes,
   onAsked,
   onOpen,
+  customerQuotes,
+  onProfit,
 }: {
   enquiry: Enquiry;
   /** Every ask on this enquiry (services/rfq `listQuotes`). */
@@ -34,8 +44,14 @@ export default function PartnerRatesBar({
   onAsked: () => void;
   /** To the Partners tab, where the replies are read. */
   onOpen: () => void;
+  /** The customer's quotations, for the profit against the partner's rate (128). */
+  customerQuotes: Quote[];
+  /** To where the quotation and the profit are, charge by charge. */
+  onProfit: () => void;
 }) {
   const [asking, setAsking] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const { buy, quote, profit, reload } = useJobProfit(enquiry.ref, customerQuotes);
 
   const asked = quotes.length;
   const answered = quotes.filter((q) => q.status === "replied" || q.status === "quoted" || q.status === "declined").length;
@@ -52,8 +68,10 @@ export default function PartnerRatesBar({
         <div className="min-w-0">
           <p className="text-[13px] font-medium text-text-primary">Partner rates</p>
           <p className="text-[12px] text-text-secondary">
-            {!asked ? (
-              "Not asked yet — ask your partners for their rates, then quote the customer."
+            {!asked && buy ? (
+              "Rate pasted from the partner"
+            ) : !asked ? (
+              "Not asked yet — ask your partners for their rates, or paste the rate they gave you, then quote the customer."
             ) : (
               <>
                 {asked} asked · {answered} replied
@@ -69,6 +87,28 @@ export default function PartnerRatesBar({
               </>
             )}
           </p>
+          {buy && profit && (
+            <p className="text-[12px] text-text-secondary">
+              {buy.partner_label || "Partner"}'s rate <span className="font-medium text-text-primary tabular-nums">{inr(profit.buyInr)}</span>
+              {quote ? (
+                <>
+                  {" · quoted "}
+                  <span className="tabular-nums">{inr(profit.sellInr)}</span>
+                  {" · "}
+                  <span className={`font-medium tabular-nums ${profit.profitInr < 0 ? "text-text-danger" : "text-text-success"}`}>
+                    {profit.profitInr < 0 ? "loss " : "profit "}
+                    {inr(profit.profitInr)}
+                    {profit.margin !== null ? ` (${(profit.margin * 100).toFixed(1)}%)` : ""}
+                  </span>
+                </>
+              ) : (
+                " · not quoted yet"
+              )}{" "}
+              <button type="button" onClick={onProfit} className="text-text-accent hover:underline">
+                See it charge by charge
+              </button>
+            </p>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -83,6 +123,14 @@ export default function PartnerRatesBar({
         )}
         <button
           type="button"
+          onClick={() => setPasting(true)}
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[12px] text-text-secondary hover:border-border-strong hover:text-text-primary"
+        >
+          <ClipboardPaste size={13} />
+          {buy ? "Paste the partner's rate again" : "Paste the partner's rate"}
+        </button>
+        <button
+          type="button"
           onClick={() => setAsking(true)}
           className="flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-[12px] font-medium text-white hover:bg-brand-dark"
         >
@@ -92,6 +140,20 @@ export default function PartnerRatesBar({
       </div>
 
       {asking && <AskPartners enquiry={enquiry} onClose={() => setAsking(false)} onSent={() => onAsked()} />}
+      {pasting && (
+        <PasteQuoteDialog
+          enquiry={enquiry}
+          live={null}
+          liveCount={0}
+          purpose="cost"
+          partnerQuoteLabel={buy?.partner_label}
+          onClose={() => setPasting(false)}
+          onApplied={() => {
+            setPasting(false);
+            void reload();
+          }}
+        />
+      )}
     </div>
   );
 }
