@@ -14,6 +14,7 @@ import {
   type PastedLine,
   type PastedQuote,
   type Section,
+  singleUnit,
 } from "../lib/pastedQuote";
 import { airTable } from "../lib/airQuote";
 import PasteInput from "./PasteInput";
@@ -108,8 +109,8 @@ export default function PasteQuoteDialog({
   );
   const foreign = useMemo(() => [...new Set((q?.lines ?? []).filter((l) => l.percent == null).map((l) => l.currency).filter((c) => c !== "INR"))], [q]);
   const missingRoe = foreign.filter((c) => !(q?.roe[c] && q.roe[c] > 0));
-  // The charges exactly as the mail will show them (lib/quotationMail).
-  const preview = current ? (air ? airTableHtml(airTable(current, enquiry)) : chargesHtml(chargesLayout(current))) : "";
+  // The charges exactly as the mail will show them (lib/quotationMail): one unit of each (5 Oct).
+  const preview = current ? (air ? airTableHtml(airTable(current, enquiry, { singleUnit: true })) : chargesHtml(chargesLayout(singleUnit(current)))) : "";
 
   const setLine = (i: number, patch: Partial<PastedLine>) =>
     setQ((prev) => (prev ? { ...prev, lines: prev.lines.map((l, k) => (k === i ? { ...l, ...patch } : l)) } : prev));

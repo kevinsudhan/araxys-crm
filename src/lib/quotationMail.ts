@@ -1,7 +1,7 @@
 import type { Customer, Enquiry, Quote } from "../services/enquiries";
 import type { QuoteLine } from "../services/quoteLines";
 import type { QuoteTerm } from "../services/quoteApproval";
-import type { ChargesLayout } from "./pastedQuote";
+import { shareOf, type ChargesLayout } from "./pastedQuote";
 import { roeText, rupees, type AirTable } from "./airQuote";
 import { isRevised, quotationNumber, quotationTitle, revisionOf } from "./quoteRevision";
 import { formatDate } from "./dates";
@@ -162,31 +162,34 @@ export function quotationHtml(i: QuotationMailInput): string {
   const sent = sentLine(at);
 
   /*
-    Three columns, not six.
-
-    A table cannot render narrower than its content's minimum width, so six
-    columns of charge, unit, quantity, rate and amount simply do not fit a
-    phone — the rate and amount columns fell off the right-hand edge. So the
-    unit sits under the charge name, and quantity and rate combine into the one
-    line a person would say out loud: "1 × INR 4,500".
+    Two columns, for a single unit (5 Oct): every charge goes as its rate per
+    kg, per CBM, per container — never multiplied out by the cargo. The unit
+    sits under the charge name; a rate in another currency carries its rupee
+    figure under it at the rate of exchange. A share of other charges ("3% on
+    OF+EXW") has no figure for one unit and goes as its wording.
   */
+  const unitCell = (l: QuoteLine) => {
+    const share = shareOf(l.description);
+    if (share) return `<span style="color:${INK};font-weight:600;">${esc(share.toUpperCase())}</span>`;
+    const fx = (l.currency || "INR") !== "INR" && Number(l.fx_rate) > 0 ? Number(l.fx_rate) : null;
+    return `<span style="color:${INK};font-weight:600;">${esc(l.currency || "INR")}&nbsp;${num(l.rate)}</span>${
+      fx ? `<span style="display:block;margin-top:2px;color:${MUTED};font-size:11.5px;">${money(Number(l.rate) * fx)} at ${num(fx)}</span>` : ""
+    }`;
+  };
   const charges = lines.length
     ? lines
         .map(
           (l) => `
           <tr>
             <td style="padding:12px 8px;border-bottom:1px solid ${LINE};color:${INK};font-size:13.5px;line-height:1.4;word-break:break-word;">
-              ${esc(l.description)}
-              ${l.unit ? `<span style="display:block;margin-top:2px;color:${MUTED};font-size:11.5px;">per ${esc(l.unit)}</span>` : ""}
+              ${esc(shareOf(l.description) ? l.description.replace(/\s*\([^()]+\)\s*$/, "") : l.description)}
+              ${l.unit && l.unit !== "Lumpsum" && !shareOf(l.description) ? `<span style="display:block;margin-top:2px;color:${MUTED};font-size:11.5px;">per ${esc(l.unit)}</span>` : ""}
             </td>
-            <td align="right" style="padding:12px 8px;border-bottom:1px solid ${LINE};color:${MUTED};font-size:12.5px;">
-              ${num(l.quantity)} &times; ${esc(l.currency)}&nbsp;${num(l.rate)}
-            </td>
-            <td align="right" style="padding:12px 8px;border-bottom:1px solid ${LINE};color:${INK};font-size:13.5px;font-weight:600;white-space:nowrap;">${money(l.amount_inr)}</td>
+            <td align="right" style="padding:12px 8px;border-bottom:1px solid ${LINE};font-size:13.5px;white-space:nowrap;">${unitCell(l)}</td>
           </tr>`
         )
         .join("")
-    : `<tr><td colspan="3" style="padding:16px 10px;border-bottom:1px solid ${LINE};color:${MUTED};font-size:13px;font-style:italic;">Charges as discussed.</td></tr>`;
+    : `<tr><td colspan="2" style="padding:16px 10px;border-bottom:1px solid ${LINE};color:${MUTED};font-size:13px;font-style:italic;">Charges as discussed.</td></tr>`;
 
   const grouped = groupTerms(terms);
   const termsHtml = grouped.length
@@ -256,8 +259,7 @@ export function quotationHtml(i: QuotationMailInput): string {
           <thead>
             <tr>
               <th align="left" bgcolor="${NAVY}" style="background:${NAVY};padding:10px 8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#ffffff;font-weight:700;">Charge</th>
-              <th align="right" bgcolor="${NAVY}" style="background:${NAVY};padding:10px 8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#ffffff;font-weight:700;">Qty &times; rate</th>
-              <th align="right" bgcolor="${NAVY}" style="background:${NAVY};padding:10px 8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#ffffff;font-weight:700;">Amount</th>
+              <th align="right" bgcolor="${NAVY}" style="background:${NAVY};padding:10px 8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#ffffff;font-weight:700;">Rate per unit</th>
             </tr>
           </thead>
           <tbody>${charges}</tbody>

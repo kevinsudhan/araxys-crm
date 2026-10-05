@@ -14,6 +14,7 @@ import { SectionSkeleton } from "../components/Loading";
 import { COMPANY, MAIL_LOGO_PATH } from "../lib/company";
 import { quotationNumber, quotationTitle } from "../lib/quoteRevision";
 import { shipperFrom, shipperText } from "../lib/shipperText";
+import { shareOf } from "../lib/pastedQuote";
 
 /**
  * The page a customer lands on from the quotation mail.
@@ -296,30 +297,26 @@ function Summary({ quote }: { quote: PublicQuote }) {
         <thead>
           <tr className="bg-[#0F213A] text-left text-[10.5px] uppercase tracking-[0.08em] text-white">
             <th className="px-2.5 py-2.5 font-bold">Charge</th>
-            <th className="px-2.5 py-2.5 text-right font-bold">Qty</th>
-            <th className="px-2.5 py-2.5 text-right font-bold">Rate</th>
-            <th className="px-2.5 py-2.5 text-right font-bold">Amount</th>
+            <th className="px-2.5 py-2.5 text-right font-bold">Rate per unit</th>
           </tr>
         </thead>
         <tbody>
-          {quote.lines.map((l, n) => (
-            <tr key={n} className="border-b border-[#e2e8f0]">
-              <td className="px-2.5 py-3">
-                {l.description}
-                {l.unit && <span className="block text-[11.5px] text-[#64748b]">per {l.unit}</span>}
-              </td>
-              <td className="px-2.5 py-3 text-right tabular-nums">{fmt(l.quantity)}</td>
-              <td className="whitespace-nowrap px-2.5 py-3 text-right tabular-nums text-[#64748b]">
-                {l.currency} {fmt(l.rate)}
-              </td>
-              <td className="whitespace-nowrap px-2.5 py-3 text-right font-semibold tabular-nums">
-                {money(l.amount_inr)}
-              </td>
-            </tr>
-          ))}
+          {/* A single unit of each charge, as the mail and the PDF quote it (5 Oct): never multiplied out. */}
+          {quote.lines.map((l, n) => {
+            const share = shareOf(l.description);
+            return (
+              <tr key={n} className="border-b border-[#e2e8f0]">
+                <td className="px-2.5 py-3">
+                  {share ? l.description.replace(/\s*\([^()]+\)\s*$/, "") : l.description}
+                  {l.unit && l.unit !== "Lumpsum" && !share && <span className="block text-[11.5px] text-[#64748b]">per {l.unit}</span>}
+                </td>
+                <td className="whitespace-nowrap px-2.5 py-3 text-right font-semibold tabular-nums">{share ? share.toUpperCase() : `${l.currency} ${fmt(l.rate)}`}</td>
+              </tr>
+            );
+          })}
           {!quote.lines.length && (
             <tr>
-              <td colSpan={4} className="px-2.5 py-3.5 italic text-[#64748b]">
+              <td colSpan={2} className="px-2.5 py-3.5 italic text-[#64748b]">
                 Charges as discussed.
               </td>
             </tr>
@@ -563,6 +560,3 @@ function longDate(iso: string): string {
 
 const fmt = (n: number | null | undefined) =>
   n == null ? "—" : Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
-
-const money = (n: number | null | undefined) =>
-  n == null ? "—" : `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;

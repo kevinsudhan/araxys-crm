@@ -1,5 +1,5 @@
 import type { Enquiry } from "../services/enquiries";
-import { SECTIONS, figure, inRupees, isShareNote, type PastedLine, type PastedQuote } from "./pastedQuote";
+import { SECTIONS, figure, inRupees, isShareNote, singleUnit, type PastedLine, type PastedQuote } from "./pastedQuote";
 
 /**
  * A pasted air quotation, as the desk's own rate table (115).
@@ -18,6 +18,10 @@ import { SECTIONS, figure, inRupees, isShareNote, type PastedLine, type PastedQu
  * the rate of exchange, the GST at the rate quoted on the charge, and the
  * totals. A charge with no figure ("at receipted") carries its wording across
  * the figure columns and counts for nothing.
+ *
+ * As sent to the customer (5 Oct) it is for a single unit: each rate per kg
+ * or per shipment, its rupees and GST for that one unit, never multiplied by
+ * the weight. The line across the top still says what the cargo is.
  * ---------------------------------------------------------------------------
  */
 
@@ -89,7 +93,7 @@ function row(l: PastedLine, roe: Record<string, number>): AirRow {
   const name = l.description.toUpperCase();
   const basis = [l.currency, QUANTUM[l.unit] ?? ""].filter(Boolean).join("/");
   const share = isShareNote(l.note);
-  if (!l.rate && l.note && !share) {
+  if (!l.rate && l.note) {
     return { name, basis, rate: "", inr: null, gst: null, value: null, instead: l.note.toUpperCase(), note: null };
   }
   const inr = inRupees(l, roe);
@@ -107,10 +111,12 @@ function row(l: PastedLine, roe: Record<string, number>): AirRow {
   };
 }
 
-export function airTable(q: PastedQuote, e: JobFacts): AirTable {
+export function airTable(q: PastedQuote, e: JobFacts, opts: { singleUnit?: boolean } = {}): AirTable {
+  // The cargo line is the quotation's own; the figures are per unit when it is sent.
+  const shown = opts.singleUnit ? singleUnit(q) : q;
   const groups = SECTIONS.map((s) => ({
     title: s.title.toUpperCase(),
-    rows: q.lines.filter((l) => l.section === s.key).map((l) => row(l, q.roe)),
+    rows: shown.lines.filter((l) => l.section === s.key).map((l) => row(l, q.roe)),
   })).filter((g) => g.rows.length);
   const rows = groups.flatMap((g) => g.rows);
   const sum = (pick: (r: AirRow) => number | null) => round2(rows.reduce((n, r) => n + (pick(r) ?? 0), 0));

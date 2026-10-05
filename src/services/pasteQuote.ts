@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { SECTIONS, asSection, chargesLayout, normalisePasted, quoteText, sectionsByHeading, statedWeight, withShares, withStatedWeight, type ChargesLayout, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
+import { SECTIONS, asSection, chargesLayout, normalisePasted, quoteText, sectionsByHeading, singleUnit, statedWeight, withShares, withStatedWeight, type ChargesLayout, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
 import { airTable, airText, type AirTable } from "../lib/airQuote";
 import { chargeableWeight } from "../lib/chargeableWeight";
 import { tableRows } from "../lib/pastedTable";
@@ -180,10 +180,11 @@ export function pastedFromLines(lines: QuoteLine[], quote?: Pick<Quote, "routing
 
 /** A pasted quotation's charges for the letter, in the desk's style. */
 export function chargesLayoutFor(lines: QuoteLine[]): ChargesLayout {
-  return chargesLayout(pastedFromLines(lines));
+  // As the customer is sent it: one unit of each charge (5 Oct).
+  return chargesLayout(singleUnit(pastedFromLines(lines)));
 }
 
 /** A pasted quotation's charges for the letter, as the desk's rate table (see `tableLayout`). */
 export function airTableFor(lines: QuoteLine[], enquiry: Enquiry, quote: Quote): AirTable {
-  return airTable(pastedFromLines(lines, quote), enquiry);
+  return airTable(pastedFromLines(lines, quote), enquiry, { singleUnit: true });
 }

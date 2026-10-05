@@ -56,7 +56,7 @@ const enquiry = {
 } as unknown as Enquiry;
 const customer = { name: "Kevin Sudhan", company: "kevin imports" } as unknown as Customer;
 const quote = { version: 1, created_at: "2026-09-23T06:00:00Z", valid_until: "2026-09-30", amount_inr: 185000 } as unknown as Quote;
-const line = { description: "Air freight", unit: "kg", quantity: 480, currency: "USD", rate: 4.1, amount_inr: 165000 } as unknown as QuoteLine;
+const line = { description: "Air freight", unit: "kg", quantity: 480, currency: "USD", rate: 4.1, fx_rate: 83.84, amount_inr: 165000 } as unknown as QuoteLine;
 const base = { enquiry, customer, quote, lines: [line], terms: [], fromName: "Aarathy" };
 
 const html = quotationHtml({ ...base, logoSrc: `${ORIGIN}/brand/aashish-logo-email.jpg`, acceptUrl: "https://x/q/abc" });
@@ -69,8 +69,11 @@ is("the route", html.includes("Chennai (MAA)") && html.includes("Frankfurt (FRA)
 is("mode and incoterm in words", html.includes("Air freight") && html.includes("FCA"), true);
 is("packages, weight and volume", html.includes("12 cartons · 480 kg · 1.44 CBM"), true);
 is("markup in the cargo is escaped", html.includes("&lt;for solar&gt;"), true);
-is("each charge with its unit", html.includes("per kg") && html.includes("480 &times; USD&nbsp;4.1"), true);
-is("each charge's amount, and no total", [html.includes("₹1,65,000"), html.includes("₹1,85,000"), html.includes("Total (INR)")], [true, false, false]);
+is("each charge for a single unit: its rate per kg, in rupees at the rate of exchange", [html.includes("per kg"), html.includes("USD&nbsp;4.1"), html.includes("₹343.74 at 83.84"), html.includes("Rate per unit")], [true, true, true, true]);
+is("never multiplied out by the cargo, and no total (5 Oct)", [html.includes("480 &times;"), html.includes("₹1,65,000"), html.includes("Total (INR)")], [false, false, false]);
+const shareLine = { description: "Insurance (3% on OF+EXW)", unit: "Lumpsum", quantity: 1, currency: "INR", rate: 4950, fx_rate: 1, amount_inr: 4950 } as unknown as QuoteLine;
+const withShare = quotationHtml({ ...base, lines: [line, shareLine] });
+is("a share goes as its wording, not a figure worked on the whole cargo", [withShare.includes("3% ON OF+EXW"), withShare.includes("4,950")], [true, false]);
 is("the shipper from one box: name, then the address", shipperFrom("ABC Exports Pvt Ltd\n12 Main Road, Tiruppur 641601\nRavi 98400 12345 ravi@abc.in"), {
   name: "ABC Exports Pvt Ltd",
   address: "12 Main Road, Tiruppur 641601\nRavi 98400 12345 ravi@abc.in",

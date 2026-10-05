@@ -17,7 +17,7 @@ import type { Customer, Enquiry, Quote } from "../../services/enquiries";
 import type { QuoteLine } from "../../services/quoteLines";
 import type { QuoteTerm } from "../../services/quoteApproval";
 import { chargeableWeight, describeChargeable, volumeFromPieces } from "../chargeableWeight";
-import { SECTIONS, asSection } from "../pastedQuote";
+import { SECTIONS, asSection, shareOf } from "../pastedQuote";
 import { quotationNumber, quotationTitle } from "../quoteRevision";
 
 /**
@@ -34,8 +34,12 @@ import { quotationNumber, quotationTitle } from "../quoteRevision";
  * about six weeks later. It is read by somebody checking one number against
  * another document, so it is laid out the way every rate sheet in this trade
  * is laid out: letterhead, a boxed header of who and when, the offer sentence,
- * the rate table with its per-unit and total columns side by side, the totals,
- * and the cargo the rates were quoted against.
+ * the rate table, and the cargo the rates were quoted against.
+ *
+ * Every charge is quoted for a single unit (5 Oct): its rate per kg, per CBM,
+ * per container, and that one unit in rupees — never multiplied out by the
+ * cargo, and no totals. A share of other charges ("3% on OF+EXW") has no
+ * figure for one unit and prints as its wording.
  *
  * WHY THE DIMENSIONS ARE PRINTED UNDER THE RATES
  *
@@ -154,14 +158,13 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
     right-aligned, so figures line up down the page and can be compared without
     reading the labels.
   */
-  const COL = { desc: 52, ccy: 18, per: 40, min: 20, units: 22, total: 26 };
+  const COL = { desc: 74, ccy: 18, per: 40, min: 20, total: 26 };
   const xs = {
     desc: MARGIN,
     ccy: MARGIN + COL.desc,
     per: MARGIN + COL.desc + COL.ccy,
     min: MARGIN + COL.desc + COL.ccy + COL.per,
-    units: MARGIN + COL.desc + COL.ccy + COL.per + COL.min,
-    total: MARGIN + COL.desc + COL.ccy + COL.per + COL.min + COL.units,
+    total: MARGIN + COL.desc + COL.ccy + COL.per + COL.min,
   };
   const tableRight = MARGIN + CONTENT_W;
 
@@ -178,10 +181,8 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
     doc.text("Currency", xs.ccy + 2, ty);
     doc.text("Amount Per Unit", xs.per + 2, ty);
     doc.text("Min Amount", xs.min + COL.min - 2, ty, { align: "right" });
-    doc.text("Estimated Unit", xs.units + COL.units - 2, ty, { align: "right" });
-    // The last column is in rupees whatever the line's currency: say so where a
-    // dollar line sits beside it, or its total reads as dollars.
-    doc.text(lines.some((l) => (l.currency || "INR") !== "INR") ? "Total (INR)" : "Total Amount", tableRight - 2, ty, { align: "right" });
+    // One unit, in rupees whatever the line's currency (5 Oct).
+    doc.text("Per Unit (INR)", tableRight - 2, ty, { align: "right" });
     return top + 8;
   };
 
@@ -234,7 +235,9 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
       // Wrapped first, because the row has to be as tall as its description.
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
-      const wrapped = doc.splitTextToSize(l.description || "—", COL.desc - 4) as string[];
+      const share = shareOf(l.description || "");
+      const name = share ? l.description.replace(/\s*\([^()]+\)\s*$/, "") : l.description;
+      const wrapped = doc.splitTextToSize(name || "—", COL.desc - 4) as string[];
       const h = Math.max(9, wrapped.length * 4 + 4.5);
 
       if (y + h > FOOTER_Y - 6) {
@@ -249,13 +252,13 @@ export function renderQuotationPdf(i: QuotationPdfInput): jsPDF {
       set(INK);
       doc.text(wrapped, xs.desc + 2, ty);
       doc.text(l.currency || "INR", xs.ccy + 2, ty);
-      // A lump sum is the figure itself, not "per Lumpsum".
-      doc.text(l.unit === "Lumpsum" ? amount(l.rate) : `${amount(l.rate)} per ${l.unit || "unit"}`, xs.per + 2, ty, { maxWidth: COL.per - 4 });
+      // A lump sum is the figure itself, not "per Lumpsum"; a share is its wording.
+      doc.text(share ? share.toUpperCase() : l.unit === "Lumpsum" ? amount(l.rate) : `${amount(l.rate)} per ${l.unit || "unit"}`, xs.per + 2, ty, { maxWidth: COL.per - 4 });
       // The line's own floor where it has one; it used to print 0.00 on every line.
       doc.text(l.min_amount == null ? "—" : amount(l.min_amount), xs.min + COL.min - 2, ty, { align: "right" });
-      doc.text(amount(l.quantity), xs.units + COL.units - 2, ty, { align: "right" });
       doc.setFont("helvetica", "bold");
-      doc.text(amount(l.amount_inr), tableRight - 2, ty, { align: "right" });
+      const fx = (l.currency || "INR") === "INR" ? 1 : Number(l.fx_rate) > 0 ? Number(l.fx_rate) : null;
+      doc.text(share || fx === null ? "—" : amount(Number(l.rate) * fx), tableRight - 2, ty, { align: "right" });
       y += h;
     }
 

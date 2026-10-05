@@ -1,4 +1,4 @@
-import { normalisePasted, withShares, chargesLayout, lineValue, sectionsByHeading, statedWeight, withStatedWeight, type PastedLine } from "../../src/lib/pastedQuote";
+import { normalisePasted, withShares, chargesLayout, lineValue, sectionsByHeading, singleUnit, shareOf, statedWeight, withStatedWeight, type PastedLine } from "../../src/lib/pastedQuote";
 import { airTable, airText, airTitle } from "../../src/lib/airQuote";
 import { airTableHtml, quotationHtml } from "../../src/lib/quotationMail";
 import { tableRows } from "../../src/lib/pastedTable";
@@ -128,6 +128,21 @@ const letter = quotationHtml({
 });
 is("the letter carries the table, not the text layout", [letter.includes("TOTAL VALUE IN INR"), letter.includes("FREIGHT CHARGES :")], [true, false]);
 is("as text, kept on the quotation", airText(t).split("\n").slice(-3), ["TOTAL | | | 3,06,763.87 | 18,029.44 | 3,24,793.31", "", "1 EUR = INR 111.70"]);
+
+console.log("\nas the customer is sent it: a single unit (5 Oct)");
+const one = airTable(withShares(q), job, { singleUnit: true });
+const oneRows = one.groups.flatMap((g) => g.rows);
+is("the cargo line still says what the cargo is", one.title, airTable(withShares(q), job).title);
+is("the air freight per kg: 3.20 EUR, its rupees and GST for one kg, not 578", [oneRows[0].rate, oneRows[0].inr, oneRows[0].value], ["3.20", 357.44, 357.44]);
+is("a per-shipment charge is the same either way", [oneRows[1].rate, oneRows[1].inr], ["795", 88801.5]);
+is("the 3% goes as its wording across the figures", [oneRows[2].instead, oneRows[2].inr], ["3% ON OF+EXW", null]);
+is("at receipted stays at receipted", oneRows[4].instead, "AT RECEIPTED");
+const oneHtml = airTableHtml(one);
+is("no × 578 anywhere in the table", [oneHtml.includes("× 578"), oneHtml.includes("3.20")], [false, true]);
+const text = chargesLayout(singleUnit(withShares(q)));
+is("the text layout: per kg, never multiplied out", text.groups[0].rows.map((r) => r.value), ["EUR 3.20 per kg", "EUR 795"]);
+is("the share as its wording, no figure beside it", [text.groups[1].rows[0].value, text.groups[1].rows[0].note], ["3% on OF+EXW", null]);
+is("a share from its saved description", [shareOf("CC charges (3% on OF+EXW)"), shareOf("Airline DO (at receipted)"), shareOf("Freight")], ["3% on OF+EXW", null, null]);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

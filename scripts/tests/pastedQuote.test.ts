@@ -85,7 +85,7 @@ is("no totals, under a group or for the whole", [html.includes("EX WORKS TOTAL")
 is("the rates of exchange stay", html.includes("Rates of exchange: USD at 84, AED at 22.90"), true);
 is("in the letter", pastedLetter.includes(">EX WORKS CHARGES :</span>"), true);
 is("a name typed with markup is escaped", chargesHtml({ groups: [{ title: "A<b>", totalLabel: "T", rows: [{ name: "x<y", value: "1", note: null }], total: "1" }], total: "1", rates: null }).includes("X&lt;Y"), true);
-is("no charges table in it", [pastedLetter.includes("Qty &times; rate"), builtLetter.includes("Qty &times; rate")], [false, true]);
+is("no charges table in it", [pastedLetter.includes("Rate per unit"), builtLetter.includes("Rate per unit")], [false, true]);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

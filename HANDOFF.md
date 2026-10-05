@@ -909,6 +909,17 @@ shows a Co-load pill and W/M in place of the load factor; "Carrier" reads "Line 
 **Costs**: every console now shows `BillsPanel` for its own bills (`bills.console_id`) when the
 accounts desk is on. Tests: `scripts/tests/coload.test.ts`.
 
+**Quotations go for a single unit (5 Oct, user: "all quotes shud go for a single unit do not calculate
+full").** What the customer sees quotes every charge for one unit — its rate per kg, CBM, container or
+shipment, and that one unit in rupees — never multiplied out by the cargo, and no totals. The mail's
+text layout and air rate table (`lib/pastedQuote.ts` `singleUnit`, `airTable(q, e, { singleUnit:
+true })`, through `chargesLayoutFor` / `airTableFor`), the mail's own table for a quotation built
+charge by charge ("Rate per unit", the rupee figure under a foreign rate), the PDF (columns Charge,
+Currency, Amount per unit, Min, Per unit (INR)), the customer's /q/ page and the paste dialog's
+preview. A share of other charges ("3% on OF+EXW", saved as "Name (3% on …)", `shareOf`) has no
+figure for one unit and goes as its wording. The air table's top line still states the cargo (GWT,
+CHWT). The desk's own charges grid, the approval and the stored `mail_text` keep the full figures.
+
 **House B/L: shipper approval, amendments, the house against its master (123, 5 Oct).** Three gaps
 the user agreed to close. (1) **The shipper approves the draft.** On the house B/L form (`HblForm`) a
 strip under the toolbar says where it stands (`lib/hblApproval.ts` `approvalLine`) with **Email the

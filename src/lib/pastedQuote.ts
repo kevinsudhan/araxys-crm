@@ -254,7 +254,8 @@ export const isShareNote = (note: string | null | undefined) => !!note && /^\s*\
  * with no figure and a condition ("at actuals") is the condition.
  */
 export function lineValue(l: PastedLine): string {
-  if (!l.rate && l.note && !isShareNote(l.note)) return l.note;
+  // No figure: the wording is the value ("at receipted", or a share sent as "3% on OF+EXW").
+  if (!l.rate && l.note) return l.note;
   const per = UNIT_WORD[l.unit] ?? null;
   let s = `${l.currency} ${figure(l.rate)}${per ? ` per ${per}` : ""}`;
   // A count is a count: "× 6.5", not "× 6.50" as money would be written.
@@ -263,7 +264,29 @@ export function lineValue(l: PastedLine): string {
 }
 
 /** The condition shown beside a charge's figure, unless the figure already is the condition. */
-const noteBeside = (l: PastedLine) => (!l.rate && l.note && !isShareNote(l.note) ? null : l.note);
+const noteBeside = (l: PastedLine) => (!l.rate && l.note ? null : l.note);
+
+/**
+ * The quotation as it goes to the customer (5 Oct): every charge for a
+ * single unit — its rate per kg, per CBM, per container — never multiplied
+ * out by the cargo. A share of other charges has no figure for one unit, so
+ * it goes as its wording ("3% on OF+EXW").
+ */
+export function singleUnit(q: PastedQuote): PastedQuote {
+  return {
+    ...q,
+    lines: q.lines.map((l) => {
+      const share = l.percent != null ? (l.note && isShareNote(l.note) ? l.note : shareWording(l, q.lines)) : isShareNote(l.note) ? l.note : null;
+      return share ? { ...l, quantity: 1, rate: 0, percent: null, percentOf: undefined, note: share } : { ...l, quantity: 1 };
+    }),
+  };
+}
+
+/** A saved charge's share wording, from its description: "Insurance (3% on OF+EXW)" → "3% on OF+EXW". */
+export function shareOf(description: string): string | null {
+  const m = description.match(/\(([^()]+)\)\s*$/);
+  return m && isShareNote(m[1]) ? m[1].trim() : null;
+}
 
 /** One charge as a line of the mail. */
 export function lineText(l: PastedLine): string {
