@@ -7,13 +7,48 @@ import {
   Eye,
   FileDown,
   FilePen,
+  Loader2,
+  Send,
 } from "lucide-react";
 import {
+  documentBytes,
   documentStatuses,
   generateDocument,
   viewDocument,
+  type DocSpec,
   type DocumentData,
 } from "../lib/documents";
+import { useAuth } from "../lib/auth";
+import { AUDIENCE_WORD, audienceOf, documentMailBody, documentMailSubject, documentSentSummary, recipientsFor } from "../lib/documentMail";
+import { failureText } from "../lib/errorText";
+import type { MailMessage } from "../services/backend";
+import { threadWith } from "../services/customerThread";
+import { logEvent, partiesFor, type Customer } from "../services/enquiries";
+import ComposeMail from "./ComposeMail";
+
+/**
+ * What sending a document needs (6 Oct): the job it is filed under, and who
+ * it can go to. Absent, the list has no Send.
+ */
+export interface DocumentMail {
+  enquiryRef: string;
+  customer: Customer | null;
+  /** The far-end consignee, where the job knows one. */
+  consignee: { name: string | null; email: string | null } | null;
+  /**
+   * The quotation is sent from the quotation itself: approved, with its
+   * accept button, and recorded as sent. Where given, its Send goes there.
+   */
+  onQuotation?: () => void;
+}
+
+interface Composing {
+  spec: DocSpec;
+  ready: boolean;
+  missing: string[];
+  to: Array<{ address: string; name: string | null }>;
+  replyTo: MailMessage | null;
+}
 
 /**
  * Every document the desk can issue for this customer, with what each one is still
@@ -32,8 +67,11 @@ export default function DocumentsPanel({
   data,
   defaultOpen = false,
   onFillDetails,
+  mail,
 }: {
   data: DocumentData;
+  /** Given, each document can be sent from here, from the person's own mailbox (6 Oct). */
+  mail?: DocumentMail;
   /** Open on a shipment page, where documents are the point; collapsed in a list row. */
   defaultOpen?: boolean;
   /**
@@ -50,6 +88,35 @@ export default function DocumentsPanel({
   const [blocked, setBlocked] = useState<string | null>(null);
   const statuses = documentStatuses(data);
   const readyCount = statuses.filter((s) => s.ready).length;
+  const { session } = useAuth();
+  const [opening, setOpening] = useState<string | null>(null);
+  const [compose, setCompose] = useState<Composing | null>(null);
+  const [sent, setSent] = useState<Record<string, string>>({});
+  const [mailError, setMailError] = useState<string | null>(null);
+
+  /**
+   * Opens the mail: addressed to whom the document is for, into the
+   * conversation already running with them on this job, the PDF attached.
+   */
+  async function openSend(spec: DocSpec, ready: boolean, missing: string[]) {
+    if (!mail) return;
+    setOpening(spec.id);
+    setMailError(null);
+    try {
+      const parties = await partiesFor(mail.enquiryRef).catch(() => []);
+      const to = recipientsFor(audienceOf(spec), {
+        customer: mail.customer ? { name: mail.customer.name, company: mail.customer.company, emails: mail.customer.emails ?? [] } : null,
+        consignee: mail.consignee,
+        parties,
+      });
+      const replyTo = to.length ? await threadWith(mail.enquiryRef, session?.email ?? "", to.map((t) => t.address)).catch(() => null) : null;
+      setCompose({ spec, ready, missing, to, replyTo });
+    } catch (e) {
+      setMailError(failureText(e, "The mail could not be opened.").message);
+    } finally {
+      setOpening(null);
+    }
+  }
 
   return (
     <div className="mt-4 border-t border-border pt-3">
@@ -124,7 +191,14 @@ export default function DocumentsPanel({
                     Your browser blocked the new tab. Allow pop-ups for this site, or use Generate.
                   </p>
                 )}
+                {sent[spec.id] && (
+                  <p className="mt-1 flex items-center gap-1 text-[12px] text-text-success">
+                    <Check size={12} /> {sent[spec.id]}
+                  </p>
+                )}
               </div>
+
+              <div className="flex shrink-0 flex-wrap justify-end gap-2">
 
               {/* Reading and keeping are different acts. View opens it; Generate
                   puts a copy on the machine. Most checks want the first. */}
@@ -149,14 +223,69 @@ export default function DocumentsPanel({
                 <FileDown size={13} />
                 {ready ? "Generate" : "Draft"}
               </button>
+
+              {/* Sending is the fourth thing done with a document: from the person's own Outlook, into the job's thread, the PDF attached. */}
+              {mail && (spec.id !== "quotation" || mail.onQuotation) && (
+                <button
+                  onClick={() => (spec.id === "quotation" ? mail.onQuotation?.() : void openSend(spec, ready, missingLabels))}
+                  disabled={opening !== null}
+                  title={spec.id === "quotation" ? "Sent from the quotation: approved, with the customer's Accept button" : `Mail it to ${AUDIENCE_WORD[audienceOf(spec)]}${ready ? "" : " as a draft, asking for what it still needs"}`}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-[12px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary disabled:opacity-60"
+                >
+                  {opening === spec.id ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                  Send
+                </button>
+              )}
+              </div>
             </div>
           ))}
+
+          {mailError && <p className="text-[12px] text-text-danger">{mailError}</p>}
 
           <p className="pt-1 text-[11px] leading-relaxed text-text-muted">
             Drafts print every unestablished field as TBD and name what is outstanding on
             the document itself. Nothing is inferred from a similar shipment.
           </p>
         </div>
+      )}
+
+      {compose && mail && (
+        <ComposeMail
+          mailbox={session?.email ?? ""}
+          fromName={session?.name ?? ""}
+          signature={session?.signature ?? ""}
+          enquiryRef={mail.enquiryRef}
+          reference={mail.enquiryRef}
+          // Into the conversation already running with them on this job, without the history quoted under it.
+          replyTo={compose.replyTo ?? undefined}
+          mode="reply"
+          quoteThread={false}
+          newThreadNote={
+            compose.to.length
+              ? `No earlier mail with ${compose.to[0].address} on ${mail.enquiryRef} in your mailbox, so this starts a new conversation.`
+              : `No address on file for ${AUDIENCE_WORD[audienceOf(compose.spec)]}: type it in To.`
+          }
+          initial={{
+            to: compose.to.map((t) => t.address).join(", "),
+            subject: compose.replyTo ? undefined : documentMailSubject(compose.spec, data, compose.ready),
+            body: documentMailBody(compose.spec, data, { ready: compose.ready, missing: compose.missing, to: compose.to[0] ?? { name: null, address: null } }),
+          }}
+          // The PDF goes with it, as View shows it — a draft stamped as one.
+          attachments={[documentBytes(compose.spec, data)]}
+          attachables={[{ id: compose.spec.id, label: `${compose.spec.shortName} (PDF)`, make: () => documentBytes(compose.spec, data) }]}
+          onClose={() => setCompose(null)}
+          onSent={({ to }) => {
+            const c = compose;
+            setCompose(null);
+            setSent((s) => ({ ...s, [c.spec.id]: `Sent to ${to.join(", ")}` }));
+            // On the job's timeline: what went, to whom, and whether as a draft.
+            void logEvent(mail.enquiryRef, "document_sent", documentSentSummary(c.spec, to, c.ready, c.missing), {
+              document: c.spec.id,
+              ready: c.ready,
+              to,
+            }).catch(() => {});
+          }}
+        />
       )}
     </div>
   );

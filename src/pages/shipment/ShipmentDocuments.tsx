@@ -215,6 +215,13 @@ export default function ShipmentDocuments() {
           data={documentDataFromBooking(shipment, shipment.customer)}
           defaultOpen
           onFillDetails={() => navigate("../cargo")}
+          // Each one sent from here, from the person's own Outlook (6 Oct); the quotation from the enquiry's.
+          mail={{
+            enquiryRef: shipment.enquiry_ref,
+            customer: shipment.customer,
+            consignee: { name: shipment.consignee_name, email: shipment.consignee_email },
+            onQuotation: () => navigate(`/enquiries/${shipment.enquiry_ref}?section=shipment`),
+          }}
         />
       </section>
     </div>

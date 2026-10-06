@@ -562,6 +562,13 @@ export default function CaseFile() {
           <DocumentsPanel
             data={documentDataFromEnquiry(enquiry, customer, liveQuote?.amount_inr ?? null)}
             defaultOpen
+            // Each one sent from here, from the person's own Outlook (6 Oct); the quotation from its own panel.
+            mail={{
+              enquiryRef: enquiry.ref,
+              customer,
+              consignee: shipment ? { name: shipment.consignee_name, email: shipment.consignee_email } : null,
+              onQuotation: () => goTo("shipment"),
+            }}
           />
         </section>
       )}
