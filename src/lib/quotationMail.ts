@@ -64,6 +64,12 @@ export interface QuotationMailInput {
   fromName?: string;
   company?: string;
   /**
+   * The sender's saved signature (HTML): signed with it inside the letter, in
+   * place of "Warm regards" (6 Oct). The compose window then adds none of its
+   * own under the letter.
+   */
+  signature?: string;
+  /**
    * Where the customer can accept it, if a link has been issued.
    *
    * Absent means no button is drawn — better than a button that goes nowhere.
@@ -289,7 +295,7 @@ export function quotationHtml(i: QuotationMailInput): string {
       table,
       accept,
       termsHtml,
-      signOff(i.fromName, i.company),
+      signOff(i.fromName, i.company, i.signature),
     ],
   });
 }

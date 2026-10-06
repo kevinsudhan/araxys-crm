@@ -152,5 +152,15 @@ is("no name: a proper greeting", confirmationMessage({ customer: null }).startsW
 is("the subject keeps the reference in brackets", confirmationSubject(full), "[ALG09005-26] Booking confirmation — Chennai (MAA) to Frankfurt (FRA)");
 is("no comments of ours in it either", conf.includes("<!--"), false);
 
+console.log("\nsigned inside the letter (6 Oct)");
+{
+  const sig = '<p>Thanks &amp; Regards,<br><b>Aashish Murali Krishnan</b><br>Director · +91 98400 00000</p>';
+  const signed = quotationHtml({ ...base, fromName: "Aashish Murali Krishnan", signature: sig });
+  const at = signed.indexOf("Director · +91 98400 00000");
+  is("the saved signature is in the letter, above the registered details at its foot", at > 0 && at < signed.indexOf("Quotation ALG"), true);
+  is("in place of the plain sign-off: one signature, not two", [signed.includes("Warm regards"), signed.split("Aashish Murali Krishnan").length - 1], [false, 1]);
+  is("no signature saved: the plain sign-off as before", quotationHtml({ ...base, fromName: "Ravi" }).includes("Warm regards"), true);
+}
+
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

@@ -146,7 +146,19 @@ function fact(label: string, value: string): string {
 }
 
 /** Signed by the sender, for the company. */
-export const signOff = (fromName: string | undefined, company: string | undefined) => `<tr><td style="padding:26px 24px 26px;">
+/**
+ * How the letter is signed: "Warm regards", the sender and the company — or,
+ * given the sender's own saved signature (their HTML, from the signature
+ * editor: their sign-off, name, title, phone), that inside the card instead,
+ * so the letter carries one signature and none trails under it (6 Oct, the
+ * quotation).
+ */
+export const signOff = (fromName: string | undefined, company: string | undefined, signature?: string) =>
+  signature?.trim()
+    ? `<tr><td style="padding:26px 24px 26px;">
+        <div style="margin:0;font-size:13.5px;line-height:1.6;color:${INK};">${signature.trim()}</div>
+      </td></tr>`
+    : `<tr><td style="padding:26px 24px 26px;">
         <p style="margin:0;font-size:13.5px;line-height:1.6;color:${INK};">
           Warm regards,<br>
           ${fromName ? `<strong style="color:${NAVY};">${esc(fromName)}</strong><br>` : ""}

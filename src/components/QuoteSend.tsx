@@ -596,7 +596,8 @@ export default function QuoteSend({
         <ComposeMail
           mailbox={session?.email ?? ""}
           fromName={session?.name ?? ""}
-          signature={session?.signature ?? ""}
+          // The signature is inside the letter (its sign-off), not under it.
+          signature=""
           enquiryRef={enquiry.ref}
           reference={enquiry.ref}
           /*
@@ -621,6 +622,7 @@ export default function QuoteSend({
               terms,
               message: quotationMessage({ enquiry, customer, quote, lines, terms }),
               fromName: session?.name,
+              signature: session?.signature ?? "",
               acceptUrl: link && isReachable(link) ? link : null,
               // This app's own copy, which the send carries inside the message.
               logoSrc: `${window.location.origin}${MAIL_LOGO_PATH}`,
