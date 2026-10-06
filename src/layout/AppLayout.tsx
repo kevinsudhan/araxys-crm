@@ -106,6 +106,8 @@ export default function AppLayout() {
     const warm = (href: string) =>
       void import("../lib/warm").then((m) => m.warmLink(href, mailbox.current)).catch(() => {});
     const onOver = (e: PointerEvent) => {
+      // A finger has no hover: its pointerover comes with the touch itself (onDown).
+      if (e.pointerType === "touch") return;
       const href = hrefOf(e);
       if (href === over) return;
       over = href;
@@ -113,11 +115,38 @@ export default function AppLayout() {
       // A pointer passing over the board on its way somewhere reads nothing.
       if (href) timer = window.setTimeout(() => warm(href), 80);
     };
+    /*
+      On a phone or an iPad (7 Oct): a finger landing on a link is a tap or the
+      start of a scroll, and the browser calls a scroll off (pointercancel)
+      within a few tens of milliseconds. So a touch reads after 50 ms unless it
+      was called off — or at once when the finger lifts first, a quick tap — and
+      flicking through a list reads nothing.
+    */
+    let touchTimer = 0;
+    let touched: string | null = null;
+    const touchGo = () => {
+      window.clearTimeout(touchTimer);
+      if (touched) warm(touched);
+      touched = null;
+    };
     const onDown = (e: PointerEvent) => {
       const href = hrefOf(e);
       if (!href) return;
       window.clearTimeout(timer);
+      if (e.pointerType === "touch") {
+        touched = href;
+        window.clearTimeout(touchTimer);
+        touchTimer = window.setTimeout(touchGo, 50);
+        return;
+      }
       warm(href);
+    };
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerType === "touch" && touched) touchGo();
+    };
+    const onCancel = () => {
+      window.clearTimeout(touchTimer);
+      touched = null;
     };
     const onFocus = (e: FocusEvent) => {
       const href = hrefOf(e);
@@ -125,11 +154,16 @@ export default function AppLayout() {
     };
     document.addEventListener("pointerover", onOver, { passive: true });
     document.addEventListener("pointerdown", onDown, { passive: true, capture: true });
+    document.addEventListener("pointerup", onUp, { passive: true, capture: true });
+    document.addEventListener("pointercancel", onCancel, { passive: true, capture: true });
     document.addEventListener("focusin", onFocus);
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(touchTimer);
       document.removeEventListener("pointerover", onOver);
       document.removeEventListener("pointerdown", onDown, { capture: true });
+      document.removeEventListener("pointerup", onUp, { capture: true });
+      document.removeEventListener("pointercancel", onCancel, { capture: true });
       document.removeEventListener("focusin", onFocus);
     };
   }, []);
@@ -143,11 +177,20 @@ export default function AppLayout() {
     file to download. One at a time, so the page in front keeps the
     connection; not on a connection that asks to save data. Each file is
     fetched once and kept by the browser (and the service worker).
+
+    A phone (7 Oct) takes only the pages used on one — the boards, a case
+    file, a job and its common tabs, mail — and so does a slow connection:
+    every file is also run once it arrives, and fifty of them is seconds of a
+    phone's processor and a few megabytes of its data. Safari has no idle
+    callback, so there a file waits for a second with no touch, scroll or key,
+    rather than landing in the middle of a scroll.
   */
   useEffect(() => {
-    const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
-    if (saveData) return;
-    const pages = [
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (connection?.saveData) return;
+    const small = window.matchMedia("(max-width: 767px)").matches;
+    const slow = ["slow-2g", "2g", "3g"].includes(connection?.effectiveType ?? "");
+    const core = [
       // First the boards' rows (lib/warm): the first visit to each opens on them.
       () => import("../lib/warm").then((m) => m.warmBoards()),
       () => import("../pages/Overview"),
@@ -158,16 +201,18 @@ export default function AppLayout() {
       () => import("../pages/shipment/ShipmentOverview"),
       () => import("../pages/shipment/ShipmentTracking"),
       () => import("../pages/MyEnquiries"),
-      () => import("../pages/Consoles"),
       () => import("../pages/Mail"),
       () => import("../pages/shipment/ShipmentDocuments"),
+      () => import("../pages/shipment/ShipmentMail"),
+    ];
+    const rest = [
+      () => import("../pages/Consoles"),
       () => import("../pages/shipment/ShipmentBill"),
       () => import("../pages/shipment/ShipmentParties"),
       () => import("../pages/shipment/ShipmentCargo"),
       () => import("../pages/shipment/ShipmentContainers"),
       () => import("../pages/shipment/ShipmentCustoms"),
       () => import("../pages/shipment/ShipmentPickupDelivery"),
-      () => import("../pages/shipment/ShipmentMail"),
       () => import("../pages/shipment/ShipmentInvoices"),
       () => import("../pages/shipment/ShipmentCosts"),
       () => import("../pages/shipment/ShipmentSignOff"),
@@ -204,9 +249,21 @@ export default function AppLayout() {
       () => import("../pages/accounts/ReceiptDetails"),
       () => import("../pages/accounts/PaymentDetails"),
     ];
+    const pages = small || slow ? core : [...core, ...rest];
     let cancelled = false;
+    let lastInput = 0;
+    const onInput = () => {
+      lastInput = Date.now();
+    };
+    const inputs = ["pointerdown", "keydown", "wheel", "touchmove", "scroll"] as const;
+    for (const t of inputs) window.addEventListener(t, onInput, { passive: true, capture: true });
     const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-    const idle = (fn: () => void) => (ric ? ric(fn, { timeout: 4000 }) : window.setTimeout(fn, 1500));
+    const quiet = (fn: () => void) => {
+      if (cancelled) return;
+      if (Date.now() - lastInput < 1_000) window.setTimeout(() => quiet(fn), 800);
+      else fn();
+    };
+    const idle = (fn: () => void) => (ric ? ric(fn, { timeout: 4000 }) : window.setTimeout(() => quiet(fn), 1200));
     // One at a time, so the page in front keeps the connection.
     const next = (i: number) => {
       if (cancelled || i >= pages.length) return;
@@ -216,6 +273,7 @@ export default function AppLayout() {
     return () => {
       cancelled = true;
       window.clearTimeout(start);
+      for (const t of inputs) window.removeEventListener(t, onInput, { capture: true });
     };
   }, []);
 

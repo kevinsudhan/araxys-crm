@@ -32,6 +32,18 @@ export default function Login({ role }: { role: Role }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  /** Wide enough for the video panel (lg): an iPad turned on its side shows it, turned back hides it. */
+  const [wide, setWide] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  useEffect(() => {
+    const q = window.matchMedia("(min-width: 1024px)");
+    const on = () => setWide(q.matches);
+    q.addEventListener("change", on);
+    window.addEventListener("resize", on);
+    return () => {
+      q.removeEventListener("change", on);
+      window.removeEventListener("resize", on);
+    };
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -125,7 +137,8 @@ export default function Login({ role }: { role: Role }) {
       {/* year (netlify.toml); a new clip gets a new name.                   */}
       {/* ---------------------------------------------------------------- */}
       <div className="relative hidden lg:block overflow-hidden bg-[#0a1628]">
-        <video
+        {/* Only where the panel is shown (7 Oct): a hidden <video> with preload still downloads its 1.6 MB. */}
+        {wide && <video
           className="absolute inset-0 w-full h-full object-cover"
           poster="/media/login-poster-v2.webp"
           autoPlay
@@ -136,7 +149,7 @@ export default function Login({ role }: { role: Role }) {
           preload="auto"
           aria-hidden="true"
           src="/media/login-v2.mp4"
-        />
+        />}
 
         {/*
           Tinted the navy of the mark rather than a neutral black, so the

@@ -224,7 +224,7 @@ export default function Sidebar({
       <div
         onClick={onClose}
         aria-hidden="true"
-        className={`fixed inset-0 z-30 bg-black/30 backdrop-blur-[1px] transition-opacity duration-200 lg:hidden ${
+        className={`fixed inset-0 z-30 bg-black/30 transition-opacity duration-200 lg:hidden ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />

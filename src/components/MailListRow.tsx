@@ -100,12 +100,26 @@ export default function MailListRow({
   onChanged: () => void;
 }) {
   const warmTimer = useRef(0);
+  // A finger: read 50 ms into the touch unless it turned into a scroll
+  // (pointercancel), or as it lifts. A mouse: after resting 80 ms.
   const warm = {
-    onPointerEnter: () => {
+    onPointerEnter: (e: React.PointerEvent) => {
+      if (e.pointerType === "touch") return;
       window.clearTimeout(warmTimer.current);
       if (onWarm) warmTimer.current = window.setTimeout(onWarm, 80);
     },
-    onPointerLeave: () => window.clearTimeout(warmTimer.current),
+    onPointerLeave: (e: React.PointerEvent) => {
+      if (e.pointerType !== "touch") window.clearTimeout(warmTimer.current);
+    },
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType !== "touch" || !onWarm) return;
+      window.clearTimeout(warmTimer.current);
+      warmTimer.current = window.setTimeout(onWarm, 50);
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      if (e.pointerType === "touch") onWarm?.();
+    },
+    onPointerCancel: () => window.clearTimeout(warmTimer.current),
     onFocus: () => onWarm?.(),
   };
   // In Sent and Drafts, the useful name is who it is to. Everywhere else it is who sent.

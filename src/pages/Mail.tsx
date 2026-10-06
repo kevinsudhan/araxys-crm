@@ -1483,7 +1483,7 @@ export default function Mail() {
                 On a phone the page scrolls, so the bar pins under the top bar
                 instead once it reaches it.
               */}
-              <div className="sticky top-14 z-10 -mx-5 mt-2.5 flex flex-wrap items-start gap-2 border-b border-transparent bg-surface-1/95 px-5 py-2 backdrop-blur supports-[backdrop-filter]:bg-surface-1/85 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:pb-0 lg:backdrop-blur-none">
+              <div className="sticky top-14 z-10 -mx-5 mt-2.5 flex flex-wrap items-start gap-2 border-b border-transparent bg-surface-1 px-5 py-2 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:pb-0">
                 {/*
                   A draft (one started in Outlook) is finished and sent, not
                   answered: it used to offer Reply, Forward and "make an enquiry

@@ -1110,6 +1110,18 @@ two trips. The database stays at 1–30 ms. What was done:
   The public key goes in the address, so the browser sends it without a preflight.
 - **Icons in one file** (`vendor-icons`): ~120 files of a few hundred bytes were 20–60 requests per page
   opened; the build went from 204 files to 162. Graph is preconnected at start-up.
+- **Phones and iPads** (7 Oct, "faster and snappier on mobile n iPad"): a finger has no hover, so a
+  touch on a link reads ahead 50 ms in unless the browser calls it off as a scroll (pointercancel), or
+  as the finger lifts — flicking through a list reads nothing (AppLayout; MailListRow the same).
+  `html { touch-action: manipulation }`: no wait for a possible double-tap zoom. No frosted glass on a
+  touch screen (Topbar solid `bg-surface-1` under `pointer: coarse`, the Mail toolbar below lg, the
+  drawer's scrim): blurring what scrolls under a sticky bar costs every frame on a phone. (Note: the
+  colour tokens are plain `var()`s, so `bg-surface-1/95`-style opacities generate nothing — the bar was
+  only ever blur.) A phone (< 768 px) or a 2g/3g connection prefetches only the core pages (boards,
+  case file, job and its common tabs, mail); Safari, which has no idle callback, waits for a second with
+  no touch/scroll/key before each file. The line kept open stops two minutes after the last touch on a
+  touch screen (the radio), and a tap counts as activity. The sign-in clip is not put on the page below
+  lg — a hidden `<video preload>` still downloaded its 1.6 MB.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

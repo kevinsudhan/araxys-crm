@@ -95,6 +95,13 @@ body,
   height: 100%;
 }
 
+/* A tap acts at once on a phone or an iPad (7 Oct). Without this the browser
+ * may hold a tap back to see whether a second is coming — a double-tap zoom —
+ * and every button feels slow. Pinch-zoom and scrolling are unchanged. */
+html {
+  touch-action: manipulation;
+}
+
 body {
   background-color: var(--surface-0);
   /* Light from above.

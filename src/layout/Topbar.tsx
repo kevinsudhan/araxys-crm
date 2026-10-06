@@ -63,7 +63,7 @@ export default function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
   }
 
   return (
-    <header className="h-14 shrink-0 border-b border-border bg-surface-1/95 backdrop-blur supports-[backdrop-filter]:bg-surface-1/80 flex items-center gap-3 px-4 sm:px-6 sticky top-0 z-20">
+    <header className="h-14 shrink-0 border-b border-border bg-surface-1 [@media(pointer:fine)]:bg-surface-1/95 [@media(pointer:fine)]:backdrop-blur [@media(pointer:fine)]:supports-[backdrop-filter]:bg-surface-1/80 flex items-center gap-3 px-4 sm:px-6 sticky top-0 z-20">
       <button
         onClick={onOpenNav}
         aria-label="Open navigation"

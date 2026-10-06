@@ -14,8 +14,9 @@
  *
  * The gateway's health check, with the public key in the address so the
  * browser sends it as it is (no CORS preflight): a few hundred bytes. Only
- * while the tab is in view and somebody has moved the mouse or typed in the
- * last ten minutes; a tab left open overnight sends nothing. Coming back to
+ * while the tab is in view and somebody has moved the mouse, tapped or typed
+ * in the last ten minutes — two on a phone or an iPad, whose radio a ping
+ * keeps awake (7 Oct); a tab left open overnight sends nothing. Coming back to
  * the tab, or moving the mouse after a pause, opens the line at once, while
  * the person is still finding what to click.
  * ---------------------------------------------------------------------------
@@ -23,12 +24,14 @@
 
 const EVERY_MS = 20_000;
 const ACTIVE_MS = 10 * 60_000;
+const ACTIVE_TOUCH_MS = 2 * 60_000;
 
 export function keepLineWarm(): () => void {
   const base = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
   if (!base || !key) return () => {};
   const url = `${base.replace(/\/+$/, "")}/auth/v1/health?apikey=${encodeURIComponent(key)}`;
+  const active = window.matchMedia("(pointer: coarse)").matches ? ACTIVE_TOUCH_MS : ACTIVE_MS;
 
   let lastActive = Date.now();
   let lastSent = Date.now();
@@ -38,7 +41,7 @@ export function keepLineWarm(): () => void {
   };
   const tick = () => {
     if (document.visibilityState !== "visible") return;
-    if (Date.now() - lastActive > ACTIVE_MS) return;
+    if (Date.now() - lastActive > active) return;
     if (Date.now() - lastSent < EVERY_MS - 1_000) return;
     send();
   };
@@ -57,11 +60,14 @@ export function keepLineWarm(): () => void {
 
   const timer = window.setInterval(tick, EVERY_MS);
   window.addEventListener("pointermove", onActive, { passive: true });
+  // A tap moves no pointer: on a touch screen this is what "in use" looks like.
+  window.addEventListener("pointerdown", onActive, { passive: true });
   window.addEventListener("keydown", onActive, { passive: true });
   document.addEventListener("visibilitychange", onVisible);
   return () => {
     window.clearInterval(timer);
     window.removeEventListener("pointermove", onActive);
+    window.removeEventListener("pointerdown", onActive);
     window.removeEventListener("keydown", onActive);
     document.removeEventListener("visibilitychange", onVisible);
   };
