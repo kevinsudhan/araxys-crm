@@ -10,6 +10,7 @@ import { Field, Segmented, TextSave, YesNo } from "../../components/formControls
 import SchedulePicker from "../../components/SchedulePicker";
 import { useShipment } from "../ShipmentDetail";
 import { failureText } from "../../lib/errorText";
+import { useCachedState } from "../../lib/useCachedState";
 import { listPeople, updateShipment, type Person, type Shipment } from "../../services/enquiries";
 import { listPartners, type Partner } from "../../services/partners";
 import {
@@ -450,7 +451,8 @@ function Schedule({
  * not the same one twice.
  */
 function Routings({ shipmentId, carriers }: { shipmentId: string; carriers: Partner[] }) {
-  const [rows, setRows] = useState<Routing[]>([]);
+  // Kept per job (lib/queryCache), and read ahead when a link to the job is hovered (lib/warm).
+  const [rows, setRows] = useCachedState<Routing[]>(`ship:${shipmentId}:routings`, []);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 

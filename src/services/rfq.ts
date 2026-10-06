@@ -2,6 +2,7 @@ import { supabase } from "../lib/supabase";
 import { conversationMessages, sendTrackedMail, type MailMessage } from "./backend";
 import type { Enquiry } from "./enquiries";
 import { MODE_WORD, cleanServices, requestSubject, signOff, withReference } from "../lib/rateRequest";
+import { shared } from "../lib/queryCache";
 
 /**
  * Asking partners for a rate, and tracking what comes back.
@@ -63,13 +64,15 @@ export interface PartnerQuote {
 }
 
 export async function listQuotes(ref: string): Promise<PartnerQuote[]> {
-  const { data, error } = await supabase
-    .from("partner_quotes")
-    .select("*")
-    .eq("enquiry_ref", ref)
-    .order("sent_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as PartnerQuote[];
+  return shared(`partner_quotes:${ref}`, async () => {
+    const { data, error } = await supabase
+      .from("partner_quotes")
+      .select("*")
+      .eq("enquiry_ref", ref)
+      .order("sent_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as PartnerQuote[];
+  });
 }
 
 /**

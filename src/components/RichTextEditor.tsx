@@ -20,7 +20,7 @@ import {
   Underline,
   Undo2,
 } from "lucide-react";
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import { inlineForeign, sanitise } from "../lib/mailHtml";
 import { prepareMailImage, uploadErrorText } from "../lib/mailImage";
 import { MAIL_COLOR, MAIL_FONT, MAIL_IMAGE_MAX, MAIL_SIZE, MAIL_SIZE_PT, fontChoiceFor, fontName, ptFromPx, stepSize } from "../lib/mailStyle";
@@ -329,8 +329,7 @@ export default function RichTextEditor({
 
     setUploading(true);
     try {
-      const { data: auth } = await supabase.auth.getUser();
-      const uid = auth.user?.id;
+      const uid = await myId();
       if (!uid) throw new Error("Not signed in.");
       const html: string[] = [];
       for (const file of images) {

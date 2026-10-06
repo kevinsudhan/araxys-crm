@@ -30,7 +30,18 @@
 type Entry = { value: unknown; at: number };
 
 const memory = new Map<string, Entry>();
-const inFlight = new Map<string, Promise<unknown>>();
+const inFlight = new Map<string, { p: Promise<unknown>; gen: number }>();
+
+/**
+ * How many writes this tab has sent (7 Oct), counted by lib/supabase.ts as
+ * each one leaves. A read already on its way when a write went out is not
+ * handed to anybody who asks after it — they would see the database as it was
+ * before their own save — and is not kept either.
+ */
+let writes = 0;
+export function noteWrite(): void {
+  writes++;
+}
 const STORE = "araxys:snap:";
 /** A snapshot larger than this stays in memory only: sessionStorage is small. */
 const MAX_STORED = 400_000;
@@ -70,7 +81,8 @@ export function put<T>(key: string, value: T): T {
  * its answer is reused for that long too — for lists that rarely change and
  * whose writes call `invalidate` (the partners, the registrations). Without,
  * only callers that ask while it is on its way share it, so a read made after
- * a write always goes again. A failure is not kept.
+ * a write always goes again — and one sent before any write since is not
+ * joined (`noteWrite`). A failure is not kept.
  */
 export function shared<T>(key: string, fn: () => Promise<T>, ttlMs = 0): Promise<T> {
   // Each caller gets its own list, so one that sorts or splices it in place cannot change another's.
@@ -78,25 +90,33 @@ export function shared<T>(key: string, fn: () => Promise<T>, ttlMs = 0): Promise
   const hit = memory.get(`q:${key}`);
   if (hit && Date.now() - hit.at < ttlMs) return Promise.resolve(own(hit.value));
   const going = inFlight.get(key);
-  if (going) return going.then(own);
-  const p = fn()
+  if (going && going.gen === writes) return going.p.then(own);
+  const gen = writes;
+  const p: Promise<T> = fn()
     .then((v) => {
-      if (ttlMs > 0) memory.set(`q:${key}`, { value: v, at: Date.now() });
+      // Not kept when a write went out while it was on its way: it may predate it.
+      if (ttlMs > 0 && gen === writes) memory.set(`q:${key}`, { value: v, at: Date.now() });
       return v;
     })
-    .finally(() => inFlight.delete(key));
-  inFlight.set(key, p);
+    .finally(() => {
+      if (inFlight.get(key)?.p === p) inFlight.delete(key);
+    });
+  inFlight.set(key, { p, gen });
   return p.then(own);
 }
 
 /**
  * Forget every shared read whose key starts with one of `prefixes` — after a
- * write, or a change heard from the database — so the next read goes again.
- * Snapshots are kept: a page still opens on its last view and refreshes.
+ * write, or a change heard from the database — so the next read goes again,
+ * rather than joining one already on its way. Snapshots are kept: a page still
+ * opens on its last view and refreshes.
  */
 export function invalidate(...prefixes: string[]): void {
   for (const k of [...memory.keys()]) {
     if (k.startsWith("q:") && prefixes.some((p) => k.slice(2).startsWith(p))) memory.delete(k);
+  }
+  for (const k of [...inFlight.keys()]) {
+    if (prefixes.some((p) => k.startsWith(p))) inFlight.delete(k);
   }
 }
 

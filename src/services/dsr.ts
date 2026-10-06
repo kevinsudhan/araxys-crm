@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import { dsrRow, type DsrMilestone, type DsrRow, type DsrSource } from "../lib/dsr";
 import type { Customer } from "./customers";
 
@@ -126,10 +126,10 @@ export async function recordDsrSent(input: {
   subject: string;
   shipmentIds: string[];
 }): Promise<void> {
-  const { data: user } = await supabase.auth.getUser();
+  const me = await myId();
   const { error } = await supabase.from("customer_dsr_sends").insert({
     customer_id: input.customerId,
-    sent_by: user.user?.id ?? null,
+    sent_by: me,
     sent_from: input.sentFrom,
     to_addresses: input.to,
     cc_addresses: input.cc,

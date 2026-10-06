@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import type { ScheduleInput } from "../lib/schedules";
 
 /**
@@ -62,7 +62,7 @@ export async function saveSchedule(input: ScheduleInput & { id?: string }): Prom
   const row = { ...fields, updated_at: new Date().toISOString() };
   const q = id
     ? supabase.from("sailing_schedules").update(row).eq("id", id)
-    : supabase.from("sailing_schedules").insert({ ...row, created_by: (await supabase.auth.getUser()).data.user?.id ?? null });
+    : supabase.from("sailing_schedules").insert({ ...row, created_by: await myId() });
   const { data, error } = await q.select().single();
   if (error) throw new Error(error.message);
   return data as Schedule;

@@ -1,6 +1,7 @@
 import { supabase } from "../lib/supabase";
 import type { BoxDates } from "../lib/freeTime";
 import { whereIn } from "./paging";
+import { shared } from "../lib/queryCache";
 
 // The pure half lives in lib/ so a test can load it without Vite's
 // import.meta.env — the same split as applyPlan.ts next to intake.ts.
@@ -77,14 +78,16 @@ export async function freeTimeBoxes(shipmentIds: string[]): Promise<Array<BoxDat
 }
 
 export async function listShipmentContainers(shipmentId: string): Promise<ShipmentContainer[]> {
-  const { data, error } = await supabase
-    .from("shipment_containers")
-    .select("*")
-    .eq("shipment_id", shipmentId)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as ShipmentContainer[];
+  return shared(`shipment_containers:${shipmentId}`, async () => {
+    const { data, error } = await supabase
+      .from("shipment_containers")
+      .select("*")
+      .eq("shipment_id", shipmentId)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as ShipmentContainer[];
+  });
 }
 
 export async function addShipmentContainer(

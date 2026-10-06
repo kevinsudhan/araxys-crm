@@ -1,9 +1,11 @@
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { PageSkeleton } from "../components/Loading";
 import { syncSentMail } from "../services/mailLog";
+import { useAuth } from "../lib/auth";
+import { keepLineWarm } from "../lib/warmLine";
 
 /**
  * The shell every signed-in page sits inside.
@@ -44,6 +46,9 @@ export default function AppLayout() {
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(initialRail);
   const { pathname } = useLocation();
+  const { session } = useAuth();
+  const mailbox = useRef("");
+  mailbox.current = session?.email ?? "";
 
   const closeNav = useCallback(() => setNavOpen(false), []);
   const toggleRail = useCallback(() => {
@@ -85,6 +90,54 @@ export default function AppLayout() {
   }, []);
 
   /*
+    A link's page read before the click (lib/warm, 7 Oct): when the pointer
+    rests on a link for a moment, presses it, or the keyboard reaches it, the
+    case file, job, customer or board it leads to starts reading — its file
+    too — so the page opens on its data instead of a skeleton. One listener for
+    every link in the app, rather than one per link.
+  */
+  useEffect(() => {
+    let timer = 0;
+    let over: string | null = null;
+    const hrefOf = (e: Event) => {
+      const a = (e.target as Element | null)?.closest?.("a[href]");
+      return a ? a.getAttribute("href") : null;
+    };
+    const warm = (href: string) =>
+      void import("../lib/warm").then((m) => m.warmLink(href, mailbox.current)).catch(() => {});
+    const onOver = (e: PointerEvent) => {
+      const href = hrefOf(e);
+      if (href === over) return;
+      over = href;
+      window.clearTimeout(timer);
+      // A pointer passing over the board on its way somewhere reads nothing.
+      if (href) timer = window.setTimeout(() => warm(href), 80);
+    };
+    const onDown = (e: PointerEvent) => {
+      const href = hrefOf(e);
+      if (!href) return;
+      window.clearTimeout(timer);
+      warm(href);
+    };
+    const onFocus = (e: FocusEvent) => {
+      const href = hrefOf(e);
+      if (href) warm(href);
+    };
+    document.addEventListener("pointerover", onOver, { passive: true });
+    document.addEventListener("pointerdown", onDown, { passive: true, capture: true });
+    document.addEventListener("focusin", onFocus);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("pointerover", onOver);
+      document.removeEventListener("pointerdown", onDown, { capture: true });
+      document.removeEventListener("focusin", onFocus);
+    };
+  }, []);
+
+  // The connection to the database kept open while the desk is in use (lib/warmLine).
+  useEffect(() => keepLineWarm(), []);
+
+  /*
     Every desk page's file, fetched once the app is idle, the most used first
     (6 Oct): a click on any page then opens it without first waiting for its
     file to download. One at a time, so the page in front keeps the
@@ -95,6 +148,8 @@ export default function AppLayout() {
     const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
     if (saveData) return;
     const pages = [
+      // First the boards' rows (lib/warm): the first visit to each opens on them.
+      () => import("../lib/warm").then((m) => m.warmBoards()),
       () => import("../pages/Overview"),
       () => import("../pages/Enquiries"),
       () => import("../pages/CaseFile"),

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { noteWrite } from "./queryCache";
 
 /**
  * The v2 Supabase client.
@@ -55,4 +56,32 @@ export const supabase = createClient(url, anonKey, {
      */
     flowType: "pkce",
   },
+  global: {
+    /**
+     * Every request as it leaves, so a write is counted (lib/queryCache): a
+     * read already on its way when somebody saves is not handed to a page
+     * asking after the save. Anything but a GET or HEAD counts — an RPC that
+     * only reads is counted too, which costs a shared read, never a wrong one.
+     */
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      if (method !== "GET" && method !== "HEAD") noteWrite();
+      return fetch(input, init);
+    },
+  },
 });
+
+/**
+ * The signed-in person's id, from the session this tab already holds — no
+ * trip to the server (6 Oct).
+ *
+ * `auth.getUser()` asks the auth server every time: a whole round trip before
+ * each write that used it only to fill in who did it (`created_by`, an event's
+ * `actor`). The id is the session's own; the database still checks the token
+ * on the write itself, so nothing is trusted that was not before. A session
+ * past its expiry is refreshed here first, as the write would need anyway.
+ */
+export async function myId(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user.id ?? null;
+}

@@ -22,6 +22,7 @@ import {
 import { liveQuoteOf } from "../../lib/attachableDocuments";
 import { money } from "../../services/charges";
 import { useLiveVersion } from "../../lib/liveVersions";
+import { useCachedState } from "../../lib/useCachedState";
 
 /**
  * The correspondence, the quotation and the agents — on the booking.
@@ -56,9 +57,15 @@ export default function ShipmentMail() {
   const { session } = useAuth();
   const mailbox = session?.email ?? "";
 
-  const [enquiry, setEnquiry] = useState<(Enquiry & { customer: Customer | null }) | null>(null);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [mail, setMail] = useState<FiledMessage[]>([]);
+  /*
+    Kept under the case file's own keys (lib/queryCache, 7 Oct): the same
+    enquiry, quotes and correspondence, so whichever of the two was opened
+    first, the other opens on what it found and reads again behind it.
+  */
+  const at = `case:${shipment.enquiry_ref.toUpperCase()}`;
+  const [enquiry, setEnquiry] = useCachedState<(Enquiry & { customer: Customer | null }) | null>(`${at}:enquiry`, null);
+  const [quotes, setQuotes] = useCachedState<Quote[]>(`${at}:quotes`, []);
+  const [mail, setMail, mailKnown] = useCachedState<FiledMessage[]>(`${at}:mail`, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<FailureText | null>(null);
 
@@ -66,15 +73,18 @@ export default function ShipmentMail() {
     setLoading(true);
     setError(null);
     try {
+      // Best-effort, like everywhere else: a mailbox that will not load must
+      // not blank the page around it. Started with the others, not after them.
+      const mailRead = correspondenceFor(shipment.enquiry_ref, mailbox).catch(() => null);
       const [e, q] = await Promise.all([
         getEnquiry(shipment.enquiry_ref),
         quotesFor(shipment.enquiry_ref),
       ]);
       setEnquiry(e);
       setQuotes(q);
-      // Best-effort, like everywhere else: a mailbox that will not load must
-      // not blank the page around it.
-      setMail(await correspondenceFor(shipment.enquiry_ref, mailbox).catch(() => []));
+      // A mailbox that did not answer keeps the mail the tab already showed.
+      const m = await mailRead;
+      if (m) setMail(m);
     } catch (e) {
       setError(failureText(e, "Could not load the correspondence."));
     } finally {
@@ -148,7 +158,7 @@ export default function ShipmentMail() {
       )}
 
       {/* ---- the thread ---- */}
-      {loading && !mail.length ? (
+      {loading && !mailKnown ? (
         <p className="py-6 text-[13px] text-text-muted">Reading the mailbox…</p>
       ) : (
         <ThreadReader

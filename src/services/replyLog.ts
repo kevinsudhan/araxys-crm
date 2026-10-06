@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import type { MailMessage } from "./mockMail";
 
 /**
@@ -52,8 +52,7 @@ export async function recordReply(input: {
   partnerId?: string | null;
 }): Promise<void> {
   try {
-    const { data } = await supabase.auth.getUser();
-    const uid = data.user?.id;
+    const uid = await myId();
     if (!uid) return;
 
     const m = input.repliedTo;

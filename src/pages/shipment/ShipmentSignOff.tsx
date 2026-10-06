@@ -7,6 +7,7 @@ import { listPeople, type Person, type SignOffItem } from "../../services/enquir
 import { reopenSignOff, signOff, signOffChecklist } from "../../services/signoff";
 import { formatDate } from "../../lib/dates";
 import { useLiveVersion } from "../../lib/liveVersions";
+import { useCachedState } from "../../lib/useCachedState";
 
 /**
  * Operations closing the job.
@@ -25,7 +26,8 @@ import { useLiveVersion } from "../../lib/liveVersions";
 export default function ShipmentSignOff() {
   const { shipment: s, reload } = useShipment();
   const { session } = useAuth();
-  const [items, setItems] = useState<SignOffItem[]>([]);
+  // Kept per job (lib/queryCache): the tab opens on its checklist and works it out again behind it (7 Oct).
+  const [items, setItems] = useCachedState<SignOffItem[]>(`ship:${s.id}:signoff`, []);
   const [people, setPeople] = useState<Person[]>([]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);

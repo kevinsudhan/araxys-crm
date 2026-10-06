@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import { COMPANY } from "../lib/company";
 import { formatDate } from "../lib/dates";
 import { draftFor, mergeDraft, type BillData, type CsnDraft, type CsnEvent, type CsnSettings, type CsnSource } from "../lib/icegateCsn";
@@ -28,11 +28,11 @@ export async function loadCsnSettings(): Promise<CsnSettings> {
 
 /** An administrator's to change; for anybody else the database changes nothing, and this says so. */
 export async function saveCsnSettings(patch: Partial<CsnSettings>): Promise<CsnSettings> {
-  const { data: auth } = await supabase.auth.getUser();
+  const me = await myId();
   const clean = Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, String(v ?? "").trim().toUpperCase()]));
   const { data, error } = await supabase
     .from("icegate_settings")
-    .update({ ...clean, updated_at: new Date().toISOString(), updated_by: auth.user?.id ?? null })
+    .update({ ...clean, updated_at: new Date().toISOString(), updated_by: me })
     .eq("id", true)
     .select(SETTINGS);
   if (error) throw new Error(error.message);

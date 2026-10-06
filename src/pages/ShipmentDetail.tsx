@@ -6,7 +6,6 @@ import { AlertCircle, ChevronLeft, FileText, PackageSearch } from "lucide-react"
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
 import StatusPill from "../components/StatusPill";
-import { supabase } from "../lib/supabase";
 import { enquiryWatches, LiveVersions, shipmentWatches, useLiveVersions } from "../lib/liveVersions";
 
 /** What the header shows: the stage, the money, the free time and the cargo lines. */
@@ -22,7 +21,7 @@ import SendPreAlert from "../components/SendPreAlert";
 import { useCachedState } from "../lib/useCachedState";
 import TradeDirectionPicker from "../components/TradeDirectionPicker";
 import { CancelledBanner } from "../components/CancelShipment";
-import { marginPct, shipmentMargin, type Margin } from "../services/bills";
+import { marginPct, shipmentBilling, shipmentMargin, type BillingSummary, type Margin } from "../services/bills";
 import {
   getEnquiry,
   getShipment,
@@ -88,12 +87,6 @@ export interface ShipmentContext {
 
 /** Typed access to what the shell loaded, for the section components. */
 export const useShipment = () => useOutletContext<ShipmentContext>();
-
-interface BillingSummary {
-  invoice_count: number;
-  draft_count: number;
-  billed_inr: number;
-}
 
 function Money({
   label,
@@ -186,13 +179,8 @@ export default function ShipmentDetail() {
         : null;
       const [s, billingRow, m, b] = await Promise.all([
         getShipment(id),
-        ACCOUNTS_DESK
-          ? supabase
-              .from("shipment_billing")
-              .select("invoice_count, draft_count, billed_inr")
-              .eq("shipment_id", id)
-              .maybeSingle()
-          : Promise.resolve({ data: null }),
+        // Best-effort, as the margin: the header still opens without it.
+        ACCOUNTS_DESK ? shipmentBilling(id).catch(() => null) : Promise.resolve(null),
         ACCOUNTS_DESK ? shipmentMargin(id).catch(() => null) : Promise.resolve(null),
         // The boxes, for the free-time alert in the header (an FCL job's): read with the job.
         listShipmentContainers(id).catch(() => [] as ShipmentContainer[]),
@@ -209,7 +197,7 @@ export default function ShipmentDetail() {
         setLines(d);
         setBoxes(appliesTo(s.transport_mode) ? b : []);
       }
-      setBilling((billingRow.data as BillingSummary) ?? null);
+      setBilling(billingRow);
       setMargin(m);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load the shipment.");

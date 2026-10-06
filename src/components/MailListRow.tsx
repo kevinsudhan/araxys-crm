@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { AlarmClock, AlertCircle, Check, Flag, Paperclip } from "lucide-react";
 import { snoozeLabel } from "../lib/snoozeTimes";
 import PushMailToQueue from "./PushMailToQueue";
@@ -57,6 +58,7 @@ export default function MailListRow({
   snoozedUntil,
   backFromSnooze,
   onOpen,
+  onWarm,
   onChanged,
 }: {
   /** The conversation's newest message in this folder, which the row stands for. */
@@ -89,8 +91,23 @@ export default function MailListRow({
   /** Returned from a snooze and not opened since: pinned to the top. */
   backFromSnooze?: boolean;
   onOpen: () => void;
+  /**
+   * Read the message ahead of the click (7 Oct): called when the pointer rests
+   * on the row a moment, or the keyboard reaches it, so the body is usually
+   * there by the time it is opened.
+   */
+  onWarm?: () => void;
   onChanged: () => void;
 }) {
+  const warmTimer = useRef(0);
+  const warm = {
+    onPointerEnter: () => {
+      window.clearTimeout(warmTimer.current);
+      if (onWarm) warmTimer.current = window.setTimeout(onWarm, 80);
+    },
+    onPointerLeave: () => window.clearTimeout(warmTimer.current),
+    onFocus: () => onWarm?.(),
+  };
   // In Sent and Drafts, the useful name is who it is to. Everywhere else it is who sent.
   const other =
     folder === "sent" || folder === "drafts"
@@ -150,7 +167,7 @@ export default function MailListRow({
         </span>
       )}
 
-      <button onClick={onOpen} className="flex w-full gap-2.5 py-2.5 pl-4 pr-9 text-left">
+      <button onClick={onOpen} {...warm} className="flex w-full gap-2.5 py-2.5 pl-4 pr-9 text-left">
         <span className="relative shrink-0">
           <span
             className={`grid size-8 place-items-center rounded-lg border text-[11px] font-semibold tracking-wide transition-colors ${

@@ -28,6 +28,7 @@ import {
   type PartyRole,
 } from "../../lib/blParties";
 import { useLiveVersion } from "../../lib/liveVersions";
+import { useCachedState } from "../../lib/useCachedState";
 
 /**
  * Shipper, consignee and notify party, as the bill of lading names them.
@@ -458,7 +459,8 @@ export default function ShipmentParties() {
   const { shipment, enquiry, reload } = useShipment();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [extras, setExtras] = useState<ExtraParty[]>([]);
+  // Kept per job (lib/queryCache): the tab opens on its parties and reads again behind it (7 Oct).
+  const [extras, setExtras] = useCachedState<ExtraParty[]>(`ship:${shipment.id}:extras`, []);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
 

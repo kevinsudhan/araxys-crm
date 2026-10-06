@@ -1,5 +1,6 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import { all } from "./paging";
+import { shared } from "../lib/queryCache";
 
 /**
  * The follow-ups a booking is worked through.
@@ -79,13 +80,15 @@ export async function stepsDoneSince(fromIso: string): Promise<Checkpoint[]> {
 }
 
 export async function checkpointsFor(shipmentId: string): Promise<Checkpoint[]> {
-  const { data, error } = await supabase
-    .from("shipment_checkpoints")
-    .select("*")
-    .eq("shipment_id", shipmentId)
-    .order("position");
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Checkpoint[];
+  return shared(`shipment_checkpoints:${shipmentId}`, async () => {
+    const { data, error } = await supabase
+      .from("shipment_checkpoints")
+      .select("*")
+      .eq("shipment_id", shipmentId)
+      .order("position");
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Checkpoint[];
+  });
 }
 
 /**
@@ -102,7 +105,7 @@ export async function setCheckpoint(
 ): Promise<Checkpoint> {
   const patch: Record<string, unknown> = {
     done_at: done ? new Date().toISOString() : null,
-    done_by: done ? ((await supabase.auth.getUser()).data.user?.id ?? null) : null,
+    done_by: done ? (await myId()) : null,
   };
   if (note !== undefined) patch.note = note;
 

@@ -135,6 +135,11 @@ export const getMailMessage = async (mailbox: string, id: string, folder: Folder
         `/api/mail/messages/${encodeURIComponent(id)}?mailbox=${encodeURIComponent(mailbox)}`
       );
 
+/** The message read ahead of its opening (the live mailbox only; quiet). */
+export const prefetchMailMessage = (mailbox: string, id: string, folder: FolderId = "inbox") => {
+  if (live()) graph.prefetchMessage(mailbox, id, folder);
+};
+
 export const setMailRead = async (mailbox: string, id: string, isRead: boolean) => {
   if (live()) return graph.setRead(mailbox, id, isRead);
   return post<{ message: MailMessage }>(`/api/mail/messages/${encodeURIComponent(id)}/read`, {

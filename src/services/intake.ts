@@ -2,6 +2,7 @@ import { supabase } from "../lib/supabase";
 import type { Enquiry } from "./enquiries";
 import type { MailMessage } from "./backend";
 import { looksLikeWebEnquiry, parseWebEnquiry } from "./webEnquiry";
+import { shared } from "../lib/queryCache";
 
 // Re-exported so callers keep one import for everything intake-shaped, while the
 // logic itself lives somewhere a unit test can reach without a network client.
@@ -83,12 +84,14 @@ export async function listIntake(status?: IntakeStatus): Promise<Intake[]> {
 
 /** How many rows are waiting, counted by the database rather than by us. */
 export async function countWaiting(): Promise<number> {
-  const { count, error } = await supabase
-    .from("intake")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "new");
-  if (error) throw error;
-  return count ?? 0;
+  return shared(`intake:waiting`, async () => {
+    const { count, error } = await supabase
+      .from("intake")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "new");
+    if (error) throw error;
+    return count ?? 0;
+  });
 }
 
 /** Types a row into the queue by hand — the phone-on-the-desk case. */

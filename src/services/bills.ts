@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { shared } from "../lib/queryCache";
 
 /**
  * What the carrier, the overseas agent and everybody else bill us.
@@ -233,14 +234,35 @@ export interface Margin {
   cost_inr: number;
 }
 
+/** The job's invoices in one line, for the shipment page's header (accounts desk). */
+export interface BillingSummary {
+  invoice_count: number;
+  draft_count: number;
+  billed_inr: number;
+}
+
+export async function shipmentBilling(shipmentId: string): Promise<BillingSummary | null> {
+  return shared(`shipment_billing:${shipmentId}`, async () => {
+    const { data, error } = await supabase
+      .from("shipment_billing")
+      .select("invoice_count, draft_count, billed_inr")
+      .eq("shipment_id", shipmentId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as BillingSummary) ?? null;
+  });
+}
+
 export async function shipmentMargin(shipmentId: string): Promise<Margin | null> {
-  const { data, error } = await supabase
-    .from("shipment_margin")
-    .select("*")
-    .eq("shipment_id", shipmentId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as Margin) ?? null;
+  return shared(`shipment_margin:${shipmentId}`, async () => {
+    const { data, error } = await supabase
+      .from("shipment_margin")
+      .select("*")
+      .eq("shipment_id", shipmentId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as Margin) ?? null;
+  });
 }
 
 export interface PartnerBalance {

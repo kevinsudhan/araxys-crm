@@ -85,6 +85,7 @@ export function storeGraphToken(token: string | null, expiresInSeconds?: number)
 }
 
 export function clearGraphToken() {
+  forgetOpenedMail();
   sessionStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(EXPIRES_KEY);
   sessionStorage.removeItem(LINKED_KEY);
@@ -690,7 +691,74 @@ function searchResults(
     .sort((a, b) => (Date.parse(b.receivedDateTime) || 0) - (Date.parse(a.receivedDateTime) || 0));
 }
 
-export async function getMessage(
+/**
+ * Messages already opened in this tab, kept in memory (7 Oct).
+ *
+ * Opening a message is one to three trips to Outlook — the message, its
+ * attachment list, the inline pictures — 300 ms to a second from here, and the
+ * desk opens the same handful over and over: back to the customer's mail after
+ * a look at the quote, the thread again after a colleague's reply. A body does
+ * not change once it has arrived, so the second opening is the first's.
+ *
+ * Memory only, never storage: mail bodies are not written anywhere a later
+ * user of the machine could find them, and they go on sign-out (with the
+ * Outlook link, `clearGraphToken`). Drafts are not kept — they are edited. What
+ * does change on a message (read, flagged) is kept up to date by the calls
+ * that change it; a message moved or deleted has a new id and is forgotten.
+ * A row the pointer rests on is read ahead of the click (`prefetchMessage`).
+ */
+const OPENED_MAX = 80;
+const OPENED_MS = 15 * 60_000;
+const opened = new Map<string, { at: number; m: MailMessage }>();
+const reading = new Map<string, Promise<MailMessage>>();
+
+function keepOpened(m: MailMessage) {
+  opened.delete(m.id);
+  opened.set(m.id, { at: Date.now(), m });
+  while (opened.size > OPENED_MAX) opened.delete(opened.keys().next().value as string);
+}
+
+/** A change made to a message: the kept copy follows it, and a read on its way is not kept. */
+function touchOpened(id: string, patch?: Partial<MailMessage>) {
+  reading.delete(id);
+  const hit = opened.get(id);
+  if (!hit) return;
+  if (patch) hit.m = { ...hit.m, ...patch };
+  else opened.delete(id);
+}
+
+/** Everything kept, on sign-out or a different mailbox. */
+export function forgetOpenedMail() {
+  opened.clear();
+  reading.clear();
+}
+
+export async function getMessage(mailbox: string, id: string, folder: FolderId): Promise<MailMessage> {
+  const hit = opened.get(id);
+  if (hit && hit.m.mailbox === mailbox && Date.now() - hit.at < OPENED_MS) return { ...hit.m, folder };
+  let p = reading.get(id);
+  if (!p) {
+    const going: Promise<MailMessage> = readMessage(mailbox, id, folder)
+      .then((m) => {
+        if (!m.isDraft && reading.get(id) === going) keepOpened(m);
+        return m;
+      })
+      .finally(() => {
+        if (reading.get(id) === going) reading.delete(id);
+      });
+    reading.set(id, going);
+    p = going;
+  }
+  return { ...(await p), folder };
+}
+
+/** Read a message ahead of its opening — the pointer resting on its row. Quiet. */
+export function prefetchMessage(mailbox: string, id: string, folder: FolderId): void {
+  if (opened.has(id) || reading.has(id)) return;
+  void getMessage(mailbox, id, folder).catch(() => {});
+}
+
+async function readMessage(
   mailbox: string,
   id: string,
   folder: FolderId
@@ -835,6 +903,7 @@ async function resolveInlineImages(
 }
 
 export async function setRead(_mailbox: string, id: string, isRead: boolean): Promise<void> {
+  touchOpened(id, { isRead });
   await graph(`/me/messages/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify({ isRead }),
@@ -843,6 +912,7 @@ export async function setRead(_mailbox: string, id: string, isRead: boolean): Pr
 
 /** Flagged for follow-up, or the flag taken off. */
 export async function setFlag(id: string, flagged: boolean): Promise<void> {
+  touchOpened(id, { flagged });
   await graph(`/me/messages/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify({ flag: { flagStatus: flagged ? "flagged" : "notFlagged" } }),
@@ -855,6 +925,7 @@ export async function setFlag(id: string, flagged: boolean): Promise<void> {
  * there (moved or deleted in Outlook meanwhile) is `null`, not an error.
  */
 export async function moveToFolder(id: string, destinationId: string): Promise<string | null> {
+  touchOpened(id);
   // `destinationId` is a folder's Graph id or a well-known name ("inbox").
   const r = await graphFetch(`${GRAPH}/me/messages/${encodeURIComponent(id)}/move`, {
     method: "POST",
@@ -993,6 +1064,7 @@ export async function deleteRule(id: string): Promise<void> {
 
 /** To Deleted Items, as Outlook's Delete does — recoverable there, not gone. */
 export async function deleteMessage(id: string): Promise<void> {
+  touchOpened(id);
   await graph(`/me/messages/${encodeURIComponent(id)}/move`, {
     method: "POST",
     body: JSON.stringify({ destinationId: "deleteditems" }),
@@ -1054,6 +1126,7 @@ export async function moveMessage(
   id: string,
   folder: FolderId
 ): Promise<void> {
+  touchOpened(id);
   await graph(`/me/messages/${encodeURIComponent(id)}/move`, {
     method: "POST",
     body: JSON.stringify({ destinationId: destinationOf(folder) }),

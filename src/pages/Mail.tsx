@@ -62,6 +62,7 @@ import {
   getMailMessage,
   getMailMessages,
   getMoreMailMessages,
+  prefetchMailMessage,
   searchMessages,
   setMailFlag,
   deleteMailMessage,
@@ -590,7 +591,12 @@ export default function Mail() {
     }
   }
   const selected = useMemo(
-    () => (full && full.id === selectedId ? { ...row, ...full } : row),
+    () =>
+      full && full.id === selectedId
+        ? // Read and flagged as the list has them: it changes the moment they are pressed,
+          // and a body opened earlier (kept, services/graphMail) has them as they were then.
+          { ...row, ...full, ...(row ? { isRead: row.isRead, flagged: row.flagged } : {}) }
+        : row,
     [row, full, selectedId]
   );
 
@@ -1373,6 +1379,7 @@ export default function Mail() {
                   onCheck={(shift) => toggleCheck(m.id, shift)}
                   snoozedUntil={snoozeOf.get(m.id)?.until}
                   onOpen={() => void open(m)}
+                  onWarm={() => prefetchMailMessage(mailbox, m.id, m.folder)}
                   onChanged={() => void load()}
                 />
               ))}
@@ -1397,6 +1404,7 @@ export default function Mail() {
                     snoozedUntil={snoozeOf.get(newest.id)?.until}
                     backFromSnooze={t.messages.some((x) => returnedOf.has(x.id))}
                     onOpen={() => void open(newest, t.messages)}
+                    onWarm={() => prefetchMailMessage(mailbox, newest.id, newest.folder)}
                     onChanged={() => void load()}
                   />
                 );

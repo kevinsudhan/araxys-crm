@@ -1,5 +1,6 @@
 import { supabase } from "../lib/supabase";
 import type { DimensionLine } from "../lib/dimensions";
+import { shared } from "../lib/queryCache";
 
 /**
  * The dimension lines on an enquiry (063).
@@ -27,14 +28,16 @@ const toLine = (r: Record<string, unknown>): DimensionLine => {
 };
 
 export async function listDimensions(ref: string): Promise<DimensionLine[]> {
-  const { data, error } = await supabase
-    .from("enquiry_dimensions")
-    .select(COLUMNS)
-    .eq("enquiry_ref", ref)
-    .order("position")
-    .order("created_at");
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => toLine(r as Record<string, unknown>));
+  return shared(`enquiry_dimensions:${ref}`, async () => {
+    const { data, error } = await supabase
+      .from("enquiry_dimensions")
+      .select(COLUMNS)
+      .eq("enquiry_ref", ref)
+      .order("position")
+      .order("created_at");
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => toLine(r as Record<string, unknown>));
+  });
 }
 
 export async function addDimension(ref: string, position: number): Promise<DimensionLine> {

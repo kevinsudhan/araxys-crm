@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { shared } from "../lib/queryCache";
 
 /**
  * The parts of an in-process shipment that are the shipment's alone (065):
@@ -43,14 +44,16 @@ export const ROUTING_STATUS_LABEL: Record<RoutingStatus, string> = {
 };
 
 export async function routingsFor(shipmentId: string): Promise<Routing[]> {
-  const { data, error } = await supabase
-    .from("shipment_routings")
-    .select("*")
-    .eq("shipment_id", shipmentId)
-    .order("position")
-    .order("created_at");
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Routing[];
+  return shared(`shipment_routings:${shipmentId}`, async () => {
+    const { data, error } = await supabase
+      .from("shipment_routings")
+      .select("*")
+      .eq("shipment_id", shipmentId)
+      .order("position")
+      .order("created_at");
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Routing[];
+  });
 }
 
 export async function addRouting(

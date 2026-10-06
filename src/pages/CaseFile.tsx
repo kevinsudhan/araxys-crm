@@ -173,7 +173,13 @@ export default function CaseFile() {
         All in one go with the enquiry itself (6 Oct): each needs only the
         reference, and waiting for the enquiry first was a whole round trip
         more on every file opened.
+
+        The mail starts with them too (7 Oct): its own reads of the threads and
+        pinned messages go alongside, the enquiry and parties it needs are the
+        same trips as these (shared reads), and Outlook is asked as soon as they
+        are back rather than a round trip after the file is on screen.
       */
+      const mailRead = correspondenceFor(ref, mailbox).catch(() => null);
       const [e, p, q, ev, sh, pq, d] = await Promise.all([
         getEnquiry(ref),
         MAIL_ONLY_CASE_FILE ? Promise.resolve<Party[]>([]) : partiesFor(ref),
@@ -202,9 +208,7 @@ export default function CaseFile() {
 
       // Mail is best-effort: a mailbox that will not load must not blank the file.
       setMailLoading(true);
-      const m = await correspondenceFor(ref, mailbox, { parties: p, customerEmails: e.customer?.emails ?? [] })
-        .catch(() => null)
-        .finally(() => setMailLoading(false));
+      const m = await mailRead.finally(() => setMailLoading(false));
       // A mailbox that did not answer keeps the mail the file already showed.
       if (m) setMail(m);
 

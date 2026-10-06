@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import type { FreightMode } from "../lib/chargeableWeight";
 import type { TradeDirection } from "./charges";
 
@@ -90,7 +90,7 @@ export async function saveRate(patch: Partial<RateCard>): Promise<RateCard> {
   }
   const { data, error } = await supabase
     .from("rate_cards")
-    .insert({ ...row, created_by: (await supabase.auth.getUser()).data.user?.id ?? null })
+    .insert({ ...row, created_by: await myId() })
     .select()
     .single();
   if (error) throw new Error(error.message);

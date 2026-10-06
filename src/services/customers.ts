@@ -1,5 +1,6 @@
 import { supabase } from "../lib/supabase";
 import type { Enquiry, Shipment } from "./enquiries";
+import { shared } from "../lib/queryCache";
 
 /**
  * Customers, as a book you can open.
@@ -118,23 +119,27 @@ export async function listCustomers(): Promise<CustomerSummary[]> {
 }
 
 export async function getCustomer(id: string): Promise<Customer | null> {
-  const { data, error } = await supabase
-    .from("customers")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as Customer) ?? null;
+  return shared(`customers:${id}`, async () => {
+    const { data, error } = await supabase
+      .from("customers")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as Customer) ?? null;
+  });
 }
 
 export async function getSummary(id: string): Promise<CustomerSummary | null> {
-  const { data, error } = await supabase
-    .from("customer_summary")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as CustomerSummary) ?? null;
+  return shared(`customer_summaries:${id}`, async () => {
+    const { data, error } = await supabase
+      .from("customer_summary")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as CustomerSummary) ?? null;
+  });
 }
 
 /**
@@ -242,13 +247,15 @@ export const restoreCustomer = (id: string) => updateCustomer(id, { active: true
  * the most relevant thing, if somebody is asking why the last job never sailed.
  */
 export async function shipmentsFor(customerId: string): Promise<Shipment[]> {
-  const { data, error } = await supabase
-    .from("shipments")
-    .select("*")
-    .eq("customer_id", customerId)
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Shipment[];
+  return shared(`shipments:customer:${customerId}`, async () => {
+    const { data, error } = await supabase
+      .from("shipments")
+      .select("*")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Shipment[];
+  });
 }
 
 /**
@@ -260,13 +267,15 @@ export async function shipmentsFor(customerId: string): Promise<Shipment[]> {
  * somebody else.
  */
 export async function enquiriesFor(customerId: string): Promise<Enquiry[]> {
-  const { data, error } = await supabase
-    .from("enquiries")
-    .select("*")
-    .eq("customer_id", customerId)
-    .order("received_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Enquiry[];
+  return shared(`enquiries:customer:${customerId}`, async () => {
+    const { data, error } = await supabase
+      .from("enquiries")
+      .select("*")
+      .eq("customer_id", customerId)
+      .order("received_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Enquiry[];
+  });
 }
 
 /** Every tag in use, for the directory's filter row. */

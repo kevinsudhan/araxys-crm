@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 
 /**
  * Warehouse receipts (068): what actually arrived, one row per delivery in.
@@ -54,7 +54,7 @@ export async function addReceipt(
   const { error } = await supabase.from("warehouse_receipts").insert({
     shipment_id: shipmentId,
     ...r,
-    received_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+    received_by: await myId(),
   });
   if (error) throw new Error(error.message);
 }

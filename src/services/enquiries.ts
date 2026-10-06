@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import { shared } from "../lib/queryCache";
 import { all } from "./paging";
 import { refFromSubject, subjectToken, type PartyRole } from "./caseFile";
@@ -740,13 +740,15 @@ export async function quotesFor(ref: string): Promise<Quote[]> {
 }
 
 export async function eventsFor(ref: string): Promise<EnquiryEvent[]> {
-  const { data, error } = await supabase
-    .from("enquiry_events")
-    .select("*")
-    .eq("enquiry_ref", ref.toUpperCase())
-    .order("at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as EnquiryEvent[];
+  return shared(`enquiry_events:${ref.toUpperCase()}`, async () => {
+    const { data, error } = await supabase
+      .from("enquiry_events")
+      .select("*")
+      .eq("enquiry_ref", ref.toUpperCase())
+      .order("at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as EnquiryEvent[];
+  });
 }
 
 /**
@@ -759,13 +761,15 @@ export async function eventsFor(ref: string): Promise<EnquiryEvent[]> {
  * one that means nothing.
  */
 export async function recentEvents(limit = 8): Promise<EnquiryEvent[]> {
-  const { data, error } = await supabase
-    .from("enquiry_events")
-    .select("*")
-    .order("at", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as EnquiryEvent[];
+  return shared(`enquiry_events:recent:${limit}`, async () => {
+    const { data, error } = await supabase
+      .from("enquiry_events")
+      .select("*")
+      .order("at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data ?? []) as EnquiryEvent[];
+  });
 }
 
 /**
@@ -865,13 +869,15 @@ export interface ShipmentRow extends Shipment {
 export async function getShipment(
   id: string
 ): Promise<(Shipment & { customer: Customer | null }) | null> {
-  const { data, error } = await supabase
-    .from("shipments")
-    .select("*, customer:customers(*)")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as (Shipment & { customer: Customer | null }) | null) ?? null;
+  return shared(`shipments:id:${id}`, async () => {
+    const { data, error } = await supabase
+      .from("shipments")
+      .select("*, customer:customers(*)")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as (Shipment & { customer: Customer | null }) | null) ?? null;
+  });
 }
 
 export async function threadsFor(ref: string): Promise<string[]> {
@@ -991,7 +997,7 @@ export async function threadOwner(conversationId: string): Promise<string | null
  * written on both timelines: where it went, and where it came from.
  */
 export async function bindThread(ref: string, conversationId: string, messageId?: string, opts: { move?: boolean } = {}) {
-  const { data: user } = await supabase.auth.getUser();
+  const me = await myId();
   const to = ref.toUpperCase();
   const from = await threadOwner(conversationId);
   if (from && from !== to && !opts.move) {
@@ -1002,7 +1008,7 @@ export async function bindThread(ref: string, conversationId: string, messageId?
     {
       conversation_id: conversationId,
       enquiry_ref: ref.toUpperCase(),
-      bound_by: user.user?.id ?? null,
+      bound_by: me,
     },
     { onConflict: "conversation_id" }
   );
@@ -1030,13 +1036,13 @@ export async function logEvent(
   summary: string,
   detail: Record<string, unknown> = {}
 ) {
-  const { data: user } = await supabase.auth.getUser();
+  const me = await myId();
   await supabase.from("enquiry_events").insert({
     enquiry_ref: ref.toUpperCase(),
     kind,
     summary,
     detail,
-    actor: user.user?.id ?? null,
+    actor: me,
   });
 }
 
@@ -1074,7 +1080,7 @@ export async function addQuote(input: {
     .eq("enquiry_ref", ref)
     .in("status", ["draft", "sent"]);
 
-  const { data: user } = await supabase.auth.getUser();
+  const me = await myId();
   const { data, error } = await supabase
     .from("quotes")
     .insert({
@@ -1093,7 +1099,7 @@ export async function addQuote(input: {
       quote_type: input.quoteType ?? "standard",
       multi_carrier: input.multiCarrier ?? false,
       status: "draft",
-      created_by: user.user?.id ?? null,
+      created_by: me,
     })
     .select()
     .single();
@@ -1198,116 +1204,118 @@ export async function correspondenceFor(
   /** What the caller has just read (the case file): not read a second time. */
   known?: { parties?: Party[]; customerEmails?: string[] }
 ): Promise<FiledMessage[]> {
-  if (!mailIsLive() || !mailbox) return [];
+  return shared(`enquiry_messages:${ref.toUpperCase()}:${mailbox}`, async () => {
+    if (!mailIsLive() || !mailbox) return [];
 
-  const [threads, parties, pinned, owner] = await Promise.all([
-    threadsFor(ref),
-    known?.parties ? Promise.resolve(known.parties) : partiesFor(ref),
-    supabase.from("enquiry_messages").select("message_id, via").eq("enquiry_ref", ref.toUpperCase()),
-    known?.customerEmails ? Promise.resolve({ customer: { emails: known.customerEmails } }) : getEnquiry(ref),
-  ]);
+    const [threads, parties, pinned, owner] = await Promise.all([
+      threadsFor(ref),
+      known?.parties ? Promise.resolve(known.parties) : partiesFor(ref),
+      supabase.from("enquiry_messages").select("message_id, via").eq("enquiry_ref", ref.toUpperCase()),
+      known?.customerEmails ? Promise.resolve({ customer: { emails: known.customerEmails } }) : getEnquiry(ref),
+    ]);
 
-  /**
-   * The customer's own addresses.
-   *
-   * Nothing ever writes the customer into enquiry_parties -- that table fills up
-   * with the agents and brokers discovered from mail -- so without this the
-   * person the enquiry belongs to was the one correspondent the case file could
-   * not recognise, and their replies filed under "Other".
-   */
-  const clientAddresses = new Set(
-    (owner?.customer?.emails ?? []).map((e) => e.toLowerCase())
-  );
+    /**
+     * The customer's own addresses.
+     *
+     * Nothing ever writes the customer into enquiry_parties -- that table fills up
+     * with the agents and brokers discovered from mail -- so without this the
+     * person the enquiry belongs to was the one correspondent the case file could
+     * not recognise, and their replies filed under "Other".
+     */
+    const clientAddresses = new Set(
+      (owner?.customer?.emails ?? []).map((e) => e.toLowerCase())
+    );
 
-  const pinnedIds = new Map(
-    (pinned.data ?? []).map((r) => [r.message_id as string, r.via as FiledMessage["via"]])
-  );
+    const pinnedIds = new Map(
+      (pinned.data ?? []).map((r) => [r.message_id as string, r.via as FiledMessage["via"]])
+    );
 
-  /*
-    Gathered by identifier, not by scanning recent folders.
+    /*
+      Gathered by identifier, not by scanning recent folders.
 
-    This used to read the first page of inbox, sent and archive — fifty each —
-    and keep whatever matched. Every rule below is a precise identifier, so the
-    scan was never the thing that decided; it was only the supply of messages,
-    and it silently capped the case file at "the last fifty, per folder". A
-    thread bound to an older enquiry simply did not appear, and nothing said so:
-    the binding was right, the correspondence was right, and the screen was
-    empty. Filing a month-old exchange onto a job is exactly when somebody
-    reaches for that button.
+      This used to read the first page of inbox, sent and archive — fifty each —
+      and keep whatever matched. Every rule below is a precise identifier, so the
+      scan was never the thing that decided; it was only the supply of messages,
+      and it silently capped the case file at "the last fifty, per folder". A
+      thread bound to an older enquiry simply did not appear, and nothing said so:
+      the binding was right, the correspondence was right, and the screen was
+      empty. Filing a month-old exchange onto a job is exactly when somebody
+      reaches for that button.
 
-    Asking Graph for each thing by name has no such horizon and is fewer
-    requests on a typical case file — three conversations rather than a hundred
-    and fifty messages.
-  */
-  const seen = new Map<string, MailMessage>();
+      Asking Graph for each thing by name has no such horizon and is fewer
+      requests on a typical case file — three conversations rather than a hundred
+      and fifty messages.
+    */
+    const seen = new Map<string, MailMessage>();
 
-  const [byThread, bySubject, byPin] = await Promise.all([
-    // Whole conversations, at any age.
-    Promise.all(threads.map((id) => conversationMessages(mailbox, id).catch(() => []))),
-    // Anything still carrying our token in its subject, anywhere in the mailbox.
-    searchMail(mailbox, `"${subjectToken(ref)}"`).catch(() => [] as MailMessage[]),
-    // Messages somebody pinned by hand, which may belong to no bound thread.
-    Promise.all(
-      [...pinnedIds.keys()].map((id) =>
-        getMailMessage(mailbox, id)
-          .then((r) => r.message)
-          .catch(() => null)
-      )
-    ),
-  ]);
+    const [byThread, bySubject, byPin] = await Promise.all([
+      // Whole conversations, at any age.
+      Promise.all(threads.map((id) => conversationMessages(mailbox, id).catch(() => []))),
+      // Anything still carrying our token in its subject, anywhere in the mailbox.
+      searchMail(mailbox, `"${subjectToken(ref)}"`).catch(() => [] as MailMessage[]),
+      // Messages somebody pinned by hand, which may belong to no bound thread.
+      Promise.all(
+        [...pinnedIds.keys()].map((id) =>
+          getMailMessage(mailbox, id)
+            .then((r) => r.message)
+            .catch(() => null)
+        )
+      ),
+    ]);
 
-  /*
-    Stamp the direction on the way in.
+    /*
+      Stamp the direction on the way in.
 
-    Graph does not say which folder a result of a conversation or search came
-    from, and `adapt` fills in "inbox" because something has to go there. Every
-    reader downstream — this function, MailRow, the compose box — decides
-    inbound or outbound from `folder === "sent"`, so left alone our own replies
-    would render as though the customer had sent them.
+      Graph does not say which folder a result of a conversation or search came
+      from, and `adapt` fills in "inbox" because something has to go there. Every
+      reader downstream — this function, MailRow, the compose box — decides
+      inbound or outbound from `folder === "sent"`, so left alone our own replies
+      would render as though the customer had sent them.
 
-    The sender is the fact the folder was standing in for, so it is read once
-    here and the folder set to match. One place, and nothing downstream has to
-    know this happened.
-  */
-  const remember = (m: MailMessage) => {
-    const outbound = m.from.emailAddress.address.toLowerCase() === mailbox.toLowerCase();
-    seen.set(m.id, outbound && m.folder !== "sent" ? { ...m, folder: "sent" } : m);
-  };
+      The sender is the fact the folder was standing in for, so it is read once
+      here and the folder set to match. One place, and nothing downstream has to
+      know this happened.
+    */
+    const remember = (m: MailMessage) => {
+      const outbound = m.from.emailAddress.address.toLowerCase() === mailbox.toLowerCase();
+      seen.set(m.id, outbound && m.folder !== "sent" ? { ...m, folder: "sent" } : m);
+    };
 
-  for (const page of byThread) for (const m of page) remember(m);
-  for (const m of bySubject) remember(m);
-  for (const m of byPin) if (m) remember(m);
+    for (const page of byThread) for (const m of page) remember(m);
+    for (const m of bySubject) remember(m);
+    for (const m of byPin) if (m) remember(m);
 
-  const out: FiledMessage[] = [];
-  for (const m of seen.values()) {
-    let via: FiledMessage["via"] | null = null;
+    const out: FiledMessage[] = [];
+    for (const m of seen.values()) {
+      let via: FiledMessage["via"] | null = null;
 
-    if (pinnedIds.has(m.id)) via = pinnedIds.get(m.id)!;
-    else if (threads.includes(m.conversationId)) via = "thread";
-    else if (refFromSubject(m.subject)?.toUpperCase() === ref.toUpperCase()) via = "subject";
-    if (!via) continue;
+      if (pinnedIds.has(m.id)) via = pinnedIds.get(m.id)!;
+      else if (threads.includes(m.conversationId)) via = "thread";
+      else if (refFromSubject(m.subject)?.toUpperCase() === ref.toUpperCase()) via = "subject";
+      if (!via) continue;
 
-    // The counterparty is whichever end is not us. `folder` is trustworthy
-    // here because `remember` above set it from the sender.
-    const counterparty =
-      m.folder === "sent"
-        ? m.toRecipients[0]?.emailAddress.address ?? ""
-        : m.from.emailAddress.address;
-    // A named party wins over the customer list, so somebody who is both the
-    // customer's contact and, say, the consol partner keeps the role the desk
-    // gave them deliberately.
-    const known = parties.find((p) =>
-      p.emails.some((e) => e.toLowerCase() === counterparty.toLowerCase())
-    )?.role;
-    const role: PartyRole =
-      known ?? (clientAddresses.has(counterparty.toLowerCase()) ? "client" : "other");
+      // The counterparty is whichever end is not us. `folder` is trustworthy
+      // here because `remember` above set it from the sender.
+      const counterparty =
+        m.folder === "sent"
+          ? m.toRecipients[0]?.emailAddress.address ?? ""
+          : m.from.emailAddress.address;
+      // A named party wins over the customer list, so somebody who is both the
+      // customer's contact and, say, the consol partner keeps the role the desk
+      // gave them deliberately.
+      const known = parties.find((p) =>
+        p.emails.some((e) => e.toLowerCase() === counterparty.toLowerCase())
+      )?.role;
+      const role: PartyRole =
+        known ?? (clientAddresses.has(counterparty.toLowerCase()) ? "client" : "other");
 
-    out.push({ message: m, role, via, confidence: via === "reference-in-body" ? "likely" : "certain" });
-  }
+      out.push({ message: m, role, via, confidence: via === "reference-in-body" ? "likely" : "certain" });
+    }
 
-  return out.sort(
-    (a, b) => Date.parse(b.message.receivedDateTime) - Date.parse(a.message.receivedDateTime)
-  );
+    return out.sort(
+      (a, b) => Date.parse(b.message.receivedDateTime) - Date.parse(a.message.receivedDateTime)
+    );
+  });
 }
 
 /** Inbox mail not yet filed against any enquiry — the triage queue. */

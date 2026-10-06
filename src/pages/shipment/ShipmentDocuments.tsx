@@ -30,6 +30,7 @@ import {
 } from "../../services/attachments";
 import { formatDate } from "../../lib/dates";
 import { useLiveVersion } from "../../lib/liveVersions";
+import { useCachedState } from "../../lib/useCachedState";
 
 /**
  * The job's paper: what has been filed, and what can be generated.
@@ -52,7 +53,8 @@ export default function ShipmentDocuments() {
   const { shipment } = useShipment();
   const navigate = useNavigate();
   const { session } = useAuth();
-  const [files, setFiles] = useState<EnquiryFile[]>([]);
+  // Kept per job (lib/queryCache): the tab opens on its list and reads again behind it (7 Oct).
+  const [files, setFiles] = useCachedState<EnquiryFile[]>(`ship:${shipment.id}:files`, []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 

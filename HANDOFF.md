@@ -1073,6 +1073,44 @@ its data. What was done:
   cached once; making it lazy would change ~40 call sites to async. Gemini's paste reading and Graph's
   mailbox search are the services' own time.
 
+**Speed, third pass (7 Oct; the user: "scan the entire software… very fast and snappy… do not break
+any function").** Measured from the desk's browser: a request on an open connection ~50 ms; the first
+after 40–50 s of quiet 270–320 ms (the connection had closed); each new kind of request also pays a
+CORS preflight once an hour (`access-control-max-age: 3600`, per URL), which is why a first open costs
+two trips. The database stays at 1–30 ms. What was done:
+- **No trip to learn who is signed in**: `myId()` (lib/supabase.ts) reads the session the tab holds.
+  `auth.getUser()` asked the auth server before every write it was used for (logEvent after most
+  actions, created_by/done_by fields — 15 places); the database still checks the token on the write.
+- **Read ahead of the click** (`lib/warm.ts`, wired in `layout/AppLayout.tsx`): a pointer resting 80 ms
+  on any link, pressing it, or the keyboard reaching it, reads the case file (with its mail), the
+  job (with its workflow bar and routings), the customer, or the boards it leads to, under the pages'
+  own snapshot keys — change a page's `useCachedState` key, change warm.ts too. A page opened while
+  the reads are on their way joins them (shared reads); one opened after shows them at once. The
+  boards (overview, enquiries, my enquiries, completed) are also warmed once at idle after start-up;
+  In process is not (its cards sort by steps read after the rows). Measured with 250 ms a trip: case
+  file 305 ms → 118 (hover 150 ms before the click) → 10 (400 ms); job 275 → 111 → 21.
+- **Shared reads made safe** (`lib/queryCache.ts`): every request leaving the Supabase client is seen
+  (`global.fetch` in lib/supabase.ts); anything but GET/HEAD counts as a write (`noteWrite`), and a
+  read already on its way when a write went out is neither joined by a later caller nor kept (ttl).
+  `invalidate` drops in-flight reads too. Tests: `scripts/tests/queryCache.test.ts`. Newly shared:
+  `eventsFor`, `getShipment`, `listDimensions`, `listQuotes`, `shipmentMargin`, `shipmentBilling`
+  (new, services/bills), `listShipmentContainers`, `checkpointsFor`, `routingsFor`, `getCustomer`,
+  `getSummary`, `shipmentsFor`, `enquiriesFor`, `correspondenceFor`, `recentEvents`, `countWaiting`.
+- **The case file's mail starts with the file** (and the shipment's Mail tab): its database reads go in
+  the first wave, so Outlook is asked a round trip sooner.
+- **Kept per job, too**: the Documents, Sign-off, Warehouse and Parties tabs' lists, the Routings panel;
+  the shipment Mail tab uses the case file's own keys (`case:REF:…`), so either opens on the other's.
+- **Mail** (services/graphMail.ts): a message opened is kept in memory (80, 15 min; never storage;
+  not drafts; read/flag kept current by `setRead`/`setFlag`; moved/deleted forgotten; cleared with the
+  Outlook link on sign-out) — reopening is instant instead of 300 ms–1 s; a row the pointer rests on is
+  read ahead (`prefetchMessage`, MailListRow `onWarm`). The reading pane takes read/flagged from the
+  list, which changes the moment they are pressed.
+- **The line kept open** (`lib/warmLine.ts`): the gateway's health check every 20 s while the tab is in
+  view and somebody moved or typed in the last 10 minutes; at once when they come back after a pause.
+  The public key goes in the address, so the browser sends it without a preflight.
+- **Icons in one file** (`vendor-icons`): ~120 files of a few hundred bytes were 20–60 requests per page
+  opened; the build went from 204 files to 162. Graph is preconnected at start-up.
+
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**
 (`lib/arrivalNotice.ts`, copied verbatim into `supabase-v2/functions/arrival-notices` with

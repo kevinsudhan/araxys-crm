@@ -16,6 +16,7 @@ import {
 } from "../../services/warehouse";
 import { formatDate } from "../../lib/dates";
 import { useLiveVersion } from "../../lib/liveVersions";
+import { useCachedState } from "../../lib/useCachedState";
 
 /**
  * What arrived at the warehouse or CFS, against what was booked.
@@ -32,7 +33,8 @@ import { useLiveVersion } from "../../lib/liveVersions";
  */
 export default function ShipmentWarehouse() {
   const { shipment: s, enquiry, reload } = useShipment();
-  const [rows, setRows] = useState<Receipt[]>([]);
+  // Kept per job (lib/queryCache): the tab opens on its receipts and reads again behind it (7 Oct).
+  const [rows, setRows] = useCachedState<Receipt[]>(`ship:${s.id}:receipts`, []);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [noted, setNoted] = useState(false);

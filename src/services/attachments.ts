@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabase";
+import { myId, supabase } from "../lib/supabase";
 import { base64ToBytes, bytesToBase64 } from "../lib/base64";
 import { getAttachmentBytes, type OutgoingAttachment } from "./graphMail";
 
@@ -120,7 +120,7 @@ export async function fileMailAttachment(input: {
       source: "mail",
       message_id: input.messageId,
       subject: input.subject ?? null,
-      filed_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+      filed_by: await myId(),
     })
     .select()
     .single();
@@ -169,7 +169,7 @@ export async function uploadFile(input: {
       document_type: input.documentType,
       reference_number: input.referenceNumber?.trim() || null,
       protected: input.protected ?? false,
-      filed_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+      filed_by: await myId(),
     })
     .select()
     .single();
@@ -213,7 +213,7 @@ export async function fileGeneratedDocument(input: {
       size_bytes: input.bytes.byteLength,
       path,
       source: "generated",
-      filed_by: (await supabase.auth.getUser()).data.user?.id ?? null,
+      filed_by: await myId(),
     })
     .select()
     .single();
