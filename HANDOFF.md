@@ -1138,6 +1138,13 @@ two trips. The database stays at 1–30 ms. What was done:
   no touch/scroll/key before each file. The line kept open stops two minutes after the last touch on a
   touch screen (the radio), and a tap counts as activity. The sign-in clip is not put on the page below
   lg — a hidden `<video preload>` still downloaded its 1.6 MB.
+- **Mail and My enquiries opened at once** (7 Oct, "pre load the most used pages regardless of hover"):
+  1.5 s after the app opens, `warmBoards` (My enquiries, Enquiries, Overview, Completed) and then
+  `warmMail` (lib/warm.ts: the folder list and the Inbox's first page under the Mail page's own keys
+  `mail:<box>:folders` / `mail:<box>:inbox:all`, and on a laptop or iPad the newest three bodies into
+  graphMail's memory) — every device, before any hover. Not when Mail is the page already open, nor
+  without Outlook connected. Reading marks nothing read. Measured with 400 ms an Outlook trip: Mail's
+  first open 412 ms → 4 ms.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

@@ -191,8 +191,15 @@ export default function AppLayout() {
     const small = window.matchMedia("(max-width: 767px)").matches;
     const slow = ["slow-2g", "2g", "3g"].includes(connection?.effectiveType ?? "");
     const core = [
-      // First the boards' rows (lib/warm): the first visit to each opens on them.
+      // First the data of the pages used most (lib/warm, 7 Oct): the boards'
+      // rows — My enquiries among them — and the Inbox, so the first visit to
+      // each in a tab opens on them, on a laptop, an iPad or a phone alike.
+      // Not when that page is the one already open: it is reading for itself.
       () => import("../lib/warm").then((m) => m.warmBoards()),
+      () =>
+        window.location.pathname.startsWith("/mail")
+          ? Promise.resolve()
+          : import("../lib/warm").then((m) => m.warmMail(mailbox.current, { bodies: !small })),
       () => import("../pages/Overview"),
       () => import("../pages/Enquiries"),
       () => import("../pages/CaseFile"),
@@ -269,7 +276,8 @@ export default function AppLayout() {
       if (cancelled || i >= pages.length) return;
       idle(() => void pages[i]().catch(() => {}).finally(() => next(i + 1)));
     };
-    const start = window.setTimeout(() => next(0), 2500);
+    // Soon after the page in front has had its own reads (half a second or so).
+    const start = window.setTimeout(() => next(0), 1500);
     return () => {
       cancelled = true;
       window.clearTimeout(start);

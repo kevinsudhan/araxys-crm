@@ -26,6 +26,7 @@ import { checkpointsFor } from "../services/checkpoints";
 import { routingsFor } from "../services/shipmentExtras";
 import { enquiriesFor, getCustomer, getSummary, shipmentsFor } from "../services/customers";
 import { countWaiting } from "../services/intake";
+import { getMailFolders, getMailMessages, mailIsLive, prefetchMailMessage } from "../services/backend";
 
 /**
  * A page's data, read before it is opened (7 Oct).
@@ -183,6 +184,30 @@ export async function warmBoards(): Promise<void> {
   }
 }
 
+/**
+ * The Inbox (pages/Mail.tsx), read when the app opens (7 Oct): the folder list
+ * and the Inbox's first page under the Mail page's own keys, so the first open
+ * of Mail in a tab shows the mail at once instead of waiting on Outlook. With
+ * `bodies`, the newest few messages are read in full as well (kept in memory,
+ * services/graphMail) so opening the latest mail is instant too — not on a
+ * phone, where a body with pictures in it is real data.
+ *
+ * Reading changes nothing in the mailbox: Outlook marks a message read only
+ * when asked to, and nothing here asks. Without Outlook connected, nothing is
+ * read and nothing is prompted.
+ */
+export async function warmMail(mailbox: string, opts: { bodies?: boolean } = {}): Promise<void> {
+  if (!mailbox || !mailIsLive() || !due(`mail:${mailbox}`)) return;
+  try {
+    const [f, m] = await Promise.all([getMailFolders(mailbox), getMailMessages(mailbox, "inbox")]);
+    put(`mail:${mailbox}:folders`, f.folders);
+    put(`mail:${mailbox}:inbox:all`, m.messages);
+    if (opts.bodies) for (const x of m.messages.slice(0, 3)) prefetchMailMessage(mailbox, x.id, x.folder);
+  } catch {
+    // The page reads for itself.
+  }
+}
+
 const BOARDS = new Set(["/", "/enquiries", "/my-enquiries", "/shipments/completed"]);
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
@@ -214,5 +239,7 @@ export function warmLink(href: string, mailbox: string): void {
     void warmCustomer(m[1]);
   } else if (BOARDS.has(path)) {
     void warmBoards();
+  } else if (path === "/mail") {
+    void warmMail(mailbox, { bodies: true });
   }
 }
