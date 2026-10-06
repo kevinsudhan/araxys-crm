@@ -618,8 +618,10 @@ const PASTE_SYSTEM = [
   "- unit is one of: W/M, CBM, Kg, Container, B/L, Shipment, Trip, Lumpsum — the nearest. Per",
   "  40HC / per container is Container, per BL is B/L, per kg is Kg, per cbm is CBM, per",
   "  shipment / per job is Shipment, a fixed figure with no basis is Lumpsum.",
-  "- currency is one of INR, USD, EUR, GBP, AED, SGD. Rs, Rs. and the rupee sign are INR; $ is",
-  "  USD. A figure with no currency, in a text that sets none, is INR.",
+  "- currency is the three-letter ISO code of the currency the figure is in, as written: INR,",
+  "  USD, EUR, GBP, AED, SGD, CNY, JPY and so on. Rs, Rs. and the rupee sign are INR; $ is USD;",
+  "  the euro sign EUR; the pound sign GBP; Dhs AED; RMB CNY. Never put a figure in a currency",
+  "  it is not in. A figure with no currency, in a text that sets none, is INR.",
   "- section: when the text groups the charges under headings, follow its grouping — a",
   "  freight heading is freight, an ex works / EXW / origin / pickup heading is ex_works, a",
   "  destination / delivery heading is destination, any other heading is other. A charge",
@@ -964,7 +966,10 @@ Deno.serve(async (req) => {
    * decide anything, and input is what this costs. 12k characters is a
    * generous single message and a short thread.
    */
-  const excerpt = text.slice(0, 12000);
+  // A pasted rate sheet is read whole, up to the 30k the paste screen allows
+  // (src/services/pasteQuote.ts PASTE_LIMIT): its last charges are as much a
+  // part of the quotation as its first.
+  const excerpt = text.slice(0, pasting ? 30000 : 12000);
 
   const prompt = [
     drafting

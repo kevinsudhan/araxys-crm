@@ -17,8 +17,9 @@ import {
   singleUnit,
 } from "../lib/pastedQuote";
 import { airTable } from "../lib/airQuote";
+import FigureInput from "./FigureInput";
 import PasteInput from "./PasteInput";
-import { applyPastedQuote, isAirQuote, readPastedQuote, tableLayout } from "../services/pasteQuote";
+import { applyPastedQuote, draftTerms, isAirQuote, readPastedQuote, tableLayout } from "../services/pasteQuote";
 import { airTableHtml, chargesHtml } from "../lib/quotationMail";
 import type { Enquiry, Quote } from "../services/enquiries";
 import { addToBuyRate } from "../services/buyRates";
@@ -123,7 +124,10 @@ export default function PasteQuoteDialog({
     try {
       const got = await readPastedQuote(enquiry, text);
       setQ(got);
-      setTermsText(got.terms.join("\n"));
+      // A draft's own terms are shown with the paste's, so what is in the box is what is saved.
+      const kept = cost ? [] : draftTerms(live);
+      const seen = new Set(kept.map((t) => t.toLowerCase()));
+      setTermsText([...kept, ...got.terms.filter((t) => !seen.has(t.toLowerCase()))].join("\n"));
     } catch (e) {
       setError(e instanceof Error ? e.message : `The ${what} could not be read.`);
     } finally {
@@ -168,6 +172,8 @@ export default function PasteQuoteDialog({
     if (!current) return;
     if (!current.lines.length) return setError("There are no charges to save.");
     if (current.lines.some((l) => !l.description.trim())) return setError("Every charge needs a name.");
+    const none = current.lines.find((l) => l.percent == null && !(l.quantity > 0));
+    if (none) return setError(`Give the units for ${none.description}: more than nothing.`);
     const loose = current.lines.find((l) => l.percent != null && (!l.percent || !l.percentOf?.length));
     if (loose) return setError(`Say what ${loose.description || "the percentage charge"} is a percentage of.`);
     if (missingRoe.length) return setError(`Give the rate of exchange for ${missingRoe.join(", ")}.`);
@@ -231,10 +237,9 @@ export default function PasteQuoteDialog({
                 />
                 {share ? (
                   <>
-                    <input
-                      value={String(l.percent ?? "")}
-                      onChange={(e) => setShare(i, { percent: Number(e.target.value) || 0, percentOf: l.percentOf ?? [] })}
-                      inputMode="decimal"
+                    <FigureInput
+                      value={l.percent}
+                      onValue={(n) => setShare(i, { percent: n, percentOf: l.percentOf ?? [] })}
                       aria-label="Per cent"
                       className="h-8 w-14 text-right text-[12.5px] tabular-nums"
                     />
@@ -243,14 +248,15 @@ export default function PasteQuoteDialog({
                 ) : (
                   <>
                     <select value={l.currency} onChange={(e) => setLine(i, { currency: e.target.value })} aria-label="Currency" className="h-8 w-[4.6rem] text-[12.5px]">
-                      {PASTE_CURRENCIES.map((c) => (
+                      {/* The paste's own currency too, when it is not one of the usual ones (CNY, JPY…). */}
+                      {[...new Set([...PASTE_CURRENCIES, l.currency])].map((c) => (
                         <option key={c}>{c}</option>
                       ))}
                     </select>
-                    <input
-                      value={String(l.rate)}
-                      onChange={(e) => setLine(i, { rate: Number(e.target.value.replace(/,/g, "")) || 0 })}
-                      inputMode="decimal"
+                    <FigureInput
+                      value={l.rate}
+                      onValue={(n) => setLine(i, { rate: n })}
+                      allowNegative
                       aria-label="Rate"
                       className="h-8 w-24 text-right text-[12.5px] tabular-nums"
                     />
@@ -260,12 +266,11 @@ export default function PasteQuoteDialog({
                       ))}
                     </select>
                     <span className="text-[11.5px] text-text-muted">×</span>
-                    <input
-                      value={String(l.quantity)}
-                      onChange={(e) => setLine(i, { quantity: Number(e.target.value) || 0 })}
-                      inputMode="decimal"
+                    <FigureInput
+                      value={l.quantity}
+                      onValue={(n) => setLine(i, { quantity: n })}
                       aria-label="Units"
-                      className="h-8 w-16 text-right text-[12.5px] tabular-nums"
+                      className={`h-8 w-16 text-right text-[12.5px] tabular-nums ${l.quantity > 0 ? "" : "border-text-danger"}`}
                     />
                   </>
                 )}
@@ -488,10 +493,10 @@ export default function PasteQuoteDialog({
                       {foreign.map((c) => (
                         <label key={c} className="flex items-center gap-2 text-[12.5px] text-text-primary">
                           <span className="w-16">1 {c} = ₹</span>
-                          <input
-                            value={q.roe[c] ? String(q.roe[c]) : ""}
-                            onChange={(e) => setQ((prev) => (prev ? { ...prev, roe: { ...prev.roe, [c]: Number(e.target.value) || 0 } } : prev))}
-                            inputMode="decimal"
+                          <FigureInput
+                            value={q.roe[c] ?? 0}
+                            blankZero
+                            onValue={(n) => setQ((prev) => (prev ? { ...prev, roe: { ...prev.roe, [c]: n } } : prev))}
                             placeholder="needed"
                             aria-label={`Rupees for one ${c}`}
                             className={`h-8 w-28 text-right tabular-nums ${q.roe[c] ? "" : "border-text-danger"}`}

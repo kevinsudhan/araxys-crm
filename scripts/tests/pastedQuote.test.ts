@@ -1,4 +1,5 @@
-import { chargesLayout, chargesText, lineText, normalisePasted, quoteText, sumByCurrency, totalInInr } from "../../src/lib/pastedQuote";
+import { chargesLayout, chargesText, currencyOf, lineText, normalisePasted, quoteText, sectionsByHeading, sumByCurrency, totalInInr } from "../../src/lib/pastedQuote";
+import { parseFigure } from "../../src/lib/figures";
 import { chargesHtml, quotationHtml } from "../../src/lib/quotationMail";
 
 /** A pasted quotation, laid out for the mail with totals the app works out (29 Sep 2026). */
@@ -34,7 +35,7 @@ is("a figure written with a comma is read", q.lines[1].rate, 2500);
 is("an exchange rate kept by currency, rupees ignored", q.roe, { USD: 84 });
 is("an empty term dropped", q.terms, ["Rates subject to space availability."]);
 is("an unknown section is Other", normalisePasted({ lines: [{ section: "x", description: "a", currency: "INR", unit: "B/L", quantity: 1, rate: 1 }] }).lines[0].section, "other");
-is("an unknown unit is Lumpsum, an unknown currency INR", (() => { const l = normalisePasted({ lines: [{ description: "a", currency: "XYZ", unit: "pallet", quantity: 1, rate: 1 }] }).lines[0]; return [l.unit, l.currency]; })(), ["Lumpsum", "INR"]);
+is("an unknown unit is Lumpsum; a currency is never taken as rupees (it waits for its rate of exchange)", (() => { const l = normalisePasted({ lines: [{ description: "a", currency: "XYZ", unit: "pallet", quantity: 1, rate: 1 }] }).lines[0]; return [l.unit, l.currency]; })(), ["Lumpsum", "XYZ"]);
 
 console.log("\nlines and totals");
 is("a count is shown with its product", lineText(q.lines[2]), "Ocean freight: USD 1,150 per container × 2 = USD 2,300");
@@ -86,6 +87,32 @@ is("the rates of exchange stay", html.includes("Rates of exchange: USD at 84, AE
 is("in the letter", pastedLetter.includes(">EX WORKS CHARGES :</span>"), true);
 is("a name typed with markup is escaped", chargesHtml({ groups: [{ title: "A<b>", totalLabel: "T", rows: [{ name: "x<y", value: "1", note: null }], total: "1" }], total: "1", rates: null }).includes("X&lt;Y"), true);
 is("no charges table in it", [pastedLetter.includes("Rate per unit"), builtLetter.includes("Rate per unit")], [false, true]);
+
+console.log("\nbugs found 6 Oct: currencies, same-named charges, figures as typed");
+is("a rate in yuan stays in yuan (it read as rupees: eleven times too small)", normalisePasted({ lines: [{ description: "Ocean freight", currency: "CNY", unit: "Container", quantity: 1, rate: 8000 }] }).lines[0].currency, "CNY");
+is("signs and words for a currency", ["₹", "Rs.", "$", "US$", "€", "£", "Dhs", "RMB", "JPY", "", null].map(currencyOf), ["INR", "INR", "USD", "USD", "EUR", "GBP", "AED", "CNY", "JPY", "INR", "INR"]);
+{
+  const text = "EX-WORKS CHARGES:\nTHC 5000\nDocumentation 1500\nDESTINATION CHARGES:\nTHC 7000\nDO fee 2500";
+  const read = normalisePasted({
+    lines: [
+      { section: "ex_works", description: "THC", currency: "INR", unit: "Container", quantity: 1, rate: 5000 },
+      { section: "ex_works", description: "Documentation", currency: "INR", unit: "B/L", quantity: 1, rate: 1500 },
+      { section: "destination", description: "THC", currency: "INR", unit: "Container", quantity: 1, rate: 7000 },
+      { section: "destination", description: "DO fee", currency: "INR", unit: "B/L", quantity: 1, rate: 2500 },
+    ],
+  }).lines;
+  is("THC at origin and THC at destination each under its own heading", sectionsByHeading(text, read).map((l) => `${l.description} ${l.rate} ${l.section}`), [
+    "THC 5000 ex_works",
+    "Documentation 1500 ex_works",
+    "THC 7000 destination",
+    "DO fee 2500 destination",
+  ]);
+}
+is(
+  "a figure as typed: decimals, commas, a half-typed one",
+  ["1150.5", "1,150.50", "2,06,600", "83.25", "1150.", ".5", "-500", "", "-", ".", "12a", "1.2.3"].map(parseFigure),
+  [1150.5, 1150.5, 206600, 83.25, 1150, 0.5, -500, null, null, null, null, null]
+);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

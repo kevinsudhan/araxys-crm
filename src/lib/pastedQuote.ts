@@ -74,6 +74,32 @@ const num = (v: unknown): number => {
 
 const text = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim().replace(/\s+/g, " ") : null);
 
+/** How a currency is written, to its code. */
+const CURRENCY_WORDS: Record<string, string> = {
+  "₹": "INR", RS: "INR", "RS.": "INR", INR: "INR", RUPEE: "INR", RUPEES: "INR",
+  $: "USD", US$: "USD", USD$: "USD", DOLLAR: "USD", DOLLARS: "USD",
+  "€": "EUR", EURO: "EUR", EUROS: "EUR",
+  "£": "GBP", POUND: "GBP", POUNDS: "GBP",
+  DH: "AED", DHS: "AED", DIRHAM: "AED", DIRHAMS: "AED",
+  RMB: "CNY", YUAN: "CNY",
+  S$: "SGD",
+};
+
+/**
+ * The currency a charge is in: its code as written ("CNY", "JPY" as well as
+ * the usual six), a sign or a word for one (₹, $, €, Dhs, RMB), or rupees
+ * when none is given. Never a different currency: a rate in yuan read as
+ * rupees is a charge eleven times too small.
+ */
+export function currencyOf(v: unknown): string {
+  const t = String(v ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (!t) return "INR";
+  if (CURRENCY_WORDS[t]) return CURRENCY_WORDS[t];
+  const code = t.match(/^[A-Z]{3}\b/)?.[0];
+  if (code && !CURRENCY_WORDS[code]) return code;
+  return CURRENCY_WORDS[code ?? ""] ?? "INR";
+}
+
 /** What the AI sent back, held to the values the quotation accepts. */
 export function normalisePasted(raw: unknown): PastedQuote {
   const r = (raw ?? {}) as Record<string, unknown>;
@@ -82,7 +108,7 @@ export function normalisePasted(raw: unknown): PastedQuote {
   const idAt = (i: number) => `l${i + 1}`;
   const lines = rawLines
     .map((l, i): PastedLine => {
-      const currency = String(l.currency ?? "INR").trim().toUpperCase().replace(/^RS\.?$/, "INR");
+      const currency = currencyOf(l.currency);
       const unit = PASTE_UNITS.find((u) => u.toLowerCase() === String(l.unit ?? "").trim().toLowerCase()) ?? "Lumpsum";
       const quantity = num(l.quantity);
       const gst = l.gst_rate == null || l.gst_rate === "" ? null : num(l.gst_rate);
@@ -92,7 +118,7 @@ export function normalisePasted(raw: unknown): PastedQuote {
         id: idAt(i),
         section: asSection(l.section),
         description: String(l.description ?? "").trim(),
-        currency: share ? "INR" : PASTE_CURRENCIES.includes(currency) ? currency : "INR",
+        currency: share ? "INR" : currency,
         unit: share && unit === "Lumpsum" ? "Shipment" : unit,
         quantity: share ? 1 : quantity > 0 ? quantity : 1,
         rate: share ? 0 : num(l.rate),
@@ -154,11 +180,19 @@ export function sectionsByHeading(text: string, lines: PastedLine[]): PastedLine
   });
   if (!headings.size) return lines;
   const plain = rows.map(words);
+  // Each row is one charge: two charges of the same name (THC at origin, THC
+  // at destination) are two rows, taken in order, each under its own heading.
+  const taken = new Set<number>();
+  let last = -1;
   return lines.map((l) => {
     const name = words(l.description);
     if (!name) return l;
-    const at = plain.findIndex((r, i) => !headings.has(i) && (r === name || r.startsWith(`${name} `)));
+    const fits = (r: string, i: number) => !headings.has(i) && !taken.has(i) && (r === name || r.startsWith(`${name} `));
+    let at = plain.findIndex((r, i) => i > last && fits(r, i));
+    if (at < 0) at = plain.findIndex(fits);
     if (at < 0) return l;
+    taken.add(at);
+    last = at;
     for (let i = at - 1; i >= 0; i--) {
       const s = headings.get(i);
       if (s) return { ...l, section: s };

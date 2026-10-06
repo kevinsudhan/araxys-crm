@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { parseFigure } from "../lib/figures";
 import { AlertCircle, Eye, EyeOff, Loader2, Plus, Trash2, Wand2 } from "lucide-react";
 import Select from "./Select";
 import { CHARGE_HEADS, LINE_CURRENCIES, UNITS, money } from "../services/charges";
@@ -61,9 +62,15 @@ function Cell({
   field,
   label,
   invalid,
+  figure,
 }: {
   value: string;
   onCommit: (v: string) => void;
+  /**
+   * A figure: "1,150.50" is committed as 1150.5, and what is not a figure is
+   * put back as it was — never saved as nothing.
+   */
+  figure?: boolean;
   locked?: boolean;
   /** What is missing, when something is: the cell is outlined and says so. */
   invalid?: string;
@@ -98,7 +105,13 @@ function Cell({
       aria-invalid={invalid ? true : undefined}
       title={invalid}
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => draft !== value && onCommit(draft)}
+      onBlur={() => {
+        if (draft === value) return;
+        if (!figure || draft.trim() === "") return onCommit(draft);
+        const n = parseFigure(draft);
+        if (n === null) return setDraft(value);
+        onCommit(String(n));
+      }}
       onKeyDown={(e) => {
         // Enter keeps the figure, as moving off the cell does.
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
@@ -443,7 +456,7 @@ export default function QuoteCharges({
           label="Currency"
           className="w-full"
           value={l.currency}
-          options={LINE_CURRENCIES.map((c) => ({ value: c, label: c }))}
+          options={[...new Set([...LINE_CURRENCIES, l.currency])].map((c) => ({ value: c, label: c }))}
           onChange={(v) => {
             // Rupees are always at 1. A foreign currency starts at the rate another
             // charge on this quotation already uses for it; with none, the rate of
@@ -456,6 +469,7 @@ export default function QuoteCharges({
       roe: (
         <Cell
           label="Rate of exchange"
+          figure
           // Left at 1 on a foreign line is not a rate; shown empty and flagged.
           value={missingRate(l) ? "" : String(l.fx_rate)}
           placeholder={missingRate(l) ? "Rate?" : undefined}
@@ -481,6 +495,7 @@ export default function QuoteCharges({
       units: (
         <Cell
           label="Units"
+          figure
           value={String(l.quantity)}
           locked={locked}
           align="right"
@@ -491,6 +506,7 @@ export default function QuoteCharges({
         <Cell
           field="rate"
           label="Sell per unit"
+          figure
           value={String(l.rate)}
           locked={locked}
           align="right"
@@ -501,6 +517,7 @@ export default function QuoteCharges({
       min: (
         <Cell
           label="Minimum amount"
+          figure
           value={l.min_amount == null ? "" : String(l.min_amount)}
           locked={locked}
           align="right"
@@ -515,13 +532,14 @@ export default function QuoteCharges({
           label="Cost currency"
           className="w-full"
           value={l.cost_currency}
-          options={LINE_CURRENCIES.map((c) => ({ value: c, label: c }))}
+          options={[...new Set([...LINE_CURRENCIES, l.cost_currency])].map((c) => ({ value: c, label: c }))}
           onChange={(v) => void edit(l, { cost_currency: v, ...(v === "INR" ? { cost_fx_rate: 1 } : {}) })}
         />
       ),
       costRoe: (
         <Cell
           label="Cost rate of exchange"
+          figure
           value={String(l.cost_fx_rate)}
           locked={locked || l.cost_currency === "INR"}
           align="right"
@@ -531,6 +549,7 @@ export default function QuoteCharges({
       costRate: (
         <Cell
           label="Cost per unit"
+          figure
           value={l.cost_rate == null ? "" : String(l.cost_rate)}
           locked={locked}
           align="right"

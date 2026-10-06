@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **132**, so the next one is `133-….sql`.
+  migration filename (§6). The last migration is **133**, so the next one is `134-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 132 migrations
+## 4. Data model — 133 migrations
 
-`supabase-v2/001…132`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…133`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -251,6 +251,7 @@ transaction).
 | `130` | **The overseas agent's profit share.** `partners.profit_share_pct` (0–100, null = none agreed) and `profit_share_losses` (default true); `consoles.profit_share_pct` (a console agreed differently, 0 = none); `invoices.profit_share_pct` / `profit_share_base_inr` mark our note settling a share (checked: a debit or credit note to a partner); `bills.profit_share` marks the agent's own (checked: an agent note). `issue_invoice` no longer asks a note on an agent for the invoice it corrects (042's Rule 53(1A) check now only for notes to customers, which 037's agent notes never could pass). `raise_profit_share(partner, console | job, kind, currency, roe, amount, pct, base, description)`: drafts our OCN/ODN with the one line, export LUT, one draft at a time per console or job (advisory lock). Checked rolled back as an employee |
 | `131` | **Dangerous goods accepted into a console.** `shipments.msds_date`, `dg_declaration_at`, `dg_line_ref`, `dg_accepted_at/by`, `dg_accept_note`. Trigger `shipments_dg_acceptance`: a change of UN number, class, packing group or console clears the acceptance, and a signed-in user cannot set it directly. `accept_dg_house(shipment, note)` refuses class 1, 6.2 and 7, no UN number, no MSDS, an MSDS over five years old, no declaration, no line approval; logs `dg_accepted` on the enquiry. Checked rolled back as an employee |
 | `132` | **The company's registrations, our own MTO, the eBL.** Table `company_registrations` (kind mto · consol_agent · customs_bond · bank_guarantee · ebl_platform · other; number, authority, issued_on, valid_until, amount_inr, notes, active; one active mto, consol_agent and ebl_platform at a time): everybody reads, only an administrator writes (RLS), anon nothing. `house_bills.mto_own` (not with a partner) and the eBL: `release_mode` adds `ebl` (no paper originals, as `express`), `ebl_platform`, `ebl_ref`, `ebl_issued_on`, `ebl_holder`, `ebl_surrendered_on`. `house_bill_write` (123's, extended): issuing under our own MTO is refused unless the number on the B/L is the active registration in force today; an eBL is issued only with platform and reference, released only after it is surrendered, not reopened while it is out; its moments go on the timeline (`ebl_issued`, `ebl_transferred`, `ebl_surrendered`). `received_house_bills.release_mode` adds `ebl` too. Checked rolled back as an employee and an admin |
+| `133` | **A pasted rate replaces a draft's charges in one step.** `replace_quote_lines(quote, lines jsonb)`, security invoker (the table's own rules apply), only on a draft: the old charges out and the new in together, so a failure no longer leaves the draft empty. Checked rolled back as an employee (replaced, total right, a refused charge leaves the old ones, a non-draft refused) |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -999,6 +1000,24 @@ surrender). On an import, the agent's eBL surrendered to us is the release-check
 arrival notice tells the consignee to surrender it on the platform (the `arrival-notices` function
 redeployed with that). No platform API is connected: references are typed from the platform. Tests:
 `scripts/tests/companySetup.test.ts`.
+
+**Paste a quotation: bugs fixed (6 Oct, the user: "check the quotes pasting function for any
+bugs").** (1) The figure boxes in the paste screen (rate, units, %, rate of exchange) read the
+number on every key, so a decimal point vanished as it was typed: 1150.5 became 11505, 83.25 became
+8325. Now `components/FigureInput.tsx` keeps the text while typing (`lib/figures.ts parseFigure`,
+commas allowed). (2) A currency outside the usual six (CNY, JPY…) was saved as INR, the figure
+unchanged; the reader was also told to use only the six. Now `currencyOf` keeps any code and reads
+₹/$/€/£/Dhs/RMB; such a charge needs its rate of exchange like any other, and the paste screen and
+the charges grid offer the line's own currency. (3) Two charges of one name under different
+headings (THC at origin and at destination) both took the first heading; `sectionsByHeading` now
+matches each to its own row, in order. (4) The reader read only the first 12,000 characters, so a
+long rate sheet lost its last charges silently; now 30,000 for a paste (`PASTE_LIMIT`), and a
+longer paste is refused with what to do. (5) A draft's charges were deleted, then the new ones
+added: a failure between left it empty; now one step (133). (6) The draft's own terms were kept
+but not shown in the terms box, so one removed there stayed; now the box starts with them and
+saves as shown (terms under other headings stay). Also: units of 0 are refused at saving, and the
+charges grid reads "1,150" as 1150 (it saved 0) and puts back anything that is not a figure.
+`classify-enquiry` redeployed (verify_jwt on). Tests: `scripts/tests/pastedQuote.test.ts`.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

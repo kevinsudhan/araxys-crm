@@ -7,6 +7,17 @@ import { addQuote, logEvent, type Enquiry, type Quote } from "./enquiries";
 import { addLines, type QuoteLine } from "./quoteLines";
 
 /**
+ * The most the reader is sent of a paste (classify-enquiry, mode paste_quote,
+ * reads no further): a rate sheet longer than this would lose its last charges
+ * without a word, so it is refused here instead, with what to do.
+ */
+export const PASTE_LIMIT = 30_000;
+
+/** A draft's own general terms, shown in the paste screen with the paste's (so what is there is what is saved). */
+export const draftTerms = (live: Pick<Quote, "status" | "terms"> | null): string[] =>
+  live?.status === "draft" ? (live.terms ?? []).filter((t) => t.scope === "general").map((t) => t.text.trim()).filter(Boolean) : [];
+
+/**
  * "Paste a quotation" (106): the rate as the desk has it, read by the AI into
  * charges under Freight, Ex works, Destination and Other charges, checked on
  * screen, then saved as the quotation's ordinary lines. An air quotation goes
@@ -41,6 +52,11 @@ export function quoteHeading(e: Enquiry, version?: number): string {
 
 /** The pasted text, read by the AI. Nothing is saved. */
 export async function readPastedQuote(e: Enquiry, text: string): Promise<PastedQuote> {
+  if (text.trim().length > PASTE_LIMIT) {
+    throw new Error(
+      `That is ${text.trim().length.toLocaleString("en-IN")} characters, more than the reader takes (${PASTE_LIMIT.toLocaleString("en-IN")}): paste the part of the rate for this enquiry.`
+    );
+  }
   const context = [
     jobLine(e),
     e.cargo ? `Cargo: ${e.cargo}` : "",
@@ -94,36 +110,44 @@ export async function applyPastedQuote(input: {
   const air = tableLayout(enquiry, input.pastedText);
   let quoteId: string;
   let version: number;
-  if (live && live.status === "draft") {
+  const lines = pasted.lines.map((l, i) => ({
+    position: i + 1,
+    // A condition on a charge ("at actuals") stays with it on every document.
+    description: l.note ? `${l.description} (${l.note})` : l.description,
+    currency: l.currency,
+    fx_rate: l.currency === "INR" ? 1 : pasted.roe[l.currency] ?? 1,
+    unit: l.unit,
+    quantity: l.quantity,
+    rate: l.rate,
+    section: l.section,
+    gst_rate: air ? l.gst ?? null : null,
+  }));
+  const draft = live && live.status === "draft";
+  if (draft) {
     quoteId = live.id;
     version = live.version;
-    const { error } = await supabase.from("quote_lines").delete().eq("quote_id", quoteId);
+    // The old charges out and the new in, together (133): a failure leaves the draft as it was.
+    const { error } = await supabase.rpc("replace_quote_lines", { p_quote: quoteId, p_lines: lines });
     if (error) throw new Error(error.message);
   } else {
     const q = await addQuote({ ref: enquiry.ref, amountInr: 0, basis: "", validUntil: pasted.validUntil ?? undefined, currency: "INR", fxRate: 1 });
     quoteId = q.id;
     version = q.version;
+    await addLines(quoteId, lines);
   }
 
-  await addLines(
-    quoteId,
-    pasted.lines.map((l, i) => ({
-      position: i + 1,
-      // A condition on a charge ("at actuals") stays with it on every document.
-      description: l.note ? `${l.description} (${l.note})` : l.description,
-      currency: l.currency,
-      fx_rate: l.currency === "INR" ? 1 : pasted.roe[l.currency] ?? 1,
-      unit: l.unit,
-      quantity: l.quantity,
-      rate: l.rate,
-      section: l.section,
-      gst_rate: air ? l.gst ?? null : null,
-    }))
-  );
-
-  const existing = (live && live.status === "draft" ? live.terms : []) ?? [];
-  const known = new Set(existing.map((t) => t.text.trim().toLowerCase()));
-  const terms = [...existing, ...pasted.terms.filter((t) => !known.has(t.toLowerCase())).map((text) => ({ scope: "general", text }))];
+  // The general terms are the ones in the paste screen's box, which started
+  // with the draft's own (`draftTerms`): one taken out there is taken out.
+  // Terms under another heading are the grid's, and stay.
+  const others = (draft ? live.terms ?? [] : []).filter((t) => t.scope !== "general");
+  const seen = new Set<string>();
+  const general = pasted.terms.filter((t) => {
+    const k = t.trim().toLowerCase();
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const terms = [...others, ...general.map((text) => ({ scope: "general", text }))];
 
   const { error } = await supabase
     .from("quotes")
