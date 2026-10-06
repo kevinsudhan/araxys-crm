@@ -17,6 +17,9 @@ declare
   vendor uuid := (select id from public.partners order by created_at limit 1);
   seq0   bigint := pg_sequence_last_value('public.shipment_no_seq');
   seq1   bigint;
+  -- The warehouse receipt's number is drawn the same way and was not put back (7 Oct).
+  wr0    bigint := pg_sequence_last_value('public.warehouse_receipt_seq');
+  wr1    bigint;
   steps  jsonb := '[]'::jsonb;
   t0     timestamptz;
   v_cust text;
@@ -163,6 +166,7 @@ begin
     insert into public.shipment_movements (shipment_id, kind, actual_at, pieces) values (v_ship, 'pickup', now() - interval '5 days', 12);
     insert into public.warehouse_receipts (shipment_id, received_at, location, pieces, gross_weight_kg, condition)
     values (v_ship, now() - interval '4 days', 'Chennai CFS', 12, 480, 'good');
+    wr1 := pg_sequence_last_value('public.warehouse_receipt_seq');
     insert into public.shipment_customs (shipment_id, side, sb_number, sb_date, leo_date) values (v_ship, 'export', '7712345', today - 5, today - 4);
     steps := steps || jsonb_build_object('step', 'pickup, receipt, export customs recorded', 'ok', true, 'ms', round(extract(epoch from clock_timestamp() - t0) * 1000),
       'stage_after_records', (select stage from public.shipments where id = v_ship));
@@ -397,6 +401,11 @@ begin
     steps := steps || jsonb_build_object('step', 'sequence restored', 'from', seq1, 'to', seq0);
   else
     steps := steps || jsonb_build_object('step', 'sequence not restored', 'before', seq0, 'after_flow', seq1, 'now', pg_sequence_last_value('public.shipment_no_seq'));
+  end if;
+  if wr1 is not null and pg_sequence_last_value('public.warehouse_receipt_seq') = wr1 then
+    if wr0 is not null then perform setval('public.warehouse_receipt_seq', wr0, true);
+    else perform setval('public.warehouse_receipt_seq', 1, false); end if;
+    steps := steps || jsonb_build_object('step', 'receipt sequence restored', 'from', wr1, 'to', wr0);
   end if;
 
   raise exception 'RESULTS %', steps::text;

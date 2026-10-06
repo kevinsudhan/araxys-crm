@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **137**, so the next one is `138-….sql`.
+  migration filename (§6). The last migration is **138**, so the next one is `139-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 137 migrations
+## 4. Data model — 138 migrations
 
-`supabase-v2/001…137`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…138`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -256,6 +256,7 @@ transaction).
 | `135` | **Cross trade keeps the origin's steps.** `step_for_direction` and `milestone_hidden_for`: a cross trade is worked as an export without India's customs (no LEO, no OOC; on the customer's list only the two customs milestones hidden). Used by both seeds and `apply_direction_steps`. A job with no direction works as an export. Checked rolled back |
 | `136` | **Performance housekeeping (the advisor).** An index under each of the 11 unindexed foreign keys; `customer_dsr_sends_add` asks `(select auth.uid())` once a query; `company_registrations`, `shipment_checkpoints` and `checkpoint_templates` write policies split into insert/update/delete so reads check one policy. Checked rolled back |
 | `137` | **Team oversight by person.** `team_actions(p_from, p_to)`: administrators only (security definer, refuses anybody else), one row per recorded action in the period — the timeline (less invoice_*/receipt_recorded, which their tables say better), steps ticked, files filed, consoles opened, CSN files and replies, warehouse receipts, queue items set aside, rate cards, sailings, live rate requests, original rates, invoices started/issued/cancelled, receipts and payments recorded/confirmed/cancelled, vendor bills, agent statements, tracking decisions. Checked rolled back (admin reads, employee refused) |
+| `138` | **Arrival notices heard live.** `arrival_notice_sends` added to the realtime publication: the console's destination panel listened for it and never heard (the audit's schema-drift check, 7 Oct) |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -394,7 +395,35 @@ The UI has no automated tests. It is verified by hand in the way described below
 6. **Operations**: cron failures, mailboxes the server copy cannot read, last backup.
 7. **Supabase advisors**, and 8. **latency**: the slowest app queries and the API round trip.
 
-It exits non-zero while anything is found. The UI is not in it (it needs a signed-in browser):
+It exits non-zero while anything is found.
+
+### The longer life of one shipment: `node supabase-v2/e2e.mjs` (7 Oct)
+
+`supabase-v2/e2e-shipment.sql`, 43 steps, run through `e2e.mjs`, which puts `shipment_no_seq` and
+`warehouse_receipt_seq` back afterwards (to where they were, or the highest number really in use).
+Beyond the audit's flow: mail captured into the queue and turned into an enquiry; dimensions
+working out the cargo; partners added, asked for rates, their reply and original rate; the
+quotation's total from its lines; a step pressed and a milestone step refused when pressed
+(recorded on Tracking instead); routings, customs, pickup, warehouse receipt; pre-alert; console
+opened and the job put on it; house B/L numbered, its draft approved by the shipper by link, a
+second number refused; invoice from the quotation (start_invoice brings the accepted quotation's
+charges — do not copy them again), receipt, carrier bill paid, credit note, debit note to an
+agent, the final bill agreeing with the documents; sign-off refused while undelivered, then the
+job worked to the end (every step, every milestone, proof of delivery) and signed off; a
+signed-off job refusing changes; team oversight refused to an employee and crediting the
+employee's actions for the admin; reopen; a phoned-in enquiry taken on and put back; a queue item
+set aside and back; a job cancelled and reopened. As the employee, the admin and the customer by
+link; rolled back. 43/43 on 7 Oct.
+
+The same day every screen was rendered against that job's data (captured from inside the rolled-
+back run): 42 routes as the admin and the employee's own, no console errors. It found one real
+weakness — one charge line without a rate in the original-rate box threw while drawing and, with no
+error boundary anywhere, blanked the whole app. Fixed twice over: the box reads a missing figure as
+0, and `components/PageErrorBoundary.tsx` around the page outlet (layout/AppLayout, keyed by path)
+keeps any such failure to its page ("This page could not be shown · Try again") with the sidebar
+and every other page working. The audit's own flow now puts the warehouse-receipt sequence back too.
+Open on 7 Oct: the audit's integrity finding — ALG09004-26 (kevin imports) is accepted and booked with
+no quotation at all, from before the acceptance gate; left for the user to decide. The UI is not in it (it needs a signed-in browser):
 on 28 Sep every route was rendered in a local harness with a stubbed client (realistic
 anonymised data, then empty data, admin and employee, 375 px), with no console errors, no blank
 page and no horizontal overflow; see the findings in §9.

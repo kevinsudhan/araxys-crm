@@ -9,7 +9,8 @@ import type { Enquiry } from "../services/enquiries";
 import PasteInput from "./PasteInput";
 import PasteQuoteDialog from "./PasteQuoteDialog";
 
-const fig = (n: number, dp = 2) => n.toLocaleString("en-IN", { maximumFractionDigits: dp });
+// A figure missing from a line shows as 0 rather than taking the case file down with it (7 Oct).
+const fig = (n: number, dp = 2) => (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: dp });
 const when = (iso?: string) => (iso ? formatDate(iso, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }) : "");
 
 /**

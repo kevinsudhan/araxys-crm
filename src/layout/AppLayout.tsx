@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { PageSkeleton } from "../components/Loading";
+import PageErrorBoundary from "../components/PageErrorBoundary";
 import { syncSentMail } from "../services/mailLog";
 import { useAuth } from "../lib/auth";
 import { keepLineWarm } from "../lib/warmLine";
@@ -318,7 +319,10 @@ export default function AppLayout() {
           {/* A page still downloading waits here, under the sidebar and top bar,
               rather than taking the whole window with it. */}
           <Suspense fallback={<PageSkeleton />}>
-            <Outlet />
+            {/* One page failing to draw stays on that page (7 Oct): the shell goes on working. */}
+            <PageErrorBoundary key={pathname}>
+              <Outlet />
+            </PageErrorBoundary>
           </Suspense>
         </main>
       </div>
