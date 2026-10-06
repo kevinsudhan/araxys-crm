@@ -16,6 +16,7 @@ import {
 } from "../services/enquiries";
 import { ListSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * The documentation desk.
  *
@@ -42,8 +43,8 @@ import { ListSkeleton } from "../components/Loading";
 type Row = Enquiry & { customer: Customer | null };
 
 export default function Documentation() {
-  const [enquiries, setEnquiries] = useState<Row[]>([]);
-  const [shipments, setShipments] = useState<Array<Shipment & { customer: Customer | null }>>([]);
+  const [enquiries, setEnquiries] = useCachedState<Row[]>("documentation:enquiries", []);
+  const [shipments, setShipments] = useCachedState<Array<Shipment & { customer: Customer | null }>>("documentation:shipments", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

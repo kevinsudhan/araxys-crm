@@ -14,6 +14,7 @@ import { departureName, importSchedules, listSchedules, removeSchedule, saveSche
 import { ListSkeleton } from "../components/Loading";
 import { formatDate } from "../lib/dates";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * The sailing schedule: departures the rest of the system is built from.
  *
@@ -61,8 +62,8 @@ const SAVED_KEY = "sailing-schedule:saved-filters";
 type SortKey = "id" | "port_of_loading" | "port_of_discharge" | "etd" | "eta" | "cfs_cutoff" | "port_cutoff" | "transit_days";
 
 export default function SailingSchedules() {
-  const [rows, setRows] = useState<Schedule[]>([]);
-  const [partners, setPartners] = useState<Partner[]>([]);
+  const [rows, setRows] = useCachedState<Schedule[]>("schedules:rows", []);
+  const [partners, setPartners] = useCachedState<Partner[]>("schedules:partners", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [f, setF] = useState<Filters>(DEFAULT);
@@ -71,7 +72,7 @@ export default function SailingSchedules() {
   const [preview, setPreview] = useState<(ImportResult & { file: string }) | null>(null);
   const [saved, setSaved] = useState<Array<{ name: string; filters: Filters }>>([]);
   const [reportName, setReportName] = useState("");
-  const [containers, setContainers] = useState<Container[]>([]);
+  const [containers, setContainers] = useCachedState<Container[]>("schedules:containers", []);
   const [openId, setOpenId] = useState<string | null>(null);
   const [addingTo, setAddingTo] = useState<Schedule | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

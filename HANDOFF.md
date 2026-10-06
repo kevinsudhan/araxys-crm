@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **135**, so the next one is `136-….sql`.
+  migration filename (§6). The last migration is **136**, so the next one is `137-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 135 migrations
+## 4. Data model — 136 migrations
 
-`supabase-v2/001…135`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…136`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -254,6 +254,7 @@ transaction).
 | `133` | **A pasted rate replaces a draft's charges in one step.** `replace_quote_lines(quote, lines jsonb)`, security invoker (the table's own rules apply), only on a draft: the old charges out and the new in together, so a failure no longer leaves the draft empty. Checked rolled back as an employee (replaced, total right, a refused charge leaves the old ones, a non-draft refused) |
 | `134` | **An import has its own workflow.** The origin's steps (pickup, warehouse/CFS, empty pickup, stuffing, VGM, gate-in, documents, SI, B/L or HAWB, air loading) marked `direction = 'export'`; import steps added per mode (`imp_origin_booking`, air `imp_departed` (stage sailed), `imp_documents`, `imp_arrival_notice`, LCL `imp_destuffed`, `imp_do`, FCL `imp_empty_return`). Customer milestones: the origin's own (received, empty picked, stuffed, gated in) export-only. `apply_direction_steps(shipment)`: the other way's undone steps go, this way's come, dates and stage worked out again, direction milestones hidden or shown; run by `shipments_direction_steps` when `trade_direction` changes (logs `direction_changed`). The arrival notice sent ticks `imp_arrival_notice`; `received_house_bills.do_issued_on` ticks `imp_do`. Imports under way re-listed. Checked rolled back (export ↔ import, ticks) |
 | `135` | **Cross trade keeps the origin's steps.** `step_for_direction` and `milestone_hidden_for`: a cross trade is worked as an export without India's customs (no LEO, no OOC; on the customer's list only the two customs milestones hidden). Used by both seeds and `apply_direction_steps`. A job with no direction works as an export. Checked rolled back |
+| `136` | **Performance housekeeping (the advisor).** An index under each of the 11 unindexed foreign keys; `customer_dsr_sends_add` asks `(select auth.uid())` once a query; `company_registrations`, `shipment_checkpoints` and `checkpoint_templates` write policies split into insert/update/delete so reads check one policy. Checked rolled back |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -1029,6 +1030,41 @@ the workflow and the customer's milestones (134). Locked on a signed-off, cancel
 `stagesFor(mode, direction)`: an import's stages are booked → sailed → arrived → delivered, so the
 header's "Mark …" offers sailed, not stuffed. Already following it: customs (077), the pre-alert
 (078), the received B/L and CSN (088, 097), free time (083), the consoles a job can join.
+
+**Speed (6 Oct; the user: "a lot of loading… implement caching, reduce the latencies of the entire
+app").** Measured first: the database answers in 1–30 ms; a round trip Chennai → Mumbai (ap-south-1)
+is 120–240 ms, the first on a new connection 1–2 s. The waiting was trips, and every page forgetting
+its data. What was done:
+- **`lib/queryCache.ts`**: `peek`/`put` snapshots (memory + sessionStorage for the tab's life, cleared
+  on sign-out) and `shared(key, fn, ttl)`: one trip for the same read made at once (ttl 0), or kept a
+  while for lists whose writes `invalidate` them (partners 30 s, people and registrations 60 s). Keys
+  start with the table's name; `useTableChanges` invalidates the tables it hears change. Each caller
+  gets its own array.
+- **`lib/useCachedState.ts`** (`useCachedState`, `useCachedMap`): a page's state kept between visits.
+  On: Overview, Enquiries, My enquiries, Enquiries overview, Shipments in process/completed,
+  Customers, Partners, Quote approvals, Sailing schedules, Job closing, Consoles, Analytics,
+  Documentation, Rate master, Live rates, Oversight; the case file (per ref), the shipment page (per
+  id), its workflow bar and Tracking tab; Mail (each folder's list). A page opens on its last view and
+  reads again behind it; the skeleton only when there is nothing yet. Measured with 250 ms a trip:
+  board 333 ms first, 41 ms back; case file 322 ms first, 33 ms back.
+- **Shared reads** (in-flight): `getEnquiry`, `partiesFor`, `quotesFor`, `shipmentFor`, `threadsFor`,
+  `getConsole`, `shipmentsOn`, `manifestFor`, `getBuyRate`, `linesFor`; ten console panels asking for
+  partners make one trip, six asking for a console's jobs one.
+- **Fewer waves**: the case file reads the enquiry with its six other reads at once and no longer waits
+  for Outlook (the mail fills in, "Reading the mailbox…"; `correspondenceFor` takes the parties and
+  customer it was given). The shipment page reads its boxes with the job, and the enquiry too when the
+  job's reference is known. Mail shows the folder when Graph answers (the intake lookup after) and
+  checks snoozes alongside, not first.
+- **Start-up**: the profile is remembered (`araxys:profile`, localStorage, the person's own) and the
+  app opens on it while it is read again; read once, not twice (the INITIAL_SESSION event); a failed
+  re-read keeps it. `index.html` preconnects to the database and prefetches Graph's DNS.
+- **Bundle**: `vite.config.ts` `manualChunks`: vendor-react, vendor-router, vendor-supabase, kept by the
+  browser across releases. `AppLayout` fetches the common pages' files when idle, one at a time (not
+  on save-data). `main.tsx` reloads once on `vite:preloadError` (a page file removed by a release).
+- **Service worker**: a navigation waits two seconds for the network, then opens the kept page.
+- Not done, and why: jsPDF (127 KB) still loads with the case file and shipment pages — its own file,
+  cached once; making it lazy would change ~40 call sites to async. Gemini's paste reading and Graph's
+  mailbox search are the services' own time.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

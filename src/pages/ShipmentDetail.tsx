@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useOutletContext, useParams } from "react-router-dom";
 import ShipmentCheckpoints from "../components/ShipmentCheckpoints";
 import EnquiryLink from "../components/EnquiryLink";
@@ -19,6 +19,7 @@ import { dateClashes } from "../lib/shipmentDates";
 import { money } from "../services/billing";
 import { ACCOUNTS_DESK } from "../lib/features";
 import SendPreAlert from "../components/SendPreAlert";
+import { useCachedState } from "../lib/useCachedState";
 import TradeDirectionPicker from "../components/TradeDirectionPicker";
 import { CancelledBanner } from "../components/CancelShipment";
 import { marginPct, shipmentMargin, type Margin } from "../services/bills";
@@ -156,12 +157,17 @@ function tabsFor(mode: Enquiry["transport_mode"] | null | undefined) {
 
 export default function ShipmentDetail() {
   const { id } = useParams();
-  const [shipment, setShipment] = useState<(Shipment & { customer: Customer | null }) | null>(null);
-  const [enquiry, setEnquiry] = useState<(Enquiry & { customer: Customer | null }) | null>(null);
-  const [lines, setLines] = useState<DimensionLine[]>([]);
-  const [boxes, setBoxes] = useState<ShipmentContainer[]>([]);
-  const [billing, setBilling] = useState<BillingSummary | null>(null);
-  const [margin, setMargin] = useState<Margin | null>(null);
+  // Kept per job (lib/queryCache): opened again, the job shows at once and reads again behind it.
+  const cacheAt = `ship:${id ?? ""}`;
+  const [shipment, setShipment] = useCachedState<(Shipment & { customer: Customer | null }) | null>(`${cacheAt}:shipment`, null);
+  const [enquiry, setEnquiry] = useCachedState<(Enquiry & { customer: Customer | null }) | null>(`${cacheAt}:enquiry`, null);
+  const [lines, setLines] = useCachedState<DimensionLine[]>(`${cacheAt}:lines`, []);
+  const [boxes, setBoxes] = useCachedState<ShipmentContainer[]>(`${cacheAt}:boxes`, []);
+  const [billing, setBilling] = useCachedState<BillingSummary | null>(`${cacheAt}:billing`, null);
+  const [margin, setMargin] = useCachedState<Margin | null>(`${cacheAt}:margin`, null);
+  /** The job's enquiry, when it is already known: then everything is read in one go. */
+  const knownRef = useRef<string | null>(null);
+  knownRef.current = shipment?.id === id ? (shipment?.enquiry_ref ?? null) : null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,7 +178,13 @@ export default function ShipmentDetail() {
       // Without the accounts desk the billing summary and the margin are two
       // round trips whose answers nothing on the page reads. The shipment on
       // its own is what the header needs.
-      const [s, billingRow, m] = await Promise.all([
+      // The enquiry's reference is known from the last time this job was open:
+      // its reads go with the job's, not a round trip after (6 Oct).
+      const ref = knownRef.current;
+      const early = ref
+        ? Promise.all([getEnquiry(ref).catch(() => null), listDimensions(ref).catch(() => [] as DimensionLine[])])
+        : null;
+      const [s, billingRow, m, b] = await Promise.all([
         getShipment(id),
         ACCOUNTS_DESK
           ? supabase
@@ -182,20 +194,20 @@ export default function ShipmentDetail() {
               .maybeSingle()
           : Promise.resolve({ data: null }),
         ACCOUNTS_DESK ? shipmentMargin(id).catch(() => null) : Promise.resolve(null),
+        // The boxes, for the free-time alert in the header (an FCL job's): read with the job.
+        listShipmentContainers(id).catch(() => [] as ShipmentContainer[]),
       ]);
       setShipment(s);
-      // The enquiry after the shipment, because its reference comes from it.
+      // The enquiry after the shipment when its reference was not known yet.
       // Best-effort: a booking whose enquiry cannot be read still opens.
       if (s) {
-        const [e, d, b] = await Promise.all([
-          getEnquiry(s.enquiry_ref).catch(() => null),
-          listDimensions(s.enquiry_ref).catch(() => [] as DimensionLine[]),
-          // The boxes, for the free-time alert in the header; only an FCL job has one.
-          appliesTo(s.transport_mode) ? listShipmentContainers(s.id).catch(() => [] as ShipmentContainer[]) : Promise.resolve([] as ShipmentContainer[]),
-        ]);
+        const [e, d] =
+          early && ref === s.enquiry_ref
+            ? await early
+            : await Promise.all([getEnquiry(s.enquiry_ref).catch(() => null), listDimensions(s.enquiry_ref).catch(() => [] as DimensionLine[])]);
         setEnquiry(e);
         setLines(d);
-        setBoxes(b);
+        setBoxes(appliesTo(s.transport_mode) ? b : []);
       }
       setBilling((billingRow.data as BillingSummary) ?? null);
       setMargin(m);
@@ -232,7 +244,7 @@ export default function ShipmentDetail() {
     Boolean(id)
   );
 
-  if (loading) return <PageSkeleton />;
+  if (loading && !shipment) return <PageSkeleton />;
 
   if (!shipment) {
     return (

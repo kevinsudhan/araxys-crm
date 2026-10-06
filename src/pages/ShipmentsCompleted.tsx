@@ -16,6 +16,7 @@ import {
 } from "../services/enquiries";
 import { ListSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Delivered shipments, kept for history, billing and audit.
  *
@@ -24,8 +25,8 @@ import { ListSkeleton } from "../components/Loading";
  * shipment reaches delivery this is empty, and says so.
  */
 export default function ShipmentsCompleted() {
-  const [rows, setRows] = useState<ShipmentRow[]>([]);
-  const [people, setPeople] = useState<Person[]>([]);
+  const [rows, setRows] = useCachedState<ShipmentRow[]>("completed:rows", []);
+  const [people, setPeople] = useCachedState<Person[]>("people", []);
   // The completed board is the desk's history, not one person's, so it
   // filters by owner rather than hiding other people's work.
   const [owner, setOwner] = useState<Ownership>("all");

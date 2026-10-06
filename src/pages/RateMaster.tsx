@@ -14,6 +14,7 @@ import {
 } from "../services/rateMaster";
 import { ListSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * What this desk charges, so a quotation is assembled rather than remembered.
  *
@@ -36,7 +37,7 @@ import { ListSkeleton } from "../components/Loading";
  * ---------------------------------------------------------------------------
  */
 export default function RateMaster() {
-  const [rates, setRates] = useState<RateCard[]>([]);
+  const [rates, setRates] = useCachedState<RateCard[]>("ratemaster:rates", []);
   const [query, setQuery] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Partial<RateCard> | null>(null);

@@ -39,6 +39,7 @@ import {
 import { listMailLog, mailboxesSeen, syncAllMailboxes, syncSentMail, type MailboxSeen, type MailLogRow } from "../services/mailLog";
 import { ListSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * What the desk did, who did it, and who they wrote to — as it happens.
  *
@@ -124,12 +125,12 @@ function gap(from: string | null, to: string | null): string | null {
 export default function Oversight() {
   const { session } = useAuth();
 
-  const [rows, setRows] = useState<Row[]>([]);
-  const [people, setPeople] = useState<Person[]>([]);
-  const [events, setEvents] = useState<EnquiryEvent[]>([]);
+  const [rows, setRows] = useCachedState<Row[]>("oversight:rows", []);
+  const [people, setPeople] = useCachedState<Person[]>("people", []);
+  const [events, setEvents] = useCachedState<EnquiryEvent[]>("oversight:events", []);
   const [mails, setMails] = useState<MailLogRow[]>([]);
-  const [steps, setSteps] = useState<Checkpoint[]>([]);
-  const [ships, setShips] = useState<ShipmentRow[]>([]);
+  const [steps, setSteps] = useCachedState<Checkpoint[]>("oversight:steps", []);
+  const [ships, setShips] = useCachedState<ShipmentRow[]>("oversight:ships", []);
   const [seen, setSeen] = useState<MailboxSeen[]>([]);
 
   const [period, setPeriod] = useState<Period>("today");

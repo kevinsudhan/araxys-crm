@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { shared } from "../lib/queryCache";
 import type { Shipment } from "./enquiries";
 
 /**
@@ -198,9 +199,11 @@ export async function listConsoles(): Promise<Console[]> {
 }
 
 export async function getConsole(id: string): Promise<Console | null> {
-  const { data, error } = await supabase.from("consoles").select("*").eq("id", id).maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as Console) ?? null;
+  return shared(`consoles:${id}`, async () => {
+    const { data, error } = await supabase.from("consoles").select("*").eq("id", id).maybeSingle();
+    if (error) throw new Error(error.message);
+    return (data as Console) ?? null;
+  });
 }
 
 /**
@@ -265,13 +268,15 @@ export async function issueHouseBl(shipmentId: string): Promise<Shipment> {
 
 /** The house bills riding on one console. */
 export async function shipmentsOn(consoleId: string): Promise<Shipment[]> {
-  const { data, error } = await supabase
-    .from("shipments")
-    .select("*, customers(name, company)")
-    .eq("console_id", consoleId)
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as Shipment[];
+  return shared(`shipments:console:${consoleId}`, async () => {
+    const { data, error } = await supabase
+      .from("shipments")
+      .select("*, customers(name, company)")
+      .eq("console_id", consoleId)
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as unknown as Shipment[];
+  });
 }
 
 /** Consoles a shipment could still be put on. */

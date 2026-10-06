@@ -43,6 +43,7 @@ import {
 import { ListSkeleton } from "../components/Loading";
 import { formatDate } from "../lib/dates";
 
+import { useCachedMap, useCachedState } from "../lib/useCachedState";
 /**
  * The in-process worklist: every job between acceptance and delivery.
  *
@@ -114,17 +115,17 @@ function useRemembered<T extends string>(key: string, fallback: T, allowed: read
 }
 
 export default function ShipmentsInProcess() {
-  const [rows, setRows] = useState<ShipmentRow[]>([]);
-  const [people, setPeople] = useState<Person[]>([]);
+  const [rows, setRows] = useCachedState<ShipmentRow[]>("inprocess:rows", []);
+  const [people, setPeople] = useCachedState<Person[]>("people", []);
   // Everyone sees every shipment; this narrows to the ones that are
   // yours, or the ones nobody has picked up yet.
   const [owner, setOwner] = useState<Ownership>("all");
   const { session } = useAuth();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  const [steps, setSteps] = useState<Checkpoint[]>([]);
-  const [customs, setCustoms] = useState<Map<string, Extras["customs"]>>(new Map());
-  const [updates, setUpdates] = useState<Map<string, number>>(new Map());
-  const [boxes, setBoxes] = useState<Map<string, BoxDates[]>>(new Map());
+  const [steps, setSteps] = useCachedState<Checkpoint[]>("inprocess:steps", []);
+  const [customs, setCustoms] = useCachedMap<string, Extras["customs"]>("inprocess:customs");
+  const [updates, setUpdates] = useCachedMap<string, number>("inprocess:updates");
+  const [boxes, setBoxes] = useCachedMap<string, BoxDates[]>("inprocess:boxes");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useRemembered<"cards" | "table">("worklist:view", "cards", ["cards", "table"]);

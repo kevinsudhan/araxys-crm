@@ -14,6 +14,7 @@ import {
   type Shipment,
 } from "../services/enquiries";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * What the desk did, counted.
  *
@@ -66,8 +67,8 @@ function spell(mins: number): string {
 }
 
 export default function Analytics() {
-  const [enquiries, setEnquiries] = useState<Row[]>([]);
-  const [shipments, setShipments] = useState<Array<Shipment & { customer: Customer | null }>>([]);
+  const [enquiries, setEnquiries] = useCachedState<Row[]>("analytics:enquiries", []);
+  const [shipments, setShipments] = useCachedState<Array<Shipment & { customer: Customer | null }>>("analytics:shipments", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

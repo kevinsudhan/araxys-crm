@@ -81,6 +81,10 @@ import { listPeople, type Person } from "../services/enquiries";
 import { ListSkeleton, SectionSkeleton } from "../components/Loading";
 import { formatDate } from "../lib/dates";
 
+import { peek, put } from "../lib/queryCache";
+
+/** Where a folder's list is kept between opens (lib/queryCache). */
+const mailKey = (mailbox: string, folder: string, filter: string) => `mail:${mailbox}:${folder}:${filter}`;
 const FOLDER_ICON: Record<string, React.ElementType> = {
   inbox: Inbox,
   sent: Send,
@@ -112,9 +116,9 @@ export default function Mail() {
   const { session, saveSignature } = useAuth();
   const mailbox = session?.email ?? "";
 
-  const [folders, setFolders] = useState<MailFolder[]>([]);
+  const [folders, setFolders] = useState<MailFolder[]>(() => peek<MailFolder[]>(`mail:${mailbox}:folders`) ?? []);
   const [folder, setFolder] = useState<FolderId>("inbox");
-  const [messages, setMessages] = useState<MailMessage[]>([]);
+  const [messages, setMessages] = useState<MailMessage[]>(() => peek<MailMessage[]>(mailKey(mailbox, "inbox", "all")) ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /**
    * The opened message, fetched in full.
@@ -339,10 +343,16 @@ export default function Mail() {
     setLoading(true);
     setError(null);
     try {
-      // Snoozed mail whose time has come goes back to the Inbox before the
-      // list is read, so it is in it (services/snooze.ts).
-      const back = await returnDue(mailbox).catch(() => 0);
-      if (back && req === loadReq.current) setToast(back === 1 ? "A snoozed message is back in the Inbox." : `${back} snoozed messages are back in the Inbox.`);
+      // Snoozed mail whose time has come goes back to the Inbox (services/snooze.ts).
+      // Alongside the list rather than before it (6 Oct): it is almost always
+      // nothing, and when something did come back the list is read again.
+      void returnDue(mailbox)
+        .catch(() => 0)
+        .then((back) => {
+          if (!back || req !== loadReq.current) return;
+          setToast(back === 1 ? "A snoozed message is back in the Inbox." : `${back} snoozed messages are back in the Inbox.`);
+          if (folder === "inbox" && !query) void load();
+        });
       void listSnoozes(mailbox)
         .then((sn) => req === loadReq.current && setSnoozes(sn))
         .catch(() => {});
@@ -359,6 +369,11 @@ export default function Mail() {
       setFolders(f.folders);
       setMessages(m.messages);
       setNextLink(m.nextLink);
+      // The folder as it is now, for the next time it is opened (lib/queryCache);
+      // on screen at once, the list is no longer waiting on the lookup below.
+      if (!query) put(mailKey(mailbox, folder, filter), m.messages);
+      put(`mail:${mailbox}:folders`, f.folders);
+      setLoading(false);
       morePages.current = false;
       // Everyone on screen is someone the compose window can suggest.
       rememberAddresses(
@@ -483,7 +498,8 @@ export default function Mail() {
     // The old folder's rows go at once. They used to stay until the new folder
     // arrived, drawn as the new folder's (Sent showed the Inbox with every
     // sender replaced by "Parasu"), and a click on one opened the wrong mail.
-    setMessages([]);
+    // The new folder's own rows as last read show instead, until it is read again (6 Oct).
+    setMessages(peek<MailMessage[]>(mailKey(mailbox, folder, filter)) ?? []);
     setNextLink(undefined);
     setChecked(new Set());
   }, [folder]);

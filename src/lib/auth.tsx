@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { clearCache } from "./queryCache";
 import { supabase } from "./supabase";
 import { adoptMicrosoftSession, clearGraphToken, finishOutlookConnect } from "../services/graphMail";
 
@@ -77,6 +78,29 @@ interface AuthValue {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
+/**
+ * The profile as last read, so the app opens on it instead of waiting a round
+ * trip for it on every open (6 Oct); read again behind it, and dropped on
+ * sign-out. Only ever the signed-in person's own.
+ */
+const PROFILE_KEY = "araxys:profile";
+function rememberedProfile(userId: string): Session | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? "null") as Session | null;
+    return p && p.userId === userId ? p : null;
+  } catch {
+    return null;
+  }
+}
+function rememberProfile(p: Session | null) {
+  try {
+    if (p) localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+    else localStorage.removeItem(PROFILE_KEY);
+  } catch {
+    // Not kept: the next open waits for it, as before.
+  }
+}
+
 /** Reads the caller's own profile row. RLS makes any other row unreachable. */
 async function loadProfile(userId: string, fallbackEmail: string): Promise<Session | null> {
   const { data, error } = await supabase
@@ -125,6 +149,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
+    /** Whose profile is on screen, read fresh this open: the start-up event does not read it twice. */
+    let fresh: string | null = null;
+    const refresh = async (userId: string, email: string) => {
+      const p = await loadProfile(userId, email);
+      if (cancelled) return;
+      // A read that failed while the remembered profile is on screen keeps it: a dropped connection is not a sign-out.
+      if (!p && rememberedProfile(userId)) return;
+      fresh = userId;
+      rememberProfile(p);
+      setSession(p);
+    };
+
     supabase.auth.getSession().then(async ({ data }) => {
       const user = data.session?.user;
       // Microsoft's own tokens ride along on the session Supabase built from
@@ -135,19 +171,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Back from connecting Outlook on the Mail page (095): its first token
       // is fetched before the app shows, so the page opens already connected.
       if (user) await finishOutlookConnect();
-      if (!cancelled) {
-        setSession(user ? await loadProfile(user.id, user.email ?? "") : null);
+      if (cancelled) return;
+      if (!user) {
+        setSession(null);
+        setLoading(false);
+        return;
+      }
+      // Open on the profile as last read, and read it again behind it.
+      const known = rememberedProfile(user.id);
+      if (known) {
+        setSession(known);
+        setLoading(false);
+        void refresh(user.id, user.email ?? "");
+      } else {
+        await refresh(user.id, user.email ?? "");
         setLoading(false);
       }
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (cancelled || signingIn.current) return;
       // Deferred: handing the refresh token over calls a function, and a
       // Supabase call made inside this callback waits on the lock it holds.
       setTimeout(() => adoptMicrosoftSession(s), 0);
       const user = s?.user;
-      setSession(user ? await loadProfile(user.id, user.email ?? "") : null);
+      if (!user) {
+        rememberProfile(null);
+        setSession(null);
+        setLoading(false);
+        return;
+      }
+      // The same person's session announced at start-up or renewed: their profile is already read.
+      if ((event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") && (fresh === user.id || rememberedProfile(user.id))) return;
+      await refresh(user.id, user.email ?? "");
       setLoading(false);
     });
 
@@ -193,6 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return "This account does not have admin access. Use the employee sign-in.";
         }
 
+        rememberProfile(profile);
         setSession(profile);
         return null;
       } finally {
@@ -239,6 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq("id", session.userId);
       if (error) return error.message;
       setSession({ ...session, signature });
+      rememberProfile({ ...session, signature });
       return null;
     },
     [session]
@@ -248,6 +306,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // The mailbox token must go with the session. Leaving it behind would let
     // the next person in this tab read the previous one's Outlook.
     clearGraphToken();
+    // Nothing of this person's is shown to whoever signs in next in this browser.
+    rememberProfile(null);
+    clearCache();
     await supabase.auth.signOut();
     setSession(null);
   }, []);

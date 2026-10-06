@@ -37,6 +37,7 @@ import { receiptsFor } from "../../services/warehouse";
 import { formatDate } from "../../lib/dates";
 import { useLiveVersion } from "../../lib/liveVersions";
 
+import { useCachedState } from "../../lib/useCachedState";
 /**
  * Where the cargo is, and everything that has happened to it.
  *
@@ -60,14 +61,15 @@ import { useLiveVersion } from "../../lib/liveVersions";
 export default function ShipmentTracking() {
   const { shipment: s, enquiry, reload } = useShipment();
   const [params, setParams] = useSearchParams();
-  const [steps, setSteps] = useState<Checkpoint[]>([]);
-  const [milestones, setMilestones] = useState<ShipmentMilestone[]>([]);
-  const [evidence, setEvidence] = useState<Evidence>({ moves: [], receipts: [], customs: [], events: [] });
+  // Kept per job (lib/queryCache): the tab opens on what it showed last and reads again behind it.
+  const [steps, setSteps] = useCachedState<Checkpoint[]>(`ship:${s.id}:steps`, []);
+  const [milestones, setMilestones] = useCachedState<ShipmentMilestone[]>(`ship:${s.id}:milestones`, []);
+  const [evidence, setEvidence] = useCachedState<Evidence>(`ship:${s.id}:evidence`, { moves: [], receipts: [], customs: [], events: [] });
   const [snaps, setSnaps] = useState<Snapshot[]>([]);
   const [reports, setReports] = useState<TrackingEvent[]>([]);
   const [legs, setLegs] = useState<Array<{ move: string; from: string | null; to: string | null; status: string }>>([]);
-  const [line, setLine] = useState<Entry[]>([]);
-  const [link, setLink] = useState<TrackLink | null>(null);
+  const [line, setLine] = useCachedState<Entry[]>(`ship:${s.id}:line`, []);
+  const [link, setLink] = useCachedState<TrackLink | null>(`ship:${s.id}:link`, null);
   const [lastSent, setLastSent] = useState<{ at: string; summary: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);

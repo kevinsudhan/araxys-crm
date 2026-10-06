@@ -67,6 +67,7 @@ import { mailIsLive } from "../services/backend";
 import { ROLE_LABEL, ROLE_ORDER, type PartyRole } from "../services/caseFile";
 import { PageSkeleton } from "../components/Loading";
 import { enquiryWatches, LiveVersions, useLiveVersions } from "../lib/liveVersions";
+import { useCachedState } from "../lib/useCachedState";
 import { formatDate } from "../lib/dates";
 
 /**
@@ -103,14 +104,18 @@ export default function CaseFile() {
   const { session } = useAuth();
   const mailbox = session?.email ?? "";
 
-  const [enquiry, setEnquiry] = useState<(Enquiry & { customer: Customer | null }) | null>(null);
-  const [parties, setParties] = useState<Party[]>([]);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [events, setEvents] = useState<EnquiryEvent[]>([]);
-  const [shipment, setShipment] = useState<Shipment | null>(null);
-  const [partnerQuotes, setPartnerQuotes] = useState<PartnerQuote[]>([]);
-  const [mail, setMail] = useState<FiledMessage[]>([]);
-  const [dims, setDims] = useState<DimensionLine[]>([]);
+  // Kept per enquiry (lib/queryCache): opened again, the file shows at once and reads again behind it.
+  const at = `case:${ref.toUpperCase()}`;
+  const [enquiry, setEnquiry] = useCachedState<(Enquiry & { customer: Customer | null }) | null>(`${at}:enquiry`, null);
+  const [parties, setParties] = useCachedState<Party[]>(`${at}:parties`, []);
+  const [quotes, setQuotes] = useCachedState<Quote[]>(`${at}:quotes`, []);
+  const [events, setEvents] = useCachedState<EnquiryEvent[]>(`${at}:events`, []);
+  const [shipment, setShipment] = useCachedState<Shipment | null>(`${at}:shipment`, null);
+  const [partnerQuotes, setPartnerQuotes] = useCachedState<PartnerQuote[]>(`${at}:partnerQuotes`, []);
+  const [mail, setMail] = useCachedState<FiledMessage[]>(`${at}:mail`, []);
+  const [dims, setDims] = useCachedState<DimensionLine[]>(`${at}:dims`, []);
+  /** Outlook is being read: the file is on screen already, the mail comes when it comes. */
+  const [mailLoading, setMailLoading] = useState(false);
   // What the correspondence filled in on its own this time round. Null when
   // nothing arrived since the last reading, or when what arrived answered
   // nothing that was still blank.
@@ -158,18 +163,19 @@ export default function CaseFile() {
     setLoading(true);
     setError(null);
     try {
-      const e = await getEnquiry(ref);
-      setEnquiry(e);
-      if (!e) return;
-
       /*
         The parties, quotes, booking and partner replies feed the sections a
         mail-only build does not render. Fetching them anyway would be four
         round trips per enquiry opened, for four panels nobody can reach — and
         the correspondence, which is the whole screen here, would wait behind
         them. The events are kept: the timeline interleaves them with the mail.
+
+        All in one go with the enquiry itself (6 Oct): each needs only the
+        reference, and waiting for the enquiry first was a whole round trip
+        more on every file opened.
       */
-      const [p, q, ev, sh, pq, d] = await Promise.all([
+      const [e, p, q, ev, sh, pq, d] = await Promise.all([
+        getEnquiry(ref),
         MAIL_ONLY_CASE_FILE ? Promise.resolve<Party[]>([]) : partiesFor(ref),
         MAIL_ONLY_CASE_FILE ? Promise.resolve<Quote[]>([]) : quotesFor(ref),
         eventsFor(ref),
@@ -183,15 +189,24 @@ export default function CaseFile() {
           ? Promise.resolve<DimensionLine[]>([])
           : listDimensions(ref).catch(() => [] as DimensionLine[]),
       ]);
+      setEnquiry(e);
+      if (!e) return;
       setParties(p);
       setQuotes(q);
       setEvents(ev);
       setShipment(sh);
       setPartnerQuotes(pq);
       setDims(d);
+      // The file is on screen now; the mail fills in when Outlook answers (6 Oct).
+      setLoading(false);
+
       // Mail is best-effort: a mailbox that will not load must not blank the file.
-      const m = await correspondenceFor(ref, mailbox).catch(() => []);
-      setMail(m);
+      setMailLoading(true);
+      const m = await correspondenceFor(ref, mailbox, { parties: p, customerEmails: e.customer?.emails ?? [] })
+        .catch(() => null)
+        .finally(() => setMailLoading(false));
+      // A mailbox that did not answer keeps the mail the file already showed.
+      if (m) setMail(m);
 
       /*
         Fill the shipment details the new mail answers.
@@ -205,7 +220,7 @@ export default function CaseFile() {
         Best-effort like the mail itself — an enquiry must still open when the
         reader is down.
       */
-      if (!MAIL_ONLY_CASE_FILE && m.length && !readOnce.current.has(ref)) {
+      if (!MAIL_ONLY_CASE_FILE && m && m.length && !readOnce.current.has(ref)) {
         readOnce.current.add(ref);
         setAutoFillError(null);
         void fillFromNewMail(e, m, fillKeysFor(d), mailbox, d)
@@ -621,9 +636,11 @@ export default function CaseFile() {
           title="Correspondence"
           hint={`Everything filed against ${enquiry.ref}. Open a thread to read it and reply.`}
           emptyHint={
-            mailIsLive()
-              ? "Nothing filed against this reference yet."
-              : "Outlook is not connected on this session, so the correspondence cannot be read."
+            mailLoading
+              ? "Reading the mailbox…"
+              : mailIsLive()
+                ? "Nothing filed against this reference yet."
+                : "Outlook is not connected on this session, so the correspondence cannot be read."
           }
           onChanged={load}
           enquiryRef={enquiry.ref}
@@ -683,7 +700,8 @@ export default function CaseFile() {
           <MailIcon size={13} /> By party
         </Toggle>
         <span className="ml-auto text-[11px] text-text-muted">
-          {mail.length} messages · {events.length} events
+          {mailLoading ? "Reading the mailbox… · " : `${mail.length} messages · `}
+          {events.length} events
         </span>
       </div>
 
@@ -747,7 +765,7 @@ export default function CaseFile() {
             )
           )}
           {!timeline.length && (
-            <p className="text-[13px] text-text-muted py-6">Nothing recorded yet.</p>
+            <p className="text-[13px] text-text-muted py-6">{mailLoading ? "Reading the mailbox…" : "Nothing recorded yet."}</p>
           )}
         </ol>
       ) : (

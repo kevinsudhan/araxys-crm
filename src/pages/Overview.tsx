@@ -33,6 +33,7 @@ import { ListSkeleton } from "../components/Loading";
 import { useTablesChanges } from "../lib/useTableChanges";
 import { formatDate } from "../lib/dates";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * The first screen after signing in.
  *
@@ -93,10 +94,10 @@ function when(iso: string | null): string {
 }
 
 export default function Overview() {
-  const [enquiries, setEnquiries] = useState<Row[]>([]);
-  const [shipments, setShipments] = useState<Array<Shipment & { customer: Customer | null }>>([]);
-  const [events, setEvents] = useState<EnquiryEvent[]>([]);
-  const [waiting, setWaiting] = useState<number | null>(null);
+  const [enquiries, setEnquiries] = useCachedState<Row[]>("overview:enquiries", []);
+  const [shipments, setShipments] = useCachedState<Array<Shipment & { customer: Customer | null }>>("overview:shipments", []);
+  const [events, setEvents] = useCachedState<EnquiryEvent[]>("overview:events", []);
+  const [waiting, setWaiting] = useCachedState<number | null>("overview:waiting", null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

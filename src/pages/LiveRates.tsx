@@ -42,6 +42,7 @@ import {
   type LiveRatesAnswer,
 } from "../services/liveRates";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Live rates: asking partners for rates.
  *
@@ -114,9 +115,9 @@ export default function LiveRates() {
 function WeeklyRates() {
   const { session } = useAuth();
   const admin = session?.role === "admin";
-  const [requests, setRequests] = useState<LiveRateRequest[]>([]);
-  const [partners, setPartners] = useState<Partner[]>([]);
-  const [sends, setSends] = useState<LiveRateSend[]>([]);
+  const [requests, setRequests] = useCachedState<LiveRateRequest[]>("liverates:requests", []);
+  const [partners, setPartners] = useCachedState<Partner[]>("liverates:partners", []);
+  const [sends, setSends] = useCachedState<LiveRateSend[]>("liverates:sends", []);
   const [mailboxes, setMailboxes] = useState<string[]>([]);
   const [perm, setPerm] = useState<LiveRatesAnswer | null>(null);
   const [loading, setLoading] = useState(true);

@@ -84,6 +84,44 @@ export default function AppLayout() {
     };
   }, []);
 
+  /*
+    The pages the desk opens most, fetched once the app is idle (6 Oct): a
+    click on the board, a case file or a shipment then opens it without
+    first waiting for its file to download. Not on a connection that asks to
+    save data. Each file is fetched once and kept by the browser.
+  */
+  useEffect(() => {
+    const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
+    if (saveData) return;
+    const pages = [
+      () => import("../pages/Overview"),
+      () => import("../pages/Enquiries"),
+      () => import("../pages/CaseFile"),
+      () => import("../pages/ShipmentsInProcess"),
+      () => import("../pages/ShipmentDetail"),
+      () => import("../pages/shipment/ShipmentOverview"),
+      () => import("../pages/shipment/ShipmentTracking"),
+      () => import("../pages/MyEnquiries"),
+      () => import("../pages/Consoles"),
+      () => import("../pages/Mail"),
+      () => import("../pages/Customers"),
+      () => import("../pages/Partners"),
+    ];
+    let cancelled = false;
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    const idle = (fn: () => void) => (ric ? ric(fn, { timeout: 4000 }) : window.setTimeout(fn, 1500));
+    // One at a time, so the page in front keeps the connection.
+    const next = (i: number) => {
+      if (cancelled || i >= pages.length) return;
+      idle(() => void pages[i]().catch(() => {}).finally(() => next(i + 1)));
+    };
+    const start = window.setTimeout(() => next(0), 2500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(start);
+    };
+  }, []);
+
   // Escape closes it, and the page behind must not scroll while it is over it.
   useEffect(() => {
     if (!navOpen) return;

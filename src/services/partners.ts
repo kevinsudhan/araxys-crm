@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { invalidate, shared } from "../lib/queryCache";
 import type { Enquiry } from "./enquiries";
 
 /**
@@ -79,11 +80,13 @@ export interface Assignment {
 // ---------------------------------------------------------------------------
 
 export async function listPartners(includeArchived = false): Promise<Partner[]> {
-  let q = supabase.from("partners").select("*").order("organisation").order("name");
-  if (!includeArchived) q = q.eq("active", true);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Partner[];
+  return shared(`partners:list:${includeArchived}`, async () => {
+    let q = supabase.from("partners").select("*").order("organisation").order("name");
+    if (!includeArchived) q = q.eq("active", true);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Partner[];
+  }, 30000);
 }
 
 export async function createPartner(input: {
@@ -107,6 +110,7 @@ export async function createPartner(input: {
     .select()
     .single();
   if (error) throw new Error(error.message);
+  invalidate("partners:");
   return data as Partner;
 }
 
@@ -123,6 +127,7 @@ export async function updatePartner(
     .select()
     .single();
   if (error) throw new Error(error.message);
+  invalidate("partners:");
   return data as Partner;
 }
 

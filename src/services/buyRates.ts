@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { shared } from "../lib/queryCache";
 import { mergeBuyLines, pasteSummary, type PasteEntry, type StoredBuyLine } from "../lib/buyRate";
 import { asSection, totalInInr, type PastedLine, type PastedQuote } from "../lib/pastedQuote";
 import { logEvent, type Enquiry, type Quote } from "./enquiries";
@@ -38,9 +39,12 @@ const shape = (r: Record<string, unknown>): BuyRate => ({
 });
 
 export async function getBuyRate(ref: string): Promise<BuyRate | null> {
-  const { data, error } = await supabase.from("enquiry_buy_rates").select("*").eq("enquiry_ref", ref.toUpperCase()).maybeSingle();
-  if (error) throw new Error(error.message);
-  return data ? shape(data as Record<string, unknown>) : null;
+  // The rates bar, the Original rate box and the profit card read it at once: one trip (lib/queryCache).
+  return shared(`enquiry_buy_rates:${ref.toUpperCase()}`, async () => {
+    const { data, error } = await supabase.from("enquiry_buy_rates").select("*").eq("enquiry_ref", ref.toUpperCase()).maybeSingle();
+    if (error) throw new Error(error.message);
+    return data ? shape(data as Record<string, unknown>) : null;
+  });
 }
 
 async function write(ref: string, values: Record<string, unknown>): Promise<BuyRate> {

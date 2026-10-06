@@ -7,6 +7,14 @@
     <!-- The mark on the sign-in panel, the start-up screen and the sidebar: fetched with the page, not after it. -->
     <link rel="preload" as="image" href="/media/mark-v1.webp" type="image/webp" fetchpriority="high" />
     <title>ALG CRM</title>
+    <!--
+      The database and Outlook, connected to while the page itself loads: the
+      first read otherwise pays for the name lookup and the TLS handshake
+      (about half a second from Chennai) after the app has started (6 Oct).
+    -->
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin />
+    <link rel="dns-prefetch" href="%VITE_SUPABASE_URL%" />
+    <link rel="dns-prefetch" href="https://graph.microsoft.com" />
 
     <!-- Installable: "Add to Home Screen" opens it full screen, like an app. -->
     <link rel="manifest" href="/manifest.webmanifest" />

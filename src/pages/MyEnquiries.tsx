@@ -23,6 +23,7 @@ import {
 import { ListSkeleton } from "../components/Loading";
 import { formatDate } from "../lib/dates";
 
+import { useCachedMap, useCachedState } from "../lib/useCachedState";
 /**
  * The enquiries this person took on.
  *
@@ -73,9 +74,9 @@ export default function MyEnquiries() {
   const { session } = useAuth();
   const me = session?.userId ?? "";
 
-  const [rows, setRows] = useState<Row[]>([]);
-  const [people, setPeople] = useState<Person[]>([]);
-  const [shipped, setShipped] = useState<Map<string, Shipment>>(new Map());
+  const [rows, setRows] = useCachedState<Row[]>("myenquiries:rows", []);
+  const [people, setPeople] = useCachedState<Person[]>("people", []);
+  const [shipped, setShipped] = useCachedMap<string, Shipment>("myenquiries:shipped");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

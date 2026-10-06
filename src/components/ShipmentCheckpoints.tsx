@@ -16,6 +16,7 @@ import { useLiveVersion } from "../lib/liveVersions";
 import { SectionSkeleton } from "./Loading";
 import { formatDate } from "../lib/dates";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * The follow-ups on a booking, as a line you read left to right.
  *
@@ -57,7 +58,7 @@ export default function ShipmentCheckpoints({
   shipmentId: string;
   mode?: Shipment["transport_mode"];
 }) {
-  const [list, setList] = useState<Checkpoint[]>([]);
+  const [list, setList] = useCachedState<Checkpoint[]>(`ship:${shipmentId}:steps`, []);
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

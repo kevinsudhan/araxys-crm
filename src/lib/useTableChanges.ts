@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { invalidateTables } from "./queryCache";
 import { supabase } from "./supabase";
 
 /** A table to listen to, and a filter on it (`enquiry_ref=eq.ALG…`) or null for every row. */
@@ -59,6 +60,8 @@ export function useTablesChanges(watches: readonly Watch[], onChange: (tables: S
       timer = window.setTimeout(() => {
         const tables = moved;
         moved = new Set();
+        // What changed is read again, not served from the cache (lib/queryCache).
+        invalidateTables(tables);
         latest.current(tables);
       }, 250);
     };

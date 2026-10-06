@@ -42,6 +42,7 @@ import { ListSkeleton } from "../components/Loading";
 import { formatDate } from "../lib/dates";
 import { STATUS_TONE } from "../lib/enquiryStatus";
 
+import { useCachedMap, useCachedState } from "../lib/useCachedState";
 type Row = Enquiry & { customer: Customer | null };
 
 
@@ -71,7 +72,7 @@ export default function Enquiries() {
   const { session } = useAuth();
   const mailbox = session?.email ?? "";
 
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useCachedState<Row[]>("enquiries:rows", []);
   const [unfiled, setUnfiled] = useState<MailMessage[]>([]);
   /**
    * The search term is held in the URL, not only in this component.
@@ -110,13 +111,13 @@ export default function Enquiries() {
    * One query for the whole board rather than one per row: the board shows
    * forty enquiries and this is a line of text on each of them.
    */
-  const [progress, setProgress] = useState<Map<string, QuoteProgress>>(new Map());
+  const [progress, setProgress] = useCachedMap<string, QuoteProgress>("enquiries:progress");
   const [queued, setQueued] = useState<Map<string, Pick<Intake, "id" | "status" | "enquiry_ref">>>(
     new Map()
   );
   /** Which enquiries already have a shipment, so the row shows the right thing. */
-  const [shipped, setShipped] = useState<Map<string, Shipment>>(new Map());
-  const [people, setPeople] = useState<Person[]>([]);
+  const [shipped, setShipped] = useCachedMap<string, Shipment>("enquiries:shipped");
+  const [people, setPeople] = useCachedState<Person[]>("people", []);
   /** Whose work to show. The board itself never hides a row from anybody. */
   const [owner, setOwner] = useState<"all" | "mine" | "free">("all");
   const [pushing, setPushing] = useState<string | null>(null);

@@ -23,6 +23,7 @@ import {
 } from "../services/customers";
 import { ListSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Who this desk works for.
  *
@@ -65,7 +66,7 @@ const LENS_LABEL: Record<Lens, string> = {
 };
 
 export default function Customers() {
-  const [rows, setRows] = useState<CustomerSummary[]>([]);
+  const [rows, setRows] = useCachedState<CustomerSummary[]>("customers:rows", []);
   const [query, setQuery] = useState("");
   const [lens, setLens] = useState<Lens>("all");
   const [tag, setTag] = useState<string | null>(null);

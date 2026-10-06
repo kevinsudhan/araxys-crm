@@ -43,6 +43,7 @@ import BillsPanel from "../components/BillsPanel";
 import { ACCOUNTS_DESK } from "../lib/features";
 import { wmOf } from "../lib/coload";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * The consoles the desk is building.
  *
@@ -124,10 +125,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function Consoles() {
-  const [rows, setRows] = useState<Console[]>([]);
-  const [containers, setContainers] = useState<Container[]>([]);
-  const [partners, setPartners] = useState<Partner[]>([]);
-  const [onBoard, setOnBoard] = useState<Record<string, Shipment[]>>({});
+  const [rows, setRows] = useCachedState<Console[]>("consoles:rows", []);
+  const [containers, setContainers] = useCachedState<Container[]>("consoles:containers", []);
+  const [partners, setPartners] = useCachedState<Partner[]>("consoles:partners", []);
+  const [onBoard, setOnBoard] = useCachedState<Record<string, Shipment[]>>("consoles:onboard", {});
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [newSailing, setNewSailing] = useState("");
@@ -213,7 +214,7 @@ export default function Consoles() {
     }
   }
 
-  if (loading) return <PageSkeleton />;
+  if (loading && !rows.length) return <PageSkeleton />;
 
   return (
     <div>

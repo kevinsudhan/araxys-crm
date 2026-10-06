@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { shared } from "../lib/queryCache";
 import { all } from "./paging";
 import { refFromSubject, subjectToken, type PartyRole } from "./caseFile";
 import {
@@ -593,12 +594,14 @@ export async function setOversightPassword(password: string): Promise<void> {
 }
 
 export async function listPeople(): Promise<Person[]> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, email, full_name, role, can_assign")
-    .order("full_name");
-  if (error) throw error;
-  return (data ?? []) as Person[];
+  return shared("profiles:people", async () => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, role, can_assign")
+      .order("full_name");
+    if (error) throw error;
+    return (data ?? []) as Person[];
+  }, 60000);
 }
 
 /** A name to show for a user id, falling back to the address, then to nothing. */
@@ -696,13 +699,15 @@ export async function listEnquiries(): Promise<Array<Enquiry & { customer: Custo
 export async function getEnquiry(
   ref: string
 ): Promise<(Enquiry & { customer: Customer | null }) | null> {
-  const { data, error } = await supabase
-    .from("enquiries")
-    .select("*, customer:customers(*)")
-    .eq("ref", ref.toUpperCase())
-    .maybeSingle();
-  if (error) throw error;
-  return (data as (Enquiry & { customer: Customer | null }) | null) ?? null;
+  return shared(`enquiries:${ref.toUpperCase()}`, async () => {
+    const { data, error } = await supabase
+      .from("enquiries")
+      .select("*, customer:customers(*)")
+      .eq("ref", ref.toUpperCase())
+      .maybeSingle();
+    if (error) throw error;
+    return (data as (Enquiry & { customer: Customer | null }) | null) ?? null;
+  });
 }
 
 export async function listCustomers(): Promise<Customer[]> {
@@ -712,22 +717,26 @@ export async function listCustomers(): Promise<Customer[]> {
 }
 
 export async function partiesFor(ref: string): Promise<Party[]> {
-  const { data, error } = await supabase
-    .from("enquiry_parties")
-    .select("*")
-    .eq("enquiry_ref", ref.toUpperCase());
-  if (error) throw error;
-  return (data ?? []) as Party[];
+  return shared(`enquiry_parties:${ref.toUpperCase()}`, async () => {
+    const { data, error } = await supabase
+      .from("enquiry_parties")
+      .select("*")
+      .eq("enquiry_ref", ref.toUpperCase());
+    if (error) throw error;
+    return (data ?? []) as Party[];
+  });
 }
 
 export async function quotesFor(ref: string): Promise<Quote[]> {
-  const { data, error } = await supabase
-    .from("quotes")
-    .select("*")
-    .eq("enquiry_ref", ref.toUpperCase())
-    .order("version", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as Quote[];
+  return shared(`quotes:${ref.toUpperCase()}`, async () => {
+    const { data, error } = await supabase
+      .from("quotes")
+      .select("*")
+      .eq("enquiry_ref", ref.toUpperCase())
+      .order("version", { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as Quote[];
+  });
 }
 
 export async function eventsFor(ref: string): Promise<EnquiryEvent[]> {
@@ -792,13 +801,15 @@ export async function reopenShipment(id: string, reason: string): Promise<Shipme
 }
 
 export async function shipmentFor(ref: string): Promise<Shipment | null> {
-  const { data, error } = await supabase
-    .from("shipments")
-    .select("*")
-    .eq("enquiry_ref", ref.toUpperCase())
-    .maybeSingle();
-  if (error) throw error;
-  return (data as Shipment | null) ?? null;
+  return shared(`shipments:ref:${ref.toUpperCase()}`, async () => {
+    const { data, error } = await supabase
+      .from("shipments")
+      .select("*")
+      .eq("enquiry_ref", ref.toUpperCase())
+      .maybeSingle();
+    if (error) throw error;
+    return (data as Shipment | null) ?? null;
+  });
 }
 
 /**
@@ -864,12 +875,14 @@ export async function getShipment(
 }
 
 export async function threadsFor(ref: string): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("enquiry_threads")
-    .select("conversation_id")
-    .eq("enquiry_ref", ref.toUpperCase());
-  if (error) throw error;
-  return (data ?? []).map((r) => r.conversation_id as string);
+  return shared(`enquiry_threads:${ref.toUpperCase()}`, async () => {
+    const { data, error } = await supabase
+      .from("enquiry_threads")
+      .select("conversation_id")
+      .eq("enquiry_ref", ref.toUpperCase());
+    if (error) throw error;
+    return (data ?? []).map((r) => r.conversation_id as string);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,15 +1194,17 @@ export interface FiledMessage {
  */
 export async function correspondenceFor(
   ref: string,
-  mailbox: string
+  mailbox: string,
+  /** What the caller has just read (the case file): not read a second time. */
+  known?: { parties?: Party[]; customerEmails?: string[] }
 ): Promise<FiledMessage[]> {
   if (!mailIsLive() || !mailbox) return [];
 
   const [threads, parties, pinned, owner] = await Promise.all([
     threadsFor(ref),
-    partiesFor(ref),
+    known?.parties ? Promise.resolve(known.parties) : partiesFor(ref),
     supabase.from("enquiry_messages").select("message_id, via").eq("enquiry_ref", ref.toUpperCase()),
-    getEnquiry(ref),
+    known?.customerEmails ? Promise.resolve({ customer: { emails: known.customerEmails } }) : getEnquiry(ref),
   ]);
 
   /**

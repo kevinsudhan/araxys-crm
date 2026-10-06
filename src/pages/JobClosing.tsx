@@ -35,6 +35,7 @@ import {
 } from "../lib/jobPnl";
 import { loadPnl, type PnlData } from "../services/jobPnl";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Job closing: what every job made, and every week, month, quarter and year.
  *
@@ -134,7 +135,7 @@ function shortLabel(g: Granularity) {
 
 export default function JobClosing() {
   const { session } = useAuth();
-  const [data, setData] = useState<PnlData | null>(null);
+  const [data, setData] = useCachedState<PnlData | null>("jobclosing:data", null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 

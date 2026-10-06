@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { invalidate, shared } from "../lib/queryCache";
 import type { Registration } from "../lib/registrations";
 
 /**
@@ -9,9 +10,11 @@ import type { Registration } from "../lib/registrations";
 const COLS = "id, kind, title, number, authority, issued_on, valid_until, amount_inr, notes, active, updated_at";
 
 export async function listRegistrations(): Promise<Registration[]> {
-  const { data, error } = await supabase.from("company_registrations").select(COLS).order("active", { ascending: false }).order("valid_until", { ascending: true, nullsFirst: false });
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as Registration[]).map((r) => ({ ...r, amount_inr: r.amount_inr === null ? null : Number(r.amount_inr) }));
+  return shared("company_registrations:list", async () => {
+    const { data, error } = await supabase.from("company_registrations").select(COLS).order("active", { ascending: false }).order("valid_until", { ascending: true, nullsFirst: false });
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Registration[]).map((r) => ({ ...r, amount_inr: r.amount_inr === null ? null : Number(r.amount_inr) }));
+  }, 60000);
 }
 
 type Draft = Omit<Registration, "id" | "active" | "updated_at">;
@@ -39,12 +42,14 @@ export async function addRegistration(r: Draft): Promise<void> {
   const { data, error } = await supabase.from("company_registrations").insert(clean(r)).select("id");
   if (error) throw friendly(error);
   adminOnly(data);
+  invalidate("company_registrations:");
 }
 
 export async function updateRegistration(id: string, r: Draft): Promise<void> {
   const { data, error } = await supabase.from("company_registrations").update(clean(r)).eq("id", id).select("id");
   if (error) throw friendly(error);
   adminOnly(data);
+  invalidate("company_registrations:");
 }
 
 /** Renewed or given up: kept for the record, no longer the one in force. */
@@ -52,6 +57,7 @@ export async function setRegistrationActive(id: string, active: boolean): Promis
   const { data, error } = await supabase.from("company_registrations").update({ active }).eq("id", id).select("id");
   if (error) throw friendly(error);
   adminOnly(data);
+  invalidate("company_registrations:");
 }
 
 /** Entered by mistake. */
@@ -59,4 +65,5 @@ export async function removeRegistration(id: string): Promise<void> {
   const { data, error } = await supabase.from("company_registrations").delete().eq("id", id).select("id");
   if (error) throw new Error(error.message);
   adminOnly(data);
+  invalidate("company_registrations:");
 }

@@ -24,6 +24,7 @@ import {
 } from "../services/partners";
 import { ListSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Everyone outside this company that a shipment needs.
  *
@@ -32,7 +33,7 @@ import { ListSkeleton } from "../components/Loading";
  * to remember. Nothing here is sample data -- an empty book looks empty.
  */
 export default function Partners() {
-  const [partners, setPartners] = useState<Partner[]>([]);
+  const [partners, setPartners] = useCachedState<Partner[]>("partners:page", []);
   const [query, setQuery] = useState("");
   const [role, setRole] = useState<PartnerRole | "all">("all");
   const [tag, setTag] = useState<string | null>(null);

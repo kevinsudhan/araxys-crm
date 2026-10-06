@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { shared } from "../lib/queryCache";
 
 /**
  * The charges a quotation is built from.
@@ -58,14 +59,17 @@ export interface QuoteLine {
 }
 
 export async function linesFor(quoteId: string): Promise<QuoteLine[]> {
-  const { data, error } = await supabase
-    .from("quote_lines")
-    .select("*")
-    .eq("quote_id", quoteId)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as QuoteLine[];
+  // The quotation panel, its grid, its send and the profit card read it at once: one trip (lib/queryCache).
+  return shared(`quote_lines:${quoteId}`, async () => {
+    const { data, error } = await supabase
+      .from("quote_lines")
+      .select("*")
+      .eq("quote_id", quoteId)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as QuoteLine[];
+  });
 }
 
 export async function addLine(

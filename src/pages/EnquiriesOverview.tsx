@@ -24,6 +24,7 @@ import {
 } from "../services/enquiries";
 import { dismissIntake, listIntake, type Intake } from "../services/intake";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Enquiries: where every one stands, and the register to take away.
  *
@@ -59,9 +60,9 @@ const IN_PROCESS: ShipmentStage[] = SHIPMENT_STAGES.filter((s) => s !== "deliver
 
 export default function EnquiriesOverview() {
   const { session } = useAuth();
-  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
-  const [shipments, setShipments] = useState<ShipmentRow[]>([]);
-  const [waiting, setWaiting] = useState<Intake[]>([]);
+  const [enquiries, setEnquiries] = useCachedState<Enquiry[]>("eqoverview:enquiries", []);
+  const [shipments, setShipments] = useCachedState<ShipmentRow[]>("eqoverview:shipments", []);
+  const [waiting, setWaiting] = useCachedState<Intake[]>("eqoverview:waiting", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

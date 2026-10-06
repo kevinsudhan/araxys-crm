@@ -17,6 +17,7 @@ import {
 import { ListSkeleton } from "../components/Loading";
 import { useTableChanges } from "../lib/useTableChanges";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Quotations waiting to be cleared.
  *
@@ -136,7 +137,7 @@ export function Figures({ q }: { q: PendingQuote }) {
 
 export default function QuoteApprovals() {
   const { session } = useAuth();
-  const [rows, setRows] = useState<PendingQuote[]>([]);
+  const [rows, setRows] = useCachedState<PendingQuote[]>("approvals:rows", []);
   /** Self-approvals no admin has read yet (091). Admins only. */
   const [review, setReview] = useState<PendingQuote[]>([]);
   const [open, setOpen] = useState<string | null>(null);
