@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **133**, so the next one is `134-….sql`.
+  migration filename (§6). The last migration is **135**, so the next one is `136-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 133 migrations
+## 4. Data model — 135 migrations
 
-`supabase-v2/001…133`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…135`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -252,6 +252,8 @@ transaction).
 | `131` | **Dangerous goods accepted into a console.** `shipments.msds_date`, `dg_declaration_at`, `dg_line_ref`, `dg_accepted_at/by`, `dg_accept_note`. Trigger `shipments_dg_acceptance`: a change of UN number, class, packing group or console clears the acceptance, and a signed-in user cannot set it directly. `accept_dg_house(shipment, note)` refuses class 1, 6.2 and 7, no UN number, no MSDS, an MSDS over five years old, no declaration, no line approval; logs `dg_accepted` on the enquiry. Checked rolled back as an employee |
 | `132` | **The company's registrations, our own MTO, the eBL.** Table `company_registrations` (kind mto · consol_agent · customs_bond · bank_guarantee · ebl_platform · other; number, authority, issued_on, valid_until, amount_inr, notes, active; one active mto, consol_agent and ebl_platform at a time): everybody reads, only an administrator writes (RLS), anon nothing. `house_bills.mto_own` (not with a partner) and the eBL: `release_mode` adds `ebl` (no paper originals, as `express`), `ebl_platform`, `ebl_ref`, `ebl_issued_on`, `ebl_holder`, `ebl_surrendered_on`. `house_bill_write` (123's, extended): issuing under our own MTO is refused unless the number on the B/L is the active registration in force today; an eBL is issued only with platform and reference, released only after it is surrendered, not reopened while it is out; its moments go on the timeline (`ebl_issued`, `ebl_transferred`, `ebl_surrendered`). `received_house_bills.release_mode` adds `ebl` too. Checked rolled back as an employee and an admin |
 | `133` | **A pasted rate replaces a draft's charges in one step.** `replace_quote_lines(quote, lines jsonb)`, security invoker (the table's own rules apply), only on a draft: the old charges out and the new in together, so a failure no longer leaves the draft empty. Checked rolled back as an employee (replaced, total right, a refused charge leaves the old ones, a non-draft refused) |
+| `134` | **An import has its own workflow.** The origin's steps (pickup, warehouse/CFS, empty pickup, stuffing, VGM, gate-in, documents, SI, B/L or HAWB, air loading) marked `direction = 'export'`; import steps added per mode (`imp_origin_booking`, air `imp_departed` (stage sailed), `imp_documents`, `imp_arrival_notice`, LCL `imp_destuffed`, `imp_do`, FCL `imp_empty_return`). Customer milestones: the origin's own (received, empty picked, stuffed, gated in) export-only. `apply_direction_steps(shipment)`: the other way's undone steps go, this way's come, dates and stage worked out again, direction milestones hidden or shown; run by `shipments_direction_steps` when `trade_direction` changes (logs `direction_changed`). The arrival notice sent ticks `imp_arrival_notice`; `received_house_bills.do_issued_on` ticks `imp_do`. Imports under way re-listed. Checked rolled back (export ↔ import, ticks) |
+| `135` | **Cross trade keeps the origin's steps.** `step_for_direction` and `milestone_hidden_for`: a cross trade is worked as an export without India's customs (no LEO, no OOC; on the customer's list only the two customs milestones hidden). Used by both seeds and `apply_direction_steps`. A job with no direction works as an export. Checked rolled back |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -1018,6 +1020,15 @@ but not shown in the terms box, so one removed there stayed; now the box starts 
 saves as shown (terms under other headings stay). Also: units of 0 are refused at saving, and the
 charges grid reads "1,150" as 1150 (it saved 0) and puts back anything that is not a figure.
 `classify-enquiry` redeployed (verify_jwt on). Tests: `scripts/tests/pastedQuote.test.ts`.
+
+**Import or export on the shipment (134, 135, 6 Oct; the user: "explicitly give option to choose
+whether the shipment is an import or export, things will change").** `TradeDirectionPicker` in the
+shipment header: Export · Import · Cross trade, asking first and saying what changes. It writes the
+enquiry's `trade_direction` (the job's fact, which the shipment follows, 065); the database re-lists
+the workflow and the customer's milestones (134). Locked on a signed-off, cancelled or delivered job.
+`stagesFor(mode, direction)`: an import's stages are booked → sailed → arrived → delivered, so the
+header's "Mark …" offers sailed, not stuffed. Already following it: customs (077), the pre-alert
+(078), the received B/L and CSN (088, 097), free time (083), the consoles a job can join.
 
 **At destination (step 7, 126–127, 5 Oct).** `components/ConsoleDestination.tsx` on import
 consoles, data from `services/destination.ts` `destinationFor`. **Arrival notices**

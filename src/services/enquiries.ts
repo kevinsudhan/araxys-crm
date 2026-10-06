@@ -277,10 +277,13 @@ export const SHIPMENT_STAGE_LABEL: Record<ShipmentStage, string> = {
  * An air job is never stuffed into a box or gated into a terminal, and
  * offering "Move to stuffed" on one is a button nobody can press truthfully.
  */
-export function stagesFor(mode: Enquiry["transport_mode"] | null | undefined): ShipmentStage[] {
+export function stagesFor(mode: Enquiry["transport_mode"] | null | undefined, direction?: Enquiry["trade_direction"] | null): ShipmentStage[] {
   // Each of these has a step on that mode's workflow that marks it (066): the
   // stage moves when the step is ticked, so a stage with no step would be a
   // button that cannot work.
+  // An import's list starts at the sailing: the stuffing and the gate-in are
+  // the origin agent's (134).
+  if (direction === "import" && (mode === "air" || mode === "sea_lcl" || mode === "sea_fcl")) return ["booked", "sailed", "arrived", "delivered"];
   switch (mode) {
     case "air":
     // An LCL house shipment is received into the CFS; the console, not the

@@ -19,6 +19,7 @@ import { dateClashes } from "../lib/shipmentDates";
 import { money } from "../services/billing";
 import { ACCOUNTS_DESK } from "../lib/features";
 import SendPreAlert from "../components/SendPreAlert";
+import TradeDirectionPicker from "../components/TradeDirectionPicker";
 import { CancelledBanner } from "../components/CancelShipment";
 import { marginPct, shipmentMargin, type Margin } from "../services/bills";
 import {
@@ -26,6 +27,7 @@ import {
   getShipment,
   stageLabel,
   stagesFor,
+  updateEnquiry,
   type Customer,
   type Enquiry,
   type Shipment,
@@ -263,7 +265,8 @@ export default function ShipmentDetail() {
     stage is a customer milestone (102), so the link opens it on the Tracking
     tab to be recorded with its date and place, rather than moving it blind.
   */
-  const order = stagesFor(mode);
+  const direction = s.trade_direction ?? enquiry?.trade_direction ?? null;
+  const order = stagesFor(mode, direction);
   const at = order.indexOf(s.stage);
   const next = at >= 0 ? order[at + 1] : undefined;
   const billed = billing?.billed_inr ?? 0;
@@ -347,6 +350,19 @@ export default function ShipmentDetail() {
           {stageLabel(s.stage, mode)}
         </StatusPill>
         {s.signed_off_at && <StatusPill tone="success">Signed off</StatusPill>}
+        {/*
+          Import or export, said outright (134): the workflow, the customer's
+          milestones, the customs side, the pre-alert and the B/L all follow it.
+          The job's fact, on the enquiry, which the shipment follows.
+        */}
+        <TradeDirectionPicker
+          value={direction}
+          locked={Boolean(s.signed_off_at) || s.stage === "cancelled" || s.stage === "delivered"}
+          onChange={async (v) => {
+            await updateEnquiry(s.enquiry_ref, { trade_direction: v }, `Trade direction set to ${v.replace("_", " ")}`);
+            await load();
+          }}
+        />
         <FreeTimePill summary={freeTime} to={`/shipments/${s.id}/containers`} quiet />
         {(freeTime.accrued ?? 0) > 0 && (
           <span className="text-[11px] tabular-nums text-text-danger" title="At the rates recorded on the Containers tab; an estimate">
