@@ -67,6 +67,7 @@ const AcPayables   = accountsPage(() => import("./pages/accounts/PayablesReport"
 const AcRcptDetail = accountsPage(() => import("./pages/accounts/ReceiptDetails"));
 const AcPayDetail  = accountsPage(() => import("./pages/accounts/PaymentDetails"));
 const AcAgentSOA   = accountsPage(() => import("./pages/accounts/AgentSOA"));
+const AcDebitCredit = accountsPage(() => import("./pages/accounts/DebitCredit"));
 const QuoteAccept = lazy(() => import("./pages/QuoteAccept"));
 const TrackShipment = lazy(() => import("./pages/TrackShipment"));
 const HblDraft = lazy(() => import("./pages/HblDraft"));
@@ -211,6 +212,7 @@ export default function App() {
                 <Route path="/accounts/receipt-details" element={<AcRcptDetail />} />
                 <Route path="/accounts/payment-details" element={<AcPayDetail />} />
                 <Route path="/accounts/agent-soa" element={<AcAgentSOA />} />
+                <Route path="/accounts/debit-credit" element={<AcDebitCredit />} />
                 {/* The old paths, so links already sent still land. */}
                 <Route path="/billing" element={<Navigate to="/accounts/invoices" replace />} />
                 <Route path="/receipts" element={<Navigate to="/accounts/receipts" replace />} />

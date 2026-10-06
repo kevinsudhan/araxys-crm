@@ -247,6 +247,7 @@ export default function AppLayout() {
       () => import("../pages/accounts/Outstanding"),
       () => import("../pages/accounts/PayablesReport"),
       () => import("../pages/accounts/AgentSOA"),
+      () => import("../pages/accounts/DebitCredit"),
       () => import("../pages/accounts/FinalBill"),
       () => import("../pages/accounts/Proformas"),
       () => import("../pages/accounts/DebitNotes"),

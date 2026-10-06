@@ -36,6 +36,7 @@ import {
   X,
   ChevronsLeft,
   ChevronsRight,
+  ArrowLeftRight,
 } from "lucide-react";
 
 interface NavItem {
@@ -149,6 +150,8 @@ const groups: NavGroup[] = [
       { to: "/accounts/receipts", label: "Receipts", icon: HandCoins },
       { to: "/accounts/payments", label: "Payments", icon: FileDown },
       { to: "/accounts/final-bill", label: "Final bill", icon: Scale },
+      // Per shipment and per party, both ways, with charts (7 Oct).
+      { to: "/accounts/debit-credit", label: "Debit & credit", icon: ArrowLeftRight },
       { to: "/accounts/overseas-debit-notes", label: "Overseas debit notes", icon: Globe },
       { to: "/accounts/overseas-credit-notes", label: "Overseas credit notes", icon: Globe },
       { to: "/accounts/agent-soa", label: "Agent SOA", icon: Handshake },

@@ -1032,6 +1032,24 @@ the workflow and the customer's milestones (134). Locked on a signed-off, cancel
 header's "Mark …" offers sailed, not stuffed. Already following it: customs (077), the pre-alert
 (078), the received B/L and CSN (088, 097), free time (083), the consoles a job can join.
 
+**Debit & credit (7 Oct; the user: "debit credit pages… how much debit and credit is involved in each
+shipment and with which party, graphs, simple and understandable").** `/accounts/debit-credit`
+(`pages/accounts/DebitCredit.tsx`, in the Accounts menu after Final bill). Debit = what we billed them
+(issued tax invoices and debit notes, to a customer or an agent, less our credit notes); credit = what
+they billed us (every bill not cancelled — carrier, vendor, agent debit notes — less agent credit
+notes); the final bill's rules (job_final_bill, 042), rupees with GST. Settled beside each document
+(confirmed payment allocations, TDS as settled, as a share of the document's own currency). The page:
+period (month / 3 months / FY / all) and search over everything; five figures (debit, credit,
+difference, still to collect, still to pay); debit and credit month by month (paired columns); the
+biggest shipments and parties (paired bars); every one in a table (by shipment / by party). A
+shipment (`?job=`) opens to who it is with — paired bars per party, where each stands ("owes us",
+"we owe", "settled") — and its documents; a party (`?party=`) to its shipments and documents. A
+console's own documents (a master bill) are a row of their own, not split across jobs (that is the
+P&L's estimate). Excel of all three lists. Logic `lib/debitCredit.ts` (tested,
+`scripts/tests/debitCredit.test.ts`), reads `services/debitCredit.ts`, charts
+`components/DebitCreditCharts.tsx` (debit blue #2a78d6, credit orange #eb6834 — the P&L's pair,
+validated: CVD ΔE 24.7, both ≥3:1 on white). No migration.
+
 **Team oversight, by person (7 Oct; the user: "make it employee based… each employee's name and when they
 click on it it should show their actions… categorized into subsections").** `pages/Oversight.tsx` was four
 tabs (Activity, Mail sent, People, Enquiries); it is now everyone on the desk down the side (name, actions
