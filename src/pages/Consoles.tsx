@@ -125,7 +125,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function Consoles() {
-  const [rows, setRows] = useCachedState<Console[]>("consoles:rows", []);
+  const [rows, setRows, rowsKnown] = useCachedState<Console[]>("consoles:rows", []);
   const [containers, setContainers] = useCachedState<Container[]>("consoles:containers", []);
   const [partners, setPartners] = useCachedState<Partner[]>("consoles:partners", []);
   const [onBoard, setOnBoard] = useCachedState<Record<string, Shipment[]>>("consoles:onboard", {});
@@ -214,7 +214,7 @@ export default function Consoles() {
     }
   }
 
-  if (loading && !rows.length) return <PageSkeleton />;
+  if (loading && !rowsKnown) return <PageSkeleton />;
 
   return (
     <div>

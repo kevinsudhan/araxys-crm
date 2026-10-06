@@ -137,7 +137,7 @@ export function Figures({ q }: { q: PendingQuote }) {
 
 export default function QuoteApprovals() {
   const { session } = useAuth();
-  const [rows, setRows] = useCachedState<PendingQuote[]>("approvals:rows", []);
+  const [rows, setRows, rowsKnown] = useCachedState<PendingQuote[]>("approvals:rows", []);
   /** Self-approvals no admin has read yet (091). Admins only. */
   const [review, setReview] = useState<PendingQuote[]>([]);
   const [open, setOpen] = useState<string | null>(null);
@@ -315,7 +315,7 @@ export default function QuoteApprovals() {
         </section>
       )}
 
-      {loading && !rows.length && !review.length ? (
+      {loading && !rowsKnown ? (
         <ListSkeleton />
       ) : !rows.length && review.length ? (
         <p className="flex items-center gap-1.5 text-[12.5px] text-text-secondary">

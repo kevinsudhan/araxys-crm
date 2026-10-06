@@ -115,7 +115,7 @@ function useRemembered<T extends string>(key: string, fallback: T, allowed: read
 }
 
 export default function ShipmentsInProcess() {
-  const [rows, setRows] = useCachedState<ShipmentRow[]>("inprocess:rows", []);
+  const [rows, setRows, rowsKnown] = useCachedState<ShipmentRow[]>("inprocess:rows", []);
   const [people, setPeople] = useCachedState<Person[]>("people", []);
   // Everyone sees every shipment; this narrows to the ones that are
   // yours, or the ones nobody has picked up yet.
@@ -385,7 +385,7 @@ export default function ShipmentsInProcess() {
         </div>
       )}
 
-      {loading && !rows.length ? (
+      {loading && !rowsKnown ? (
         <ListSkeleton />
       ) : !rows.length ? (
         <div className="rounded-card border border-dashed border-border-strong bg-surface-1 p-10 text-center">

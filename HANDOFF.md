@@ -1040,7 +1040,14 @@ its data. What was done:
   while for lists whose writes `invalidate` them (partners 30 s, people and registrations 60 s). Keys
   start with the table's name; `useTableChanges` invalidates the tables it hears change. Each caller
   gets its own array.
-- **`lib/useCachedState.ts`** (`useCachedState`, `useCachedMap`): a page's state kept between visits.
+- **`lib/useCachedState.ts`** (`useCachedState`, `useCachedMap`): a page's state kept between visits;
+  the third value says whether the page has been read before, so a list read and found empty shows
+  its "none yet" at once and only a page never read shows the skeleton (nothing is kept until read).
+  Also on (second pass, 6 Oct): the accounts registers, payments and settlement lists, Outstanding,
+  Payables, Final bill, Agent SOA, a job's Containers, Customs, Pickup & delivery, Invoices and Costs,
+  the customer and partner files, partner mail, the case file's partners and partner replies, Live
+  rates for a shipment, the reply log. Not on the editors (house B/L, HAWB, invoice, customer and
+  partner edit): a refresh landing under somebody typing would undo their typing.
   On: Overview, Enquiries, My enquiries, Enquiries overview, Shipments in process/completed,
   Customers, Partners, Quote approvals, Sailing schedules, Job closing, Consoles, Analytics,
   Documentation, Rate master, Live rates, Oversight; the case file (per ref), the shipment page (per
@@ -1055,12 +1062,12 @@ its data. What was done:
   customer it was given). The shipment page reads its boxes with the job, and the enquiry too when the
   job's reference is known. Mail shows the folder when Graph answers (the intake lookup after) and
   checks snoozes alongside, not first.
-- **Start-up**: the profile is remembered (`araxys:profile`, localStorage, the person's own) and the
+- **Start-up**: the profile is remembered (`araxys:profile`, sessionStorage like the sign-in, the person's own) and the
   app opens on it while it is read again; read once, not twice (the INITIAL_SESSION event); a failed
   re-read keeps it. `index.html` preconnects to the database and prefetches Graph's DNS.
 - **Bundle**: `vite.config.ts` `manualChunks`: vendor-react, vendor-router, vendor-supabase, kept by the
-  browser across releases. `AppLayout` fetches the common pages' files when idle, one at a time (not
-  on save-data). `main.tsx` reloads once on `vite:preloadError` (a page file removed by a release).
+  browser across releases. `AppLayout` fetches every desk page's file when idle, most used first, one
+  at a time (not on save-data). `main.tsx` reloads once on `vite:preloadError` (a page file removed by a release).
 - **Service worker**: a navigation waits two seconds for the network, then opens the kept page.
 - Not done, and why: jsPDF (127 KB) still loads with the case file and shipment pages — its own file,
   cached once; making it lazy would change ~40 call sites to async. Gemini's paste reading and Graph's

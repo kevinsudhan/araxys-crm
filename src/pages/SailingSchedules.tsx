@@ -62,7 +62,7 @@ const SAVED_KEY = "sailing-schedule:saved-filters";
 type SortKey = "id" | "port_of_loading" | "port_of_discharge" | "etd" | "eta" | "cfs_cutoff" | "port_cutoff" | "transit_days";
 
 export default function SailingSchedules() {
-  const [rows, setRows] = useCachedState<Schedule[]>("schedules:rows", []);
+  const [rows, setRows, rowsKnown] = useCachedState<Schedule[]>("schedules:rows", []);
   const [partners, setPartners] = useCachedState<Partner[]>("schedules:partners", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -323,7 +323,7 @@ export default function SailingSchedules() {
       )}
 
       {/* ---- the list ---- */}
-      {loading && !rows.length ? (
+      {loading && !rowsKnown ? (
         <ListSkeleton avatar={false} />
       ) : !rows.length ? (
         <div className="rounded-card border border-dashed border-border-strong bg-surface-1 p-10 text-center">

@@ -34,6 +34,7 @@ import { SectionSkeleton } from "./Loading";
 import { formatDate } from "../lib/dates";
 import { useLiveVersion } from "../lib/liveVersions";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * What the partners came back with.
  *
@@ -69,7 +70,7 @@ const TONE: Record<QuoteStatus, string> = {
 
 export default function PartnerQuotes({ enquiry }: { enquiry: Enquiry }) {
   const { session } = useAuth();
-  const [rows, setRows] = useState<PartnerQuote[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<PartnerQuote[]>(`case:${enquiry.ref.toUpperCase()}:partnerReplies`, []);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -225,7 +226,7 @@ export default function PartnerQuotes({ enquiry }: { enquiry: Enquiry }) {
         <p className="mt-3 text-[11.5px] text-text-muted">{notice}</p>
       )}
 
-      {loading ? (
+      {loading && !rowsKnown ? (
         <SectionSkeleton lines={2} className="mt-3" />
       ) : rows.length === 0 ? (
         <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2.5 text-[12px] text-text-secondary">

@@ -43,7 +43,7 @@ import { useCachedState } from "../lib/useCachedState";
 type Row = Enquiry & { customer: Customer | null };
 
 export default function Documentation() {
-  const [enquiries, setEnquiries] = useCachedState<Row[]>("documentation:enquiries", []);
+  const [enquiries, setEnquiries, enquiriesKnown] = useCachedState<Row[]>("documentation:enquiries", []);
   const [shipments, setShipments] = useCachedState<Array<Shipment & { customer: Customer | null }>>("documentation:shipments", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +120,7 @@ export default function Documentation() {
         Cases you can issue against
       </h2>
 
-      {loading && !enquiries.length ? (
+      {loading && !enquiriesKnown ? (
         <ListSkeleton />
       ) : !enquiries.length ? (
         <EmptyState

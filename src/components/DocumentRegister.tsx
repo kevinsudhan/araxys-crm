@@ -21,6 +21,7 @@ import { supabase } from "../lib/supabase";
 import { ListSkeleton } from "./Loading";
 import { formatDate } from "../lib/dates";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * One register, six pages.
  *
@@ -60,7 +61,7 @@ export interface RegisterSpec {
 }
 
 export default function DocumentRegister({ spec }: { spec: RegisterSpec }) {
-  const [rows, setRows] = useState<Invoice[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<Invoice[]>(`register:${spec.kind}:${spec.party}`, []);
   const [openId, setOpenId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +99,7 @@ export default function DocumentRegister({ spec }: { spec: RegisterSpec }) {
 
   const isNote = spec.kind === "credit_note" || spec.kind === "debit_note";
 
-  if (loading) return <ListSkeleton avatar={false} />;
+  if (loading && !rowsKnown) return <ListSkeleton avatar={false} />;
 
   return (
     <div>

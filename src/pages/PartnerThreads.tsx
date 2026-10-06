@@ -37,6 +37,7 @@ import { mailIsLive } from "../services/backend";
 import type { MailMessage } from "../services/mockMail";
 import { PageSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * One partner, and everything we have exchanged with them.
  *
@@ -69,7 +70,7 @@ export default function PartnerThreads() {
   const { session } = useAuth();
   const mailbox = session?.email ?? "";
 
-  const [partner, setPartner] = useState<Partner | null>(null);
+  const [partner, setPartner] = useCachedState<Partner | null>(`partner:${id}`, null);
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<FailureText | null>(null);

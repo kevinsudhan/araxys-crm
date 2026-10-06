@@ -17,6 +17,7 @@ import {
 } from "../../services/reports";
 import { PageSkeleton, SectionSkeleton } from "../../components/Loading";
 
+import { useCachedState } from "../../lib/useCachedState";
 /**
  * Settling a period with an overseas agent.
  *
@@ -49,8 +50,8 @@ const TONE: Record<string, "neutral" | "accent" | "warning" | "success" | "dange
 const STATUS_ORDER = ["draft", "sent", "agreed", "settled"] as const;
 
 export default function AgentSOA() {
-  const [rows, setRows] = useState<AgentStatement[]>([]);
-  const [partners, setPartners] = useState<Partner[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<AgentStatement[]>("agentsoa:rows", []);
+  const [partners, setPartners] = useCachedState<Partner[]>("agentsoa:partners", []);
   const [lines, setLines] = useState<Record<string, StatementLine[]>>({});
   const [openId, setOpenId] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
@@ -107,7 +108,7 @@ export default function AgentSOA() {
     }
   }
 
-  if (loading) return <PageSkeleton />;
+  if (loading && !rowsKnown) return <PageSkeleton />;
 
   return (
     <div>

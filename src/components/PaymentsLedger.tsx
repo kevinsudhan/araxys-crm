@@ -27,6 +27,7 @@ import {
 import { ListSkeleton } from "./Loading";
 import { formatDate } from "../lib/dates";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * The ledger for one direction of money.
  *
@@ -61,8 +62,8 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
 }
 
 export default function PaymentsLedger({ direction }: { direction: Direction }) {
-  const [rows, setRows] = useState<Payment[]>([]);
-  const [balances, setBalances] = useState<CustomerBalance[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<Payment[]>(`payments:${direction}:rows`, []);
+  const [balances, setBalances] = useCachedState<CustomerBalance[]>(`payments:${direction}:balances`, []);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   // Set when an invoice sent us here with a draft it had just opened.
@@ -137,7 +138,7 @@ export default function PaymentsLedger({ direction }: { direction: Direction }) 
     }
   }
 
-  if (loading) return <ListSkeleton avatar={false} />;
+  if (loading && !rowsKnown) return <ListSkeleton avatar={false} />;
 
   return (
     <div>

@@ -96,7 +96,7 @@ function when(iso: string | null): string {
 export default function Overview() {
   const [enquiries, setEnquiries] = useCachedState<Row[]>("overview:enquiries", []);
   const [shipments, setShipments] = useCachedState<Array<Shipment & { customer: Customer | null }>>("overview:shipments", []);
-  const [events, setEvents] = useCachedState<EnquiryEvent[]>("overview:events", []);
+  const [events, setEvents, eventsKnown] = useCachedState<EnquiryEvent[]>("overview:events", []);
   const [waiting, setWaiting] = useCachedState<number | null>("overview:waiting", null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -256,7 +256,7 @@ export default function Overview() {
               Recent activity
             </h2>
 
-            {loading && !events.length ? (
+            {loading && !eventsKnown ? (
               <ListSkeleton rows={4} />
             ) : !events.length ? (
               <div className="card px-4 py-8 text-center">

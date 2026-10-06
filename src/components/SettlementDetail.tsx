@@ -8,6 +8,7 @@ import { money } from "../services/billing";
 import { settlementDetail, type SettlementLine } from "../services/reports";
 import { ListSkeleton } from "./Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Every allocation, one row each.
  *
@@ -34,7 +35,7 @@ export default function SettlementDetail({
   subtitle: string;
   exportAs: string;
 }) {
-  const [rows, setRows] = useState<SettlementLine[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<SettlementLine[]>(`settlement:${direction}`, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,7 +63,7 @@ export default function SettlementDetail({
     [rows]
   );
 
-  if (loading) return <ListSkeleton avatar={false} />;
+  if (loading && !rowsKnown) return <ListSkeleton avatar={false} />;
 
   return (
     <div>

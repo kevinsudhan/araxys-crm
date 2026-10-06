@@ -81,12 +81,14 @@ const AuthContext = createContext<AuthValue | null>(null);
 /**
  * The profile as last read, so the app opens on it instead of waiting a round
  * trip for it on every open (6 Oct); read again behind it, and dropped on
- * sign-out. Only ever the signed-in person's own.
+ * sign-out. Only ever the signed-in person's own, and kept where the sign-in
+ * itself is (sessionStorage, lib/supabase.ts): gone with the tab, since desk
+ * machines are shared.
  */
 const PROFILE_KEY = "araxys:profile";
 function rememberedProfile(userId: string): Session | null {
   try {
-    const p = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? "null") as Session | null;
+    const p = JSON.parse(sessionStorage.getItem(PROFILE_KEY) ?? "null") as Session | null;
     return p && p.userId === userId ? p : null;
   } catch {
     return null;
@@ -94,8 +96,10 @@ function rememberedProfile(userId: string): Session | null {
 }
 function rememberProfile(p: Session | null) {
   try {
-    if (p) localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
-    else localStorage.removeItem(PROFILE_KEY);
+    if (p) sessionStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+    else sessionStorage.removeItem(PROFILE_KEY);
+    // An earlier build kept it in localStorage (6 Oct, briefly): not left behind there.
+    localStorage.removeItem(PROFILE_KEY);
   } catch {
     // Not kept: the next open waits for it, as before.
   }

@@ -5,6 +5,7 @@ import { describeDelay, delayTone, listReplies, type ReplyLogRow } from "../serv
 import { ListSkeleton } from "./Loading";
 import { formatDate } from "../lib/dates";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Who answered a partner, and how long they took.
  *
@@ -32,7 +33,7 @@ import { formatDate } from "../lib/dates";
  * ---------------------------------------------------------------------------
  */
 export default function ReplyLog() {
-  const [rows, setRows] = useState<ReplyLogRow[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<ReplyLogRow[]>("replylog:rows", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<FailureText | null>(null);
 
@@ -93,7 +94,7 @@ export default function ReplyLog() {
         </div>
       )}
 
-      {loading && !rows.length ? (
+      {loading && !rowsKnown ? (
         <ListSkeleton rows={3} />
       ) : !rows.length ? (
         <p className="py-6 text-[13px] text-text-muted">

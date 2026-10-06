@@ -22,6 +22,7 @@ import { appliesTo, clocksFor, sideOf, summarise } from "../../lib/freeTime";
 import { todayIST } from "../../lib/progress";
 import { useLiveVersion } from "../../lib/liveVersions";
 
+import { useCachedState } from "../../lib/useCachedState";
 /**
  * The boxes this shipment is travelling in.
  *
@@ -120,7 +121,7 @@ function Flag({
 
 export default function ShipmentContainers() {
   const { shipment, enquiry, reload } = useShipment();
-  const [rows, setRows] = useState<ShipmentContainer[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<ShipmentContainer[]>(`ship:${shipment.id}:containers`, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,7 +173,7 @@ export default function ShipmentContainers() {
     { packages: 0, weight: 0, volume: 0 }
   );
 
-  if (loading) return <SectionSkeleton />;
+  if (loading && !rowsKnown) return <SectionSkeleton />;
 
   return (
     <div>

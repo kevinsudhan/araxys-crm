@@ -25,7 +25,7 @@ import { useCachedState } from "../lib/useCachedState";
  * shipment reaches delivery this is empty, and says so.
  */
 export default function ShipmentsCompleted() {
-  const [rows, setRows] = useCachedState<ShipmentRow[]>("completed:rows", []);
+  const [rows, setRows, rowsKnown] = useCachedState<ShipmentRow[]>("completed:rows", []);
   const [people, setPeople] = useCachedState<Person[]>("people", []);
   // The completed board is the desk's history, not one person's, so it
   // filters by owner rather than hiding other people's work.
@@ -78,7 +78,7 @@ export default function ShipmentsCompleted() {
         </div>
       )}
 
-      {loading && !rows.length ? (
+      {loading && !rowsKnown ? (
         <ListSkeleton />
       ) : !rows.length ? (
         <EmptyState

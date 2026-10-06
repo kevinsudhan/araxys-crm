@@ -66,7 +66,7 @@ const LENS_LABEL: Record<Lens, string> = {
 };
 
 export default function Customers() {
-  const [rows, setRows] = useCachedState<CustomerSummary[]>("customers:rows", []);
+  const [rows, setRows, rowsKnown] = useCachedState<CustomerSummary[]>("customers:rows", []);
   const [query, setQuery] = useState("");
   const [lens, setLens] = useState<Lens>("all");
   const [tag, setTag] = useState<string | null>(null);
@@ -215,7 +215,7 @@ export default function Customers() {
         </div>
       )}
 
-      {loading && !rows.length ? (
+      {loading && !rowsKnown ? (
         <ListSkeleton />
       ) : !rows.length ? (
         <div className="rounded-card border border-dashed border-border-strong bg-surface-1 p-10 text-center">

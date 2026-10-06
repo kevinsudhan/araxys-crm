@@ -72,7 +72,7 @@ export default function Enquiries() {
   const { session } = useAuth();
   const mailbox = session?.email ?? "";
 
-  const [rows, setRows] = useCachedState<Row[]>("enquiries:rows", []);
+  const [rows, setRows, rowsKnown] = useCachedState<Row[]>("enquiries:rows", []);
   const [unfiled, setUnfiled] = useState<MailMessage[]>([]);
   /**
    * The search term is held in the URL, not only in this component.
@@ -313,7 +313,7 @@ export default function Enquiries() {
         </div>
       )}
 
-      {loading && !rows.length ? (
+      {loading && !rowsKnown ? (
         <ListSkeleton />
       ) : !rows.length ? (
         /**

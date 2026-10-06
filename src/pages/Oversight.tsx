@@ -126,7 +126,7 @@ export default function Oversight() {
   const { session } = useAuth();
 
   const [rows, setRows] = useCachedState<Row[]>("oversight:rows", []);
-  const [people, setPeople] = useCachedState<Person[]>("people", []);
+  const [people, setPeople, peopleKnown] = useCachedState<Person[]>("people", []);
   const [events, setEvents] = useCachedState<EnquiryEvent[]>("oversight:events", []);
   const [mails, setMails] = useState<MailLogRow[]>([]);
   const [steps, setSteps] = useCachedState<Checkpoint[]>("oversight:steps", []);
@@ -381,7 +381,7 @@ export default function Oversight() {
         ))}
       </nav>
 
-      {loading && !people.length ? (
+      {loading && !peopleKnown ? (
         <ListSkeleton />
       ) : tab === "activity" ? (
         <ActivityFeed items={visibleFeed.slice(0, shown)} total={visibleFeed.length} onMore={() => setShown((n) => n + 150)} personName={personName} open={open} setOpen={setOpen} />

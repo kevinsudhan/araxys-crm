@@ -18,6 +18,7 @@ import PartnerForm from "./PartnerForm";
 import { SectionSkeleton } from "./Loading";
 import { useLiveVersion } from "../lib/liveVersions";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Who is working this shipment with us.
  *
@@ -42,7 +43,7 @@ export default function PartnersPanel({
   /** So the case file can refresh its parties and timeline after an assignment. */
   onChanged: () => void;
 }) {
-  const [assigned, setAssigned] = useState<Array<Assignment & { partner: Partner }>>([]);
+  const [assigned, setAssigned, assignedKnown] = useCachedState<Array<Assignment & { partner: Partner }>>(`case:${enquiry.ref.toUpperCase()}:assigned`, []);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -171,7 +172,7 @@ export default function PartnersPanel({
         </button>
       </div>
 
-      {loading ? (
+      {loading && !assignedKnown ? (
         <SectionSkeleton lines={2} className="py-1" />
       ) : (
         <>

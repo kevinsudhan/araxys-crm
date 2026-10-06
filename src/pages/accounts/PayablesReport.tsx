@@ -8,6 +8,7 @@ import { money } from "../../services/billing";
 import { BUCKETS, BUCKET_LABEL, payablesAgeing, type AgedRow } from "../../services/reports";
 import { PageSkeleton } from "../../components/Loading";
 
+import { useCachedState } from "../../lib/useCachedState";
 /**
  * What we owe, aged.
  *
@@ -16,7 +17,7 @@ import { PageSkeleton } from "../../components/Loading";
  * for a decision it made is one nobody reads by the second week.
  */
 export default function PayablesReport() {
-  const [rows, setRows] = useState<AgedRow[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<AgedRow[]>("payables:rows", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ export default function PayablesReport() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (loading) return <PageSkeleton />;
+  if (loading && !rowsKnown) return <PageSkeleton />;
 
   const total = rows.reduce((t, r) => t + r.total, 0);
   const over90 = rows.reduce((t, r) => t + r.buckets.d90plus, 0);

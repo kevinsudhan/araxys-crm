@@ -22,6 +22,7 @@ import {
 import { SectionSkeleton } from "./Loading";
 import { useLiveVersion } from "../lib/liveVersions";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * What this job cost — the bills other people sent us.
  *
@@ -100,7 +101,7 @@ export default function BillsPanel({
   consoleId?: string;
   onChanged?: () => void;
 }) {
-  const [rows, setRows] = useState<Bill[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<Bill[]>(`bills:${shipmentId ?? ""}:${consoleId ?? ""}`, []);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -170,7 +171,7 @@ export default function BillsPanel({
     .filter((b) => b.status !== "cancelled")
     .reduce((t, b) => t + (b.kind === "agent_credit_note" ? -1 : 1) * Number(b.total_inr || 0), 0);
 
-  if (loading) return <SectionSkeleton />;
+  if (loading && !rowsKnown) return <SectionSkeleton />;
 
   return (
     <div>

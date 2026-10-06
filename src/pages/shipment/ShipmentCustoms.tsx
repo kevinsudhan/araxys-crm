@@ -22,6 +22,7 @@ import { SectionSkeleton } from "../../components/Loading";
 import { formatDate } from "../../lib/dates";
 import { useLiveVersion } from "../../lib/liveVersions";
 
+import { useCachedState } from "../../lib/useCachedState";
 /**
  * Customs: the export clearance at origin, the import clearance at
  * destination, or both, on the way Indian customs does them (077).
@@ -53,7 +54,7 @@ const TONE: Record<CustomsStatus, string> = {
 
 export default function ShipmentCustoms() {
   const { shipment: s, reload } = useShipment();
-  const [rows, setRows] = useState<CustomsRecord[] | null>(null);
+  const [rows, setRows] = useCachedState<CustomsRecord[] | null>(`ship:${s.id}:customs`, null);
   const [brokers, setBrokers] = useState<Partner[]>([]);
   const [files, setFiles] = useState<EnquiryFile[]>([]);
   const [busy, setBusy] = useState<string | null>(null);

@@ -74,7 +74,7 @@ export default function MyEnquiries() {
   const { session } = useAuth();
   const me = session?.userId ?? "";
 
-  const [rows, setRows] = useCachedState<Row[]>("myenquiries:rows", []);
+  const [rows, setRows, rowsKnown] = useCachedState<Row[]>("myenquiries:rows", []);
   const [people, setPeople] = useCachedState<Person[]>("people", []);
   const [shipped, setShipped] = useCachedMap<string, Shipment>("myenquiries:shipped");
   const [loading, setLoading] = useState(true);
@@ -159,7 +159,7 @@ export default function MyEnquiries() {
         </div>
       )}
 
-      {loading && !rows.length ? (
+      {loading && !rowsKnown ? (
         <ListSkeleton />
       ) : !mine.length ? (
         <EmptyState

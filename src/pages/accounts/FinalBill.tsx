@@ -10,6 +10,7 @@ import { marginPct } from "../../services/bills";
 import { finalBills, type FinalBillRow } from "../../services/reports";
 import { PageSkeleton } from "../../components/Loading";
 
+import { useCachedState } from "../../lib/useCachedState";
 /**
  * Where every job ended up.
  *
@@ -40,7 +41,7 @@ const STAGE_TONE = (stage: string) =>
   stage === "delivered" ? "success" : stage === "cancelled" ? "danger" : "accent";
 
 export default function FinalBill() {
-  const [rows, setRows] = useState<FinalBillRow[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<FinalBillRow[]>("finalbill:rows", []);
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +74,7 @@ export default function FinalBill() {
     [rows, onlyOpen]
   );
 
-  if (loading) return <PageSkeleton />;
+  if (loading && !rowsKnown) return <PageSkeleton />;
 
   return (
     <div>

@@ -12,6 +12,7 @@ import { openJobs, type OpenJob } from "../services/liveRates";
 import { QUOTE_STATUS_LABEL, recentRateRequests, type PartnerQuote, type QuoteStatus } from "../services/rfq";
 import { STATUS_LABEL, SHIPMENT_STAGE_LABEL, type ShipmentStage } from "../services/enquiries";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Live rates, by hand, for one job (107): choose a shipment, the partners,
  * and what each should price; each gets their own mail from the sender's
@@ -20,7 +21,7 @@ import { STATUS_LABEL, SHIPMENT_STAGE_LABEL, type ShipmentStage } from "../servi
  */
 export default function LiveRatesForShipment() {
   const [params, setParams] = useSearchParams();
-  const [jobs, setJobs] = useState<OpenJob[]>([]);
+  const [jobs, setJobs, jobsKnown] = useCachedState<OpenJob[]>("liverates:openjobs", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -88,7 +89,7 @@ export default function LiveRatesForShipment() {
               {error}
             </div>
           )}
-          {loading ? (
+          {loading && !jobsKnown ? (
             <ListSkeleton rows={3} />
           ) : job ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-brand/30 bg-bg-success px-3 py-2.5">

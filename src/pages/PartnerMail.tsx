@@ -15,6 +15,7 @@ import {
 } from "../services/partners";
 import { ListSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Whose correspondence to open.
  *
@@ -39,7 +40,7 @@ import { ListSkeleton } from "../components/Loading";
  * ---------------------------------------------------------------------------
  */
 export default function PartnerMail() {
-  const [partners, setPartners] = useState<Partner[]>([]);
+  const [partners, setPartners, partnersKnown] = useCachedState<Partner[]>("partnermail:partners", []);
   const [query, setQuery] = useState("");
   const [role, setRole] = useState<PartnerRole | "all">("all");
   const [loading, setLoading] = useState(true);
@@ -145,7 +146,7 @@ export default function PartnerMail() {
         </div>
       )}
 
-      {loading && !partners.length ? (
+      {loading && !partnersKnown ? (
         <ListSkeleton />
       ) : !partners.length ? (
         <EmptyState

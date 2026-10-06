@@ -60,7 +60,7 @@ const IN_PROCESS: ShipmentStage[] = SHIPMENT_STAGES.filter((s) => s !== "deliver
 
 export default function EnquiriesOverview() {
   const { session } = useAuth();
-  const [enquiries, setEnquiries] = useCachedState<Enquiry[]>("eqoverview:enquiries", []);
+  const [enquiries, setEnquiries, enquiriesKnown] = useCachedState<Enquiry[]>("eqoverview:enquiries", []);
   const [shipments, setShipments] = useCachedState<ShipmentRow[]>("eqoverview:shipments", []);
   const [waiting, setWaiting] = useCachedState<Intake[]>("eqoverview:waiting", []);
   const [loading, setLoading] = useState(true);
@@ -117,7 +117,7 @@ export default function EnquiriesOverview() {
     };
   }, [enquiries, shipments]);
 
-  if (loading && !enquiries.length && !shipments.length) return <PageSkeleton rows={3} />;
+  if (loading && !enquiriesKnown) return <PageSkeleton rows={3} />;
 
   const notProceeding = [
     stats.declined ? `${stats.declined} declined` : null,

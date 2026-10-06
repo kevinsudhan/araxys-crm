@@ -58,7 +58,7 @@ export default function ShipmentCheckpoints({
   shipmentId: string;
   mode?: Shipment["transport_mode"];
 }) {
-  const [list, setList] = useCachedState<Checkpoint[]>(`ship:${shipmentId}:steps`, []);
+  const [list, setList, listKnown] = useCachedState<Checkpoint[]>(`ship:${shipmentId}:steps`, []);
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,7 +111,7 @@ export default function ShipmentCheckpoints({
   const overdue = list.filter((c) => dueState(c.due_on, Boolean(c.done_at), today) === "overdue").length;
   const NextIcon = mode === "air" ? Plane : mode === "sea_lcl" || mode === "sea_fcl" ? Ship : Truck;
 
-  if (loading && !list.length)
+  if (loading && !listKnown)
     return <SectionSkeleton lines={3} label="Loading the follow-ups" />;
 
   if (!list.length) return null;

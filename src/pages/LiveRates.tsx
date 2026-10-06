@@ -115,7 +115,7 @@ export default function LiveRates() {
 function WeeklyRates() {
   const { session } = useAuth();
   const admin = session?.role === "admin";
-  const [requests, setRequests] = useCachedState<LiveRateRequest[]>("liverates:requests", []);
+  const [requests, setRequests, requestsKnown] = useCachedState<LiveRateRequest[]>("liverates:requests", []);
   const [partners, setPartners] = useCachedState<Partner[]>("liverates:partners", []);
   const [sends, setSends] = useCachedState<LiveRateSend[]>("liverates:sends", []);
   const [mailboxes, setMailboxes] = useState<string[]>([]);
@@ -233,7 +233,7 @@ function WeeklyRates() {
         />
       )}
 
-      {loading && !requests.length ? (
+      {loading && !requestsKnown ? (
         <ListSkeleton rows={3} />
       ) : !requests.length && editing !== "new" ? (
         <EmptyState

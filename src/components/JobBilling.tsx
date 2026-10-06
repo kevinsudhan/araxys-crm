@@ -17,6 +17,7 @@ import { SectionSkeleton } from "./Loading";
 import { formatDate } from "../lib/dates";
 import { useLiveVersion } from "../lib/liveVersions";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Everything billed against one job.
  *
@@ -61,7 +62,7 @@ export default function JobBilling({
   shipmentId: string;
   onChanged?: () => void;
 }) {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoices, setInvoices, invoicesKnown] = useCachedState<Invoice[]>(`ship:${shipmentId}:invoices`, []);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +110,7 @@ export default function JobBilling({
     onChanged?.();
   };
 
-  if (loading) return <SectionSkeleton />;
+  if (loading && !invoicesKnown) return <SectionSkeleton />;
 
   return (
     <div>

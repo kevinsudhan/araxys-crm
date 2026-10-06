@@ -8,6 +8,7 @@ import { money } from "../../services/billing";
 import { BUCKETS, BUCKET_LABEL, receivablesAgeing, type AgedRow } from "../../services/reports";
 import { PageSkeleton } from "../../components/Loading";
 
+import { useCachedState } from "../../lib/useCachedState";
 /**
  * What customers owe us, aged.
  *
@@ -17,7 +18,7 @@ import { PageSkeleton } from "../../components/Loading";
  * every invoice a customer deducted tax on sitting here short for ever.
  */
 export default function Outstanding() {
-  const [rows, setRows] = useState<AgedRow[]>([]);
+  const [rows, setRows, rowsKnown] = useCachedState<AgedRow[]>("outstanding:rows", []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,7 +35,7 @@ export default function Outstanding() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (loading) return <PageSkeleton />;
+  if (loading && !rowsKnown) return <PageSkeleton />;
 
   const total = rows.reduce((t, r) => t + r.total, 0);
   const over90 = rows.reduce((t, r) => t + r.buckets.d90plus, 0);

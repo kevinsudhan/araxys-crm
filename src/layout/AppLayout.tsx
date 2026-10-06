@@ -85,10 +85,11 @@ export default function AppLayout() {
   }, []);
 
   /*
-    The pages the desk opens most, fetched once the app is idle (6 Oct): a
-    click on the board, a case file or a shipment then opens it without
-    first waiting for its file to download. Not on a connection that asks to
-    save data. Each file is fetched once and kept by the browser.
+    Every desk page's file, fetched once the app is idle, the most used first
+    (6 Oct): a click on any page then opens it without first waiting for its
+    file to download. One at a time, so the page in front keeps the
+    connection; not on a connection that asks to save data. Each file is
+    fetched once and kept by the browser (and the service worker).
   */
   useEffect(() => {
     const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
@@ -104,8 +105,49 @@ export default function AppLayout() {
       () => import("../pages/MyEnquiries"),
       () => import("../pages/Consoles"),
       () => import("../pages/Mail"),
+      () => import("../pages/shipment/ShipmentDocuments"),
+      () => import("../pages/shipment/ShipmentBill"),
+      () => import("../pages/shipment/ShipmentParties"),
+      () => import("../pages/shipment/ShipmentCargo"),
+      () => import("../pages/shipment/ShipmentContainers"),
+      () => import("../pages/shipment/ShipmentCustoms"),
+      () => import("../pages/shipment/ShipmentPickupDelivery"),
+      () => import("../pages/shipment/ShipmentMail"),
+      () => import("../pages/shipment/ShipmentInvoices"),
+      () => import("../pages/shipment/ShipmentCosts"),
+      () => import("../pages/shipment/ShipmentSignOff"),
+      () => import("../pages/shipment/ShipmentWarehouse"),
       () => import("../pages/Customers"),
+      () => import("../pages/CustomerFile"),
       () => import("../pages/Partners"),
+      () => import("../pages/PartnerThreads"),
+      () => import("../pages/PartnerMail"),
+      () => import("../pages/QuoteApprovals"),
+      () => import("../pages/EnquiriesOverview"),
+      () => import("../pages/ShipmentsCompleted"),
+      () => import("../pages/SailingSchedules"),
+      () => import("../pages/LiveRates"),
+      () => import("../pages/RateMaster"),
+      () => import("../pages/Documentation"),
+      () => import("../pages/JobClosing"),
+      () => import("../pages/Analytics"),
+      () => import("../pages/Oversight"),
+      () => import("../pages/CustomerEdit"),
+      () => import("../pages/PartnerEdit"),
+      () => import("../pages/accounts/Invoices"),
+      () => import("../pages/accounts/Receipts"),
+      () => import("../pages/accounts/Payments"),
+      () => import("../pages/accounts/Outstanding"),
+      () => import("../pages/accounts/PayablesReport"),
+      () => import("../pages/accounts/AgentSOA"),
+      () => import("../pages/accounts/FinalBill"),
+      () => import("../pages/accounts/Proformas"),
+      () => import("../pages/accounts/DebitNotes"),
+      () => import("../pages/accounts/CreditNotes"),
+      () => import("../pages/accounts/OverseasDebitNotes"),
+      () => import("../pages/accounts/OverseasCreditNotes"),
+      () => import("../pages/accounts/ReceiptDetails"),
+      () => import("../pages/accounts/PaymentDetails"),
     ];
     let cancelled = false;
     const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;

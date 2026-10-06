@@ -45,6 +45,7 @@ import { SectionSkeleton } from "../../components/Loading";
 import { formatDate } from "../../lib/dates";
 import { useLiveVersion } from "../../lib/liveVersions";
 
+import { useCachedState } from "../../lib/useCachedState";
 /**
  * Collecting the cargo, and handing it over at the other end.
  *
@@ -75,7 +76,7 @@ type Ctx = ReturnType<typeof useShipment>;
 
 export default function ShipmentPickupDelivery() {
   const { shipment, enquiry, reload } = useShipment();
-  const [moves, setMoves] = useState<Movement[]>([]);
+  const [moves, setMoves, movesKnown] = useCachedState<Movement[]>(`ship:${shipment.id}:moves`, []);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [files, setFiles] = useState<EnquiryFile[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -125,7 +126,7 @@ export default function ShipmentPickupDelivery() {
           This job is signed off; its pickups and deliveries are closed with it.
         </p>
       )}
-      {!loaded ? (
+      {!loaded && !movesKnown ? (
         <SectionSkeleton lines={4} label="Loading the pickups and deliveries" className="py-6" />
       ) : (
         (["pickup", "delivery"] as MovementKind[]).map((kind) => (

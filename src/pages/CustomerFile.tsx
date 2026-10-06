@@ -43,6 +43,7 @@ import {
 } from "../services/enquiries";
 import { PageSkeleton } from "../components/Loading";
 
+import { useCachedState } from "../lib/useCachedState";
 /**
  * Everything this desk has done for one customer.
  *
@@ -123,10 +124,10 @@ export default function CustomerFile() {
       { replace: true }
     );
 
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [summary, setSummary] = useState<CustomerSummary | null>(null);
-  const [shipments, setShipments] = useState<Shipment[]>([]);
-  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  const [customer, setCustomer] = useCachedState<Customer | null>(`customer:${id}:customer`, null);
+  const [summary, setSummary] = useCachedState<CustomerSummary | null>(`customer:${id}:summary`, null);
+  const [shipments, setShipments] = useCachedState<Shipment[]>(`customer:${id}:shipments`, []);
+  const [enquiries, setEnquiries] = useCachedState<Enquiry[]>(`customer:${id}:enquiries`, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

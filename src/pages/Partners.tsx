@@ -33,7 +33,7 @@ import { useCachedState } from "../lib/useCachedState";
  * to remember. Nothing here is sample data -- an empty book looks empty.
  */
 export default function Partners() {
-  const [partners, setPartners] = useCachedState<Partner[]>("partners:page", []);
+  const [partners, setPartners, partnersKnown] = useCachedState<Partner[]>("partners:page", []);
   const [query, setQuery] = useState("");
   const [role, setRole] = useState<PartnerRole | "all">("all");
   const [tag, setTag] = useState<string | null>(null);
@@ -170,7 +170,7 @@ export default function Partners() {
         </div>
       )}
 
-      {loading && !partners.length ? (
+      {loading && !partnersKnown ? (
         <ListSkeleton />
       ) : !partners.length ? (
         <div className="rounded-card border border-dashed border-border-strong bg-surface-1 p-10 text-center">

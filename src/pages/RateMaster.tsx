@@ -37,7 +37,7 @@ import { useCachedState } from "../lib/useCachedState";
  * ---------------------------------------------------------------------------
  */
 export default function RateMaster() {
-  const [rates, setRates] = useCachedState<RateCard[]>("ratemaster:rates", []);
+  const [rates, setRates, ratesKnown] = useCachedState<RateCard[]>("ratemaster:rates", []);
   const [query, setQuery] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Partial<RateCard> | null>(null);
@@ -151,7 +151,7 @@ export default function RateMaster() {
         </div>
       )}
 
-      {loading && !rates.length ? (
+      {loading && !ratesKnown ? (
         <ListSkeleton avatar={false} />
       ) : !rates.length ? (
         <div className="rounded-card border border-dashed border-border-strong bg-surface-1 p-10 text-center">
