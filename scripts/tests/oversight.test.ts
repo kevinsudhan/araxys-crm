@@ -1,4 +1,19 @@
-import { buildActivity, periodRange, personOfMail, statsFor, within, type EventLike, type MailLike, type StepLike } from "../../src/lib/oversight";
+import {
+  buildActivity,
+  buildFeed,
+  categoryOf,
+  eventLabel,
+  labelCounts,
+  periodRange,
+  personOfMail,
+  sectionsOf,
+  statsFor,
+  within,
+  type ActionLike,
+  type EventLike,
+  type MailLike,
+  type StepLike,
+} from "../../src/lib/oversight";
 
 /**
  * Team oversight (086): the periods, whose mail is whose, the one feed, and
@@ -96,6 +111,51 @@ is("Parasu", statsFor("u-parasu", feed), {
 });
 is("Meera", (({ mails, takenOn, quoted, domains }) => ({ mails, takenOn, quoted, domains }))(statsFor("u-meera", feed)), { mails: 1, takenOn: 1, quoted: 1, domains: [["gulflinen.ae", 1]] });
 is("somebody who did nothing", statsFor("u-nobody", feed).lastAt, null);
+
+console.log("\nby person, in sections (7 Oct)");
+const action = (id: string, who: string | null, source: ActionLike["source"], kind: string, h: number, ref: string | null = null): ActionLike => ({
+  id,
+  at: at(h, 30),
+  who,
+  source,
+  kind,
+  summary: `${kind} ${id}`,
+  enquiry_ref: ref,
+  shipment_id: null,
+  console_id: null,
+});
+const actions: ActionLike[] = [
+  action("e:e1", "u-meera", "event", "assigned", 9, "ALG09005-26"),
+  action("e:e2", "u-meera", "event", "quote_sent", 10, "ALG09005-26"),
+  action("e:e4", "u-meera", "event", "field_updated", 10, "ALG09005-26"),
+  action("s:s1", "u-parasu", "step", "step_done", 10, "ALG09004-26"),
+  action("f:f1", "u-parasu", "file", "file_filed", 9, "ALG09004-26"),
+  action("ii:i1", "u-parasu", "accounts", "invoice_issued", 11),
+  action("co:c1", "u-parasu", "console", "console_opened", 8),
+  action("e:e9", "u-parasu", "event", "something_new", 8, "ALG09004-26"),
+  { ...action("e:old", "u-parasu", "event", "promoted", 9), at: new Date(2026, 8, 24, 9).toISOString() },
+];
+const byPerson = buildFeed({ actions, mails, people, range: periodRange("today", now) });
+is("mail and actions in one feed, newest first, yesterday's left out", byPerson.map((i) => i.id), [
+  "ii:i1", "m:3", "e:e2", "e:e4", "s:s1", "m:2", "e:e1", "f:f1", "m:1", "co:c1", "e:e9", "m:4",
+]);
+is("each in its section", Object.fromEntries(byPerson.map((i) => [i.id, i.category]).sort((a, b) => a[0]!.localeCompare(b[0]!))), {
+  "co:c1": "consoles", "e:e1": "enquiries", "e:e2": "quotes", "e:e4": "enquiries", "e:e9": "other", "f:f1": "documents",
+  "ii:i1": "accounts", "m:1": "mail", "m:2": "mail", "m:3": "mail", "m:4": "mail", "s:s1": "jobs",
+});
+is("labels in words", ["step_done", "file_filed", "invoice_issued", "console_opened", "quote_pasted", "something_new"].map(eventLabel), [
+  "Step done", "File filed", "Invoice issued", "Console opened", "Quote entered", "something new",
+]);
+is("an unplaced accounts action still lands in Accounts", categoryOf("brand_new_thing", "accounts"), "accounts");
+const parasu = byPerson.filter((i) => i.who === "u-parasu");
+is("Parasu's sections, in the order a job runs", sectionsOf(parasu).map((x) => [x.key, x.items.length]), [
+  ["mail", 3], ["jobs", 1], ["documents", 1], ["consoles", 1], ["accounts", 1], ["other", 1],
+]);
+const meera = byPerson.filter((i) => i.who === "u-meera");
+is("Meera's", sectionsOf(meera).map((x) => [x.key, x.items.length]), [["mail", 1], ["enquiries", 2], ["quotes", 1]]);
+is("the kinds inside a section, most first", labelCounts(sectionsOf(parasu)[0].items), [["Pre-alert", 1], ["Rate request", 1], ["Reply", 1]]);
+is("still counted the old way", (({ takenOn, quoted, steps: st }) => ({ takenOn, quoted, steps: st }))(statsFor("u-meera", byPerson)), { takenOn: 1, quoted: 1, steps: 0 });
+is("steps counted from the new feed", statsFor("u-parasu", byPerson).steps, 1);
 
 console.log(`\n${pass} passed${fail ? `, ${fail} FAILED` : ""}`);
 process.exit(fail ? 1 : 0);

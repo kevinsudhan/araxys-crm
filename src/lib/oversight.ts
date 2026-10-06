@@ -87,7 +87,12 @@ export function personOfMail(m: Pick<MailLike, "mailbox" | "synced_by">, people:
   return own?.id ?? m.synced_by ?? null;
 }
 
-export type Source = "mail" | "event" | "step";
+/**
+ * Where an action is recorded: the mail log, the timeline, a job's steps, or
+ * (137, `team_actions`) the table that keeps it — a file, a console, the
+ * warehouse, the queue, rates, accounts, tracking.
+ */
+export type Source = "mail" | "event" | "step" | "file" | "console" | "warehouse" | "intake" | "rates" | "accounts" | "tracking";
 
 export interface ActivityItem {
   id: string;
@@ -99,6 +104,11 @@ export interface ActivityItem {
   text: string;
   ref: string | null;
   mail?: MailLike;
+  /** What it was, for its section: the event's kind, the mail's, or the action's verb (137). */
+  kind?: string;
+  category?: Category;
+  shipmentId?: string | null;
+  consoleId?: string | null;
 }
 
 /** What each timeline event is called in the feed; anything else by its kind, in words. */
@@ -130,6 +140,73 @@ export const EVENT_LABEL: Record<string, string> = {
   console_detached: "Off console",
   mbl_recorded: "Master B/L",
   signoff: "Signed off",
+  // The rest of the timeline's kinds (7 Oct), so none shows as its raw name.
+  quote_pasted: "Quote entered",
+  quote_revised: "Quote revised",
+  quote_rejected: "Quote rejected",
+  quote_approved: "Quote approved",
+  quote_approval_reset: "Approval reset",
+  revision_requested: "Revision asked",
+  confirmation_sent: "Confirmation sent",
+  shipper_given: "Shipper given",
+  tracking_link_sent: "Tracking link",
+  pre_alert_sent: "Pre-alert",
+  arrival_notice: "Arrival notice",
+  document_sent: "Document sent",
+  party_added: "Party added",
+  party_notified: "Party notified",
+  customer_changed: "Customer changed",
+  direction_changed: "Import / export",
+  mail_moved: "Mail moved",
+  mail_elsewhere: "Mail elsewhere",
+  partner_rate: "Partner rate",
+  reopened: "Reopened",
+  lost: "Lost",
+  merged: "Merged",
+  expired: "Expired",
+  booking_reverted: "Booking reverted",
+  cancelled: "Cancelled",
+  stage_changed: "Stage moved",
+  cfs_measured: "CFS measured",
+  warehouse_discrepancy: "Short / damaged",
+  dg_accepted: "DG accepted",
+  signed_off: "Signed off",
+  signoff_reopened: "Sign-off reopened",
+  hbl_draft_sent: "B/L draft sent",
+  hbl_draft_approved: "B/L draft approved",
+  hbl_draft_changes: "B/L changes asked",
+  hbl_reopened: "B/L reopened",
+  ebl_issued: "eBL issued",
+  ebl_transferred: "eBL transferred",
+  ebl_surrendered: "eBL surrendered",
+  vendor_invoice: "Vendor bill",
+  // Actions read from their own tables (137, team_actions).
+  step_done: "Step done",
+  file_filed: "File filed",
+  console_opened: "Console opened",
+  csn_filed: "CSN filed",
+  csn_reply: "CSN reply",
+  cargo_received: "Cargo received",
+  queue_set_aside: "Set aside",
+  rate_card_added: "Rate card",
+  schedule_added: "Sailing added",
+  live_rate_request: "Live rates",
+  buy_rate_recorded: "Original rate",
+  invoice_started: "Invoice started",
+  invoice_issued: "Invoice issued",
+  invoice_cancelled: "Invoice cancelled",
+  receipt_recorded: "Receipt",
+  receipt_confirmed: "Receipt confirmed",
+  receipt_cancelled: "Receipt cancelled",
+  payment_recorded: "Payment",
+  payment_confirmed: "Payment confirmed",
+  payment_cancelled: "Payment cancelled",
+  bill_recorded: "Vendor bill",
+  statement_created: "Agent statement",
+  tracking_applied: "Tracking applied",
+  tracking_dismissed: "Tracking dismissed",
+  tracking_info: "Tracking noted",
+  tracking_new: "Tracking noted",
 };
 
 export const eventLabel = (kind: string) => EVENT_LABEL[kind] ?? kind.replace(/_/g, " ");
@@ -202,4 +279,124 @@ export function statsFor(personId: string, items: ActivityItem[]): PersonStats {
     steps: of("step"),
     lastAt: mine[0]?.at ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// By person, in sections (7 Oct)
+// ---------------------------------------------------------------------------
+
+/** One row of `team_actions` (137). */
+export interface ActionLike {
+  id: string;
+  at: string;
+  who: string | null;
+  source: Exclude<Source, "mail">;
+  kind: string;
+  summary: string;
+  enquiry_ref: string | null;
+  shipment_id: string | null;
+  console_id: string | null;
+}
+
+/** The sections a person's work falls into, in the order a job runs. */
+export type Category = "mail" | "enquiries" | "quotes" | "jobs" | "documents" | "consoles" | "accounts" | "other";
+
+export const CATEGORIES: Array<{ key: Category; label: string; hint: string }> = [
+  { key: "mail", label: "Mail sent", hint: "Everything sent from their mailbox, in the CRM or in Outlook" },
+  { key: "enquiries", label: "Enquiries & queue", hint: "Opened, taken on, updated, mail filed, set aside" },
+  { key: "quotes", label: "Quotes & rates", hint: "Quotes entered and sent, approvals, partner rates, rate cards, sailings" },
+  { key: "jobs", label: "Bookings & jobs", hint: "Booked, steps done, pre-alerts, tracking, warehouse, sign-off" },
+  { key: "documents", label: "Documents & B/L", hint: "Files filed, house bills, releases, DOs" },
+  { key: "consoles", label: "Consoles", hint: "Consoles opened, jobs put on, master B/L, CSN" },
+  { key: "accounts", label: "Accounts", hint: "Invoices and notes, receipts, payments, vendor bills, statements" },
+  { key: "other", label: "Other", hint: "Anything else the desk recorded" },
+];
+
+const KIND_CATEGORY: Record<string, Category> = {};
+const place = (c: Category, kinds: string[]) => kinds.forEach((k) => (KIND_CATEGORY[k] = c));
+place("enquiries", [
+  "created", "promoted_from_intake", "assigned", "unassigned", "field_updated", "mail_linked", "mail_moved", "mail_elsewhere",
+  "party_added", "party_notified", "customer_changed", "direction_changed", "shipper_given", "declined", "lost", "reopened",
+  "merged", "expired", "queue_set_aside",
+]);
+place("quotes", [
+  "quote_sent", "quote_pasted", "quote_revised", "quote_approved", "quote_rejected", "quote_self_approved",
+  "quote_self_approval_reviewed", "quote_approval_reset", "revision_requested", "verbal_accept", "accepted",
+  "partner_assigned", "partner_rate", "rate_card_added", "schedule_added", "live_rate_request", "buy_rate_recorded",
+]);
+place("jobs", [
+  "promoted", "confirmation_sent", "booking_reverted", "cancelled", "stage_changed", "step_done", "tracking_link_sent",
+  "pre_alert_sent", "arrival_notice", "document_sent", "cfs_measured", "warehouse_discrepancy", "cargo_received",
+  "dg_accepted", "signed_off", "signoff", "signoff_reopened", "tracking_applied", "tracking_dismissed", "tracking_info", "tracking_new",
+]);
+place("documents", [
+  "file_filed", "hbl_issued", "hbl_received", "hbl_confirmed", "hbl_final", "hbl_originals_out", "hbl_surrendered",
+  "hbl_draft_sent", "hbl_draft_approved", "hbl_draft_changes", "hbl_reopened", "ebl_issued", "ebl_transferred",
+  "ebl_surrendered", "do_issued", "telex_released", "cargo_released",
+]);
+place("consoles", ["console_attached", "console_detached", "mbl_recorded", "console_opened", "csn_filed", "csn_reply"]);
+place("accounts", [
+  "invoice_started", "invoice_issued", "invoice_cancelled", "receipt_recorded", "receipt_confirmed", "receipt_cancelled",
+  "payment_recorded", "payment_confirmed", "payment_cancelled", "bill_recorded", "statement_created", "vendor_invoice",
+]);
+
+/** Which section an action belongs in. A kind nobody has placed yet goes under Other, never nowhere. */
+export function categoryOf(kind: string, source: Source): Category {
+  if (source === "mail") return "mail";
+  return KIND_CATEGORY[kind] ?? (source === "accounts" ? "accounts" : source === "console" ? "consoles" : "other");
+}
+
+/** One feed, newest first: the mail sent and every action `team_actions` returned, each with its section. */
+export function buildFeed(input: { actions: ActionLike[]; mails: MailLike[]; people: PersonLike[]; range: { from: Date; to: Date | null } }): ActivityItem[] {
+  const out: ActivityItem[] = [];
+  for (const m of input.mails) {
+    if (!within(m.sent_at, input.range)) continue;
+    const to = recipientsText([...m.to_addrs, ...m.cc_addrs], 2);
+    out.push({
+      id: `m:${m.id}`,
+      at: m.sent_at,
+      who: personOfMail(m, input.people),
+      source: "mail",
+      label: MAIL_KIND_LABEL[m.kind] ?? "Mail",
+      text: `${m.subject || "(no subject)"}${to ? ` → ${to}` : ""}`,
+      ref: m.enquiry_ref,
+      mail: m,
+      kind: m.kind,
+      category: "mail",
+    });
+  }
+  for (const a of input.actions) {
+    if (!within(a.at, input.range)) continue;
+    out.push({
+      id: a.id,
+      at: a.at,
+      who: a.who,
+      source: a.source,
+      label: eventLabel(a.kind),
+      text: a.summary,
+      ref: a.enquiry_ref,
+      kind: a.kind,
+      category: categoryOf(a.kind, a.source),
+      shipmentId: a.shipment_id,
+      consoleId: a.console_id,
+    });
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/** A person's feed in its sections, in CATEGORIES order, empty sections left out. */
+export function sectionsOf(items: ActivityItem[]): Array<{ key: Category; label: string; hint: string; items: ActivityItem[] }> {
+  const by = new Map<Category, ActivityItem[]>();
+  for (const i of items) {
+    const c = i.category ?? categoryOf(i.kind ?? "", i.source);
+    by.set(c, [...(by.get(c) ?? []), i]);
+  }
+  return CATEGORIES.filter((c) => by.has(c.key)).map((c) => ({ ...c, items: by.get(c.key)! }));
+}
+
+/** The kinds inside a section, most frequent first, for its filter: [label, count]. */
+export function labelCounts(items: ActivityItem[]): Array<[string, number]> {
+  const m = new Map<string, number>();
+  for (const i of items) m.set(i.label, (m.get(i.label) ?? 0) + 1);
+  return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }

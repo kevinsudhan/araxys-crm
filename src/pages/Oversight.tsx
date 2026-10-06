@@ -1,70 +1,96 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import EnquiryLink from "../components/EnquiryLink";
-import { AlertCircle, ChevronDown, Inbox, Mail, Paperclip, RefreshCw, Search, ShieldCheck, Users } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Banknote,
+  Boxes,
+  Briefcase,
+  ChevronDown,
+  FileText,
+  Inbox,
+  Layers,
+  Mail,
+  MoreHorizontal,
+  Paperclip,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Tag,
+  Truck,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
-import Select from "../components/Select";
 import OversightLock, { isUnlocked } from "../components/OversightLock";
 import { useAuth } from "../lib/auth";
 import { formatDate } from "../lib/dates";
-import { MAIL_KIND_LABEL, recipientsText, type MailKind } from "../lib/mailLog";
+import { initialsFor } from "../lib/initials";
+import { recipientsText } from "../lib/mailLog";
 import {
-  buildActivity,
-  eventLabel,
+  buildFeed,
+  CATEGORIES,
+  labelCounts,
   PERIOD_LABEL,
   periodRange,
   personOfMail,
+  sectionsOf,
   statsFor,
-  within,
+  type ActionLike,
   type ActivityItem,
+  type Category,
   type Period,
 } from "../lib/oversight";
 import { useTablesChanges } from "../lib/useTableChanges";
-import { stepsDoneSince, type Checkpoint } from "../services/checkpoints";
 import {
-  allEvents,
   arrivedAt,
-  eventsSince,
   listEnquiries,
   listPeople,
   listShipments,
   nameOf,
+  stageLabel,
   STATUS_LABEL,
   type Customer,
   type Enquiry,
-  type EnquiryEvent,
   type Person,
   type ShipmentRow,
 } from "../services/enquiries";
 import { listMailLog, mailboxesSeen, syncAllMailboxes, syncSentMail, type MailboxSeen, type MailLogRow } from "../services/mailLog";
+import { teamActions } from "../services/teamActions";
 import { ListSkeleton } from "../components/Loading";
-
 import { useCachedState } from "../lib/useCachedState";
+
 /**
- * What the desk did, who did it, and who they wrote to — as it happens.
+ * Who on the desk did what — one person at a time (7 Oct).
  *
  * ---------------------------------------------------------------------------
  * WHAT IT SHOWS
  *
- *   Activity   one feed of the mail sent, the enquiries opened, taken on,
- *              quoted and booked, and the steps ticked on each job, newest
- *              first and grouped by day
- *   Mail sent  every mail each mailbox sent — to whom, about which job, what
- *              kind — from the CRM or from Outlook alike (086)
- *   People     what each person did in the period and what they are carrying
- *              now: enquiries held, jobs in process, who they wrote to most
- *   Enquiries  when each enquiry arrived, who took it on and how long that took,
- *              with its whole timeline
+ * Everybody on the desk down the side, each with how much they did in the
+ * period, when they last did anything, and what they are holding now. Picking
+ * a name shows their work in sections, in the order a job runs:
  *
- * Live: a mail synced in, a step ticked or an enquiry taken on shows here as
- * it happens (084). The period, the person and the search narrow every tab.
+ *   Mail sent           everything their mailbox sent, CRM or Outlook (086)
+ *   Enquiries & queue   opened, taken on (and how long after it came in),
+ *                       updated, mail filed, set aside from the queue
+ *   Quotes & rates      quotes entered and sent, approvals, partner rates,
+ *                       original rates, rate cards, sailings
+ *   Bookings & jobs     booked, steps done, pre-alerts, tracking, warehouse,
+ *                       DG, sign-off
+ *   Documents & B/L     files filed, house bills, releases, DOs
+ *   Consoles            opened, jobs put on and off, master B/L, CSN
+ *   Accounts            invoices and notes, receipts, payments, vendor bills,
+ *                       agent statements
  *
- * WHERE THE MAIL COMES FROM
+ * each with the kinds inside it to narrow by, and the same as one timeline.
+ * With nobody picked, the desk as a whole: the period's figures, the
+ * enquiries nobody has taken on, and whose mailbox is being copied in.
  *
- * Each person's own Sent Items, copied in while they have the CRM open with
- * Outlook connected (services/mailLog.ts). Mail somebody sends while they are
- * not in the CRM arrives the next time they are, so each mailbox says when it
- * was last copied — a quiet mailbox is not taken for an idle person.
+ * Where it comes from: the mail log, and `team_actions` (137) — the timeline
+ * and every table that records who did something. Live (084): anything the
+ * desk does shows as it happens. The period and the search narrow everything.
  *
  * WHY IT ASKS FOR A PASSWORD, AND WHAT IT DOES NOT DO
  *
@@ -72,32 +98,53 @@ import { useCachedState } from "../lib/useCachedState";
  * it: the risk is an unlocked laptop in an office where everybody knows
  * everybody. And it does not score anybody — no targets, no ranking, no red
  * badge for being slow. It says what happened and who did it; the numbers are
- * counts, in name order.
+ * counts, people in name order.
  * ---------------------------------------------------------------------------
  */
 
 type Row = Enquiry & { customer: Customer | null };
-type Tab = "activity" | "mail" | "people" | "enquiries";
 
 const PERIODS: Period[] = ["today", "yesterday", "7d", "30d", "month"];
 
-const SOURCE_TONE: Record<ActivityItem["source"], string> = {
-  mail: "bg-bg-accent text-text-accent border-text-accent/25",
-  event: "bg-surface-2 text-text-secondary border-border-strong",
-  step: "bg-bg-success text-text-success border-text-success/25",
+const CATEGORY_ICON: Record<Category, LucideIcon> = {
+  mail: Mail,
+  enquiries: Inbox,
+  quotes: Tag,
+  jobs: Truck,
+  documents: FileText,
+  consoles: Boxes,
+  accounts: Banknote,
+  other: MoreHorizontal,
 };
 
 const KIND_TONE: Partial<Record<string, string>> = {
   Quoted: "bg-bg-warning text-text-warning border-text-warning/25",
+  "Quote entered": "bg-bg-warning text-text-warning border-text-warning/25",
   Accepted: "bg-bg-success text-text-success border-text-success/25",
   Booked: "bg-bg-success text-text-success border-text-success/25",
   Declined: "bg-bg-danger text-text-danger border-text-danger/25",
+  Lost: "bg-bg-danger text-text-danger border-text-danger/25",
   "Taken on": "bg-bg-success text-text-success border-text-success/25",
+  "Step done": "bg-bg-success text-text-success border-text-success/25",
 };
+const MAIL_TONE = "bg-bg-accent text-text-accent border-text-accent/25";
+const PLAIN_TONE = "bg-surface-2 text-text-secondary border-border-strong";
+
+/** How many rows a section shows before "Show all". */
+const FIRST = 8;
 
 const clock = (iso: string) => formatDate(iso, { hour: "2-digit", minute: "2-digit", hour12: true });
+const dayShort = (iso: string) => formatDate(iso, { weekday: "short", day: "numeric", month: "short" });
 const dayHead = (iso: string) => formatDate(iso, { weekday: "long", day: "numeric", month: "long" });
-const stamp = (iso: string | null) => (iso ? formatDate(iso, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: true }) : "—");
+
+/** "today", "in the last 7 days": the period as it reads after "Nothing recorded". */
+const PERIOD_PHRASE: Record<Period, string> = {
+  today: "today",
+  yesterday: "yesterday",
+  "7d": "in the last 7 days",
+  "30d": "in the last 30 days",
+  month: "this month",
+};
 
 function ago(iso: string | null): string {
   if (!iso) return "never";
@@ -122,26 +169,22 @@ function gap(from: string | null, to: string | null): string | null {
   return `${days} day${days === 1 ? "" : "s"}`;
 }
 
+const nameOfPerson = (p: Person) => p.full_name?.trim() || p.email;
+
 export default function Oversight() {
   const { session } = useAuth();
-
-  const [rows, setRows] = useCachedState<Row[]>("oversight:rows", []);
-  const [people, setPeople, peopleKnown] = useCachedState<Person[]>("people", []);
-  const [events, setEvents] = useCachedState<EnquiryEvent[]>("oversight:events", []);
-  const [mails, setMails] = useState<MailLogRow[]>([]);
-  const [steps, setSteps] = useCachedState<Checkpoint[]>("oversight:steps", []);
-  const [ships, setShips] = useCachedState<ShipmentRow[]>("oversight:ships", []);
-  const [seen, setSeen] = useState<MailboxSeen[]>([]);
+  const [params, setParams] = useSearchParams();
 
   const [period, setPeriod] = useState<Period>("today");
-  const [who, setWho] = useState<string>("all");
-  const [tab, setTab] = useState<Tab>("activity");
-  const [query, setQuery] = useState("");
-  const [box, setBox] = useState<string>("all");
-  const [kind, setKind] = useState<string>("all");
-  const [open, setOpen] = useState<string | null>(null);
-  const [shown, setShown] = useState(150);
+  const [rows, setRows] = useCachedState<Row[]>("oversight:rows", []);
+  const [people, setPeople, peopleKnown] = useCachedState<Person[]>("people", []);
+  const [ships, setShips] = useCachedState<ShipmentRow[]>("oversight:ships", []);
+  // Per period, so going back to one shows it at once. The mail stays in memory only.
+  const [actions, setActions] = useCachedState<ActionLike[]>(`oversight:actions:${period}`, []);
+  const [mails, setMails] = useState<MailLogRow[]>([]);
+  const [seen, setSeen] = useState<MailboxSeen[]>([]);
 
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,24 +198,20 @@ export default function Oversight() {
     setError(null);
     try {
       const r = periodRange(period);
-      const [list, team, recent, ev, ml, st, sh, sn] = await Promise.all([
+      const from = r.from.toISOString();
+      const to = r.to?.toISOString() ?? null;
+      const [list, team, acts, ml, sh, sn] = await Promise.all([
         listEnquiries(),
         listPeople(),
-        // The latest thousand for the enquiry timelines, and every one in the
-        // period for the feed, however many that is.
-        allEvents(1000),
-        eventsSince(r.from.toISOString()),
-        listMailLog(r.from.toISOString(), r.to?.toISOString() ?? null).catch(() => [] as MailLogRow[]),
-        stepsDoneSince(r.from.toISOString()).catch(() => [] as Checkpoint[]),
+        teamActions(from, to),
+        listMailLog(from, to).catch(() => [] as MailLogRow[]),
         listShipments().catch(() => [] as ShipmentRow[]),
         mailboxesSeen().catch(() => [] as MailboxSeen[]),
       ]);
       setRows(list);
       setPeople(team);
-      const byEventId = new Map([...recent, ...ev].map((e) => [e.id, e]));
-      setEvents([...byEventId.values()].sort((a, b) => b.at.localeCompare(a.at)));
+      setActions(acts);
       setMails(ml);
-      setSteps(st);
       setShips(sh);
       setSeen(sn);
     } catch (e) {
@@ -186,7 +225,7 @@ export default function Oversight() {
     if (unlocked) void load();
   }, [load, unlocked]);
 
-  // Live: mail copied in, a step ticked, an enquiry moved — by anybody (084, 086).
+  // Live: anything the desk records, by anybody (084, 086, 137).
   useTablesChanges(
     [
       ["mail_log", null],
@@ -195,6 +234,13 @@ export default function Oversight() {
       ["shipment_checkpoints", null],
       ["enquiries", null],
       ["shipments", null],
+      ["enquiry_files", null],
+      ["consoles", null],
+      ["invoices", null],
+      ["bills", null],
+      ["intake", null],
+      ["warehouse_receipts", null],
+      ["tracking_events", null],
     ],
     (tables) => {
       // A mailbox checked with nothing new moves only its "last checked": every
@@ -205,59 +251,34 @@ export default function Oversight() {
     unlocked && session?.role === "admin"
   );
 
-  useEffect(() => setShown(150), [period, who, query, tab]);
-
-  const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
-  const refOfShipment = useMemo(() => new Map(ships.map((s) => [s.id, s.enquiry_ref])), [ships]);
-
-  const feed = useMemo(
-    () =>
-      buildActivity({
-        events,
-        mails,
-        steps,
-        people,
-        shipmentRef: (id) => refOfShipment.get(id) ?? null,
-        range,
-      }),
-    [events, mails, steps, people, refOfShipment, range]
-  );
+  const feed = useMemo(() => buildFeed({ actions, mails, people, range }), [actions, mails, people, range]);
+  const sorted = useMemo(() => [...people].sort((a, b) => nameOfPerson(a).localeCompare(nameOfPerson(b))), [people]);
+  const booked = useMemo(() => new Set(ships.map((s) => s.enquiry_ref)), [ships]);
+  const enquiryOf = useMemo(() => new Map(rows.map((r) => [r.ref, r])), [rows]);
 
   const needle = query.trim().toLowerCase();
-  const matches = (...parts: Array<string | null | undefined>) => !needle || parts.some((p) => (p ?? "").toLowerCase().includes(needle));
-
-  const visibleFeed = feed.filter(
-    (i) =>
-      (who === "all" || i.who === who) &&
-      matches(i.text, i.ref, i.label, i.mail?.mailbox, ...(i.mail ? [...i.mail.to_addrs, ...i.mail.cc_addrs].map((r) => `${r.name} ${r.address}`) : []))
+  const matches = useCallback(
+    (i: ActivityItem) =>
+      !needle ||
+      [i.text, i.ref, i.label, i.mail?.mailbox, ...(i.mail ? [...i.mail.to_addrs, ...i.mail.cc_addrs].map((r) => `${r.name} ${r.address}`) : [])].some((p) =>
+        (p ?? "").toLowerCase().includes(needle)
+      ),
+    [needle]
   );
 
-  const mailRows = mails
-    .filter((m) => within(m.sent_at, range))
-    .filter((m) => who === "all" || personOfMail(m, people) === who)
-    .filter((m) => box === "all" || m.mailbox === box)
-    .filter((m) => kind === "all" || m.kind === kind)
-    .filter((m) => matches(m.subject, m.enquiry_ref, m.mailbox, m.preview, ...[...m.to_addrs, ...m.cc_addrs].map((r) => `${r.name} ${r.address}`)))
-    .sort((a, b) => b.sent_at.localeCompare(a.sent_at));
+  const picked = params.get("person");
+  const person = picked ? people.find((p) => p.id === picked) ?? null : null;
+  const pick = (id: string | null) =>
+    setParams((p) => {
+      if (id) p.set("person", id);
+      else p.delete("person");
+      return p;
+    });
 
-  const booked = useMemo(() => new Set(ships.map((s) => s.enquiry_ref)), [ships]);
-  const unclaimed = rows.filter((r) => !r.assigned_to && !booked.has(r.ref) && r.status !== "declined" && r.status !== "lost").length;
-
-  const scope = who === "all" ? feed : feed.filter((i) => i.who === who);
-  const tiles = {
-    mails: scope.filter((i) => i.source === "mail").length,
-    takenOn: scope.filter((i) => i.source === "event" && i.label === "Taken on").length,
-    quoted: scope.filter((i) => i.source === "event" && i.label === "Quoted").length,
-    booked: scope.filter((i) => i.source === "event" && i.label === "Booked").length,
-    steps: scope.filter((i) => i.source === "step").length,
-  };
-
-  const boxes = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of mails) if (within(r.sent_at, range)) m.set(r.mailbox, (m.get(r.mailbox) ?? 0) + 1);
-    for (const s of seen) if (!m.has(s.mailbox)) m.set(s.mailbox, 0);
-    return [...m].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [mails, seen, range]);
+  // A person's page opens at its top, not wherever the list was scrolled to.
+  useEffect(() => {
+    if (picked && window.matchMedia("(max-width: 1023px)").matches) window.scrollTo({ top: 0 });
+  }, [picked]);
 
   if (session?.role !== "admin") {
     return (
@@ -275,13 +296,16 @@ export default function Oversight() {
     return <OversightLock onUnlocked={() => setUnlocked(true)} />;
   }
 
-  const personName = (id: string | null) => nameOf(byId, id) ?? (id ? "someone" : "the system");
+  const holding = (id: string) => ({
+    enquiries: rows.filter((r) => r.assigned_to === id && !booked.has(r.ref) && r.status !== "declined" && r.status !== "lost"),
+    jobs: ships.filter((j) => j.assigned_to === id && j.stage !== "delivered" && j.stage !== "cancelled"),
+  });
 
   return (
     <div>
       <PageHeader
         title="Team oversight"
-        subtitle="What the desk did, as it happens: the mail each mailbox sent and to whom, the enquiries taken on and quoted, and the steps done on each job."
+        subtitle="Everyone on the desk and what they did. Pick a name to see their work in sections: mail, enquiries, quotes, jobs, documents, consoles and accounts."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-success">
@@ -325,8 +349,8 @@ export default function Oversight() {
         </div>
       )}
 
-      {/* ---- the period, the person, the search ---- */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      {/* ---- the period and the search ---- */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1" role="group" aria-label="Period">
           {PERIODS.map((p) => (
             <Chip key={p} active={period === p} onClick={() => setPeriod(p)}>
@@ -334,115 +358,462 @@ export default function Oversight() {
             </Chip>
           ))}
         </div>
-        <Select
-          label="Person"
-          value={who}
-          onChange={setWho}
-          className="w-52"
-          options={[{ value: "all", label: "Everyone" }, ...people.map((p) => ({ value: p.id, label: p.full_name?.trim() || p.email, hint: p.email }))]}
-        />
         <label className="relative min-w-[200px] flex-1 sm:max-w-sm">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Job, subject, recipient, company…" className="h-8 w-full pl-8" aria-label="Search" />
         </label>
       </div>
 
-      {/* ---- the period in figures ---- */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <Tile label="Mails sent" value={tiles.mails} />
-        <Tile label="Enquiries taken on" value={tiles.takenOn} />
-        <Tile label="Quotes sent" value={tiles.quoted} />
-        <Tile label="Booked" value={tiles.booked} />
-        <Tile label="Steps done" value={tiles.steps} />
-        <Tile label="Unclaimed now" value={unclaimed} tone={unclaimed ? "warning" : undefined} />
-      </div>
-
-      {/* ---- tabs ---- */}
-      <nav className="mb-4 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border" aria-label="Oversight">
-        {(
-          [
-            ["activity", "Activity", visibleFeed.length],
-            ["mail", "Mail sent", mailRows.length],
-            ["people", "People", people.length],
-            ["enquiries", "Enquiries", null],
-          ] as Array<[Tab, string, number | null]>
-        ).map(([key, label, n]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-[13px] transition-colors ${
-              tab === key ? "border-brand font-medium text-text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {label}
-            {n !== null && <span className="ml-1.5 tabular-nums text-text-muted">{n}</span>}
-          </button>
-        ))}
-      </nav>
-
       {loading && !peopleKnown ? (
         <ListSkeleton />
-      ) : tab === "activity" ? (
-        <ActivityFeed items={visibleFeed.slice(0, shown)} total={visibleFeed.length} onMore={() => setShown((n) => n + 150)} personName={personName} open={open} setOpen={setOpen} />
-      ) : tab === "mail" ? (
-        <MailSent
-          rows={mailRows}
-          boxes={boxes}
-          box={box}
-          setBox={setBox}
-          kind={kind}
-          setKind={setKind}
-          seen={seen}
-          personName={(m) => personName(personOfMail(m, people))}
-          seenBy={(id) => personName(id)}
-          open={open}
-          setOpen={setOpen}
-        />
-      ) : tab === "people" ? (
-        <PeopleView
-          people={people}
-          feed={feed}
-          rows={rows}
-          ships={ships}
-          booked={booked}
-          period={PERIOD_LABEL[period].toLowerCase()}
-          onPick={(id) => {
-            setWho(id);
-            setTab("activity");
-          }}
-        />
+      ) : !people.length ? (
+        <EmptyState icon={Users} title="Nobody on the desk yet" hint="People appear here once they have an account." />
       ) : (
-        <EnquiriesView rows={rows} events={events} byId={byId} who={who} needle={needle} />
+        <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
+          {/* The list: beside the page from lg; on a phone, the page itself until a name is picked. */}
+          <div className={person ? "hidden lg:block" : ""}>
+            <PeopleList
+              people={sorted}
+              feed={feed}
+              holding={holding}
+              picked={person?.id ?? null}
+              onPick={pick}
+              phrase={PERIOD_PHRASE[period]}
+            />
+          </div>
+
+          <div className="min-w-0">
+            {person ? (
+              <PersonView
+                key={person.id}
+                person={person}
+                items={feed.filter((i) => i.who === person.id && matches(i))}
+                allMine={feed.filter((i) => i.who === person.id)}
+                held={holding(person.id)}
+                mailboxes={seen.filter((s) => personOfMail({ mailbox: s.mailbox, synced_by: s.synced_by }, people) === person.id)}
+                enquiryOf={enquiryOf}
+                periodLabel={PERIOD_LABEL[period]}
+                phrase={PERIOD_PHRASE[period]}
+                searching={Boolean(needle)}
+                onBack={() => pick(null)}
+              />
+            ) : (
+              <DeskSummary
+                feed={feed}
+                rows={rows}
+                booked={booked}
+                seen={seen}
+                personName={(id) => nameOf(people, id) ?? (id ? "someone" : "the server")}
+                periodLabel={PERIOD_LABEL[period]}
+              />
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Activity
+// The people
 // ---------------------------------------------------------------------------
 
-function ActivityFeed({
-  items,
-  total,
-  onMore,
-  personName,
-  open,
-  setOpen,
+function PeopleList({
+  people,
+  feed,
+  holding,
+  picked,
+  onPick,
+  phrase,
 }: {
-  items: ActivityItem[];
-  total: number;
-  onMore: () => void;
-  personName: (id: string | null) => string;
-  open: string | null;
-  setOpen: (id: string | null) => void;
+  people: Person[];
+  feed: ActivityItem[];
+  holding: (id: string) => { enquiries: Row[]; jobs: ShipmentRow[] };
+  picked: string | null;
+  onPick: (id: string | null) => void;
+  phrase: string;
 }) {
-  if (!items.length) {
-    return <EmptyState icon={Inbox} title="Nothing in this period" hint="Nothing was sent, taken on, quoted or ticked for this person and period — or it has not been copied in yet." />;
-  }
+  return (
+    <nav aria-label="People" className="card overflow-hidden p-0 lg:sticky lg:top-[72px]">
+      <button
+        type="button"
+        onClick={() => onPick(null)}
+        aria-current={picked === null ? "page" : undefined}
+        className={`relative flex w-full items-center gap-3 border-b border-border px-3 py-2.5 text-left transition-colors ${
+          picked === null ? "bg-surface-2" : "hover:bg-surface-2/70"
+        }`}
+      >
+        {picked === null && <span aria-hidden className="absolute inset-y-1 left-0 w-[3px] rounded-full bg-brand" />}
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-surface-2 text-text-secondary">
+          <Layers size={15} />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-[13px] font-medium text-text-primary">The whole desk</span>
+          <span className="block text-[11.5px] text-text-muted">Figures, unclaimed enquiries, mailboxes</span>
+        </span>
+      </button>
+      <ul className="divide-y divide-border">
+        {people.map((p) => {
+          const mine = feed.filter((i) => i.who === p.id);
+          const last = mine[0]?.at ?? null;
+          const h = holding(p.id);
+          const active = picked === p.id;
+          return (
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => onPick(p.id)}
+                aria-current={active ? "page" : undefined}
+                className={`relative flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors ${active ? "bg-surface-2" : "hover:bg-surface-2/70"}`}
+              >
+                {active && <span aria-hidden className="absolute inset-y-1 left-0 w-[3px] rounded-full bg-brand" />}
+                <span
+                  aria-hidden
+                  className={`grid size-9 shrink-0 place-items-center rounded-lg border text-[11.5px] font-semibold tracking-wide ${
+                    active ? "border-brand/25 bg-bg-success text-text-success" : "border-border bg-surface-2 text-text-secondary"
+                  }`}
+                >
+                  {initialsFor(p.full_name, p.email)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-[13px] font-medium text-text-primary">{nameOfPerson(p)}</span>
+                    <span className="shrink-0 tabular-nums text-[12px] font-medium text-text-primary">{mine.length || ""}</span>
+                  </span>
+                  <span className="block truncate text-[11.5px] text-text-muted">
+                    {mine.length ? `${mine.length} action${mine.length === 1 ? "" : "s"} · last ${ago(last)}` : `Nothing recorded ${phrase}`}
+                  </span>
+                  {(h.enquiries.length > 0 || h.jobs.length > 0) && (
+                    <span className="block truncate text-[11.5px] text-text-secondary">
+                      Holding {h.enquiries.length} enquir{h.enquiries.length === 1 ? "y" : "ies"} · {h.jobs.length} job{h.jobs.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// One person
+// ---------------------------------------------------------------------------
+
+function PersonView({
+  person,
+  items,
+  allMine,
+  held,
+  mailboxes,
+  enquiryOf,
+  periodLabel,
+  phrase,
+  searching,
+  onBack,
+}: {
+  person: Person;
+  /** Theirs, narrowed by the search. */
+  items: ActivityItem[];
+  /** Theirs, all of it: the figures do not move with the search. */
+  allMine: ActivityItem[];
+  held: { enquiries: Row[]; jobs: ShipmentRow[] };
+  mailboxes: MailboxSeen[];
+  enquiryOf: Map<string, Row>;
+  periodLabel: string;
+  phrase: string;
+  searching: boolean;
+  onBack: () => void;
+}) {
+  const [view, setView] = useState<"sections" | "timeline">("sections");
+  const sections = useMemo(() => sectionsOf(items), [items]);
+  const counts = useMemo(() => new Map(sectionsOf(allMine).map((s) => [s.key, s.items.length])), [allMine]);
+  const stats = statsFor(person.id, allMine);
+  const name = nameOfPerson(person);
+
+  return (
+    <div className="space-y-3">
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-1.5 text-[12px] text-text-secondary hover:text-text-primary lg:hidden">
+        <ArrowLeft size={13} />
+        Everyone
+      </button>
+
+      {/* ---- who ---- */}
+      <section className="card p-4">
+        <div className="flex flex-wrap items-start gap-3">
+          <span aria-hidden className="grid size-11 shrink-0 place-items-center rounded-xl border border-brand/25 bg-bg-success text-[13px] font-semibold tracking-wide text-text-success">
+            {initialsFor(person.full_name, person.email)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-[16px] font-semibold text-text-primary">{name}</h2>
+            <p className="truncate text-[12px] text-text-muted">
+              {person.email} · <span className="capitalize">{person.role}</span>
+            </p>
+          </div>
+          <p className="text-[12px] text-text-secondary sm:text-right">
+            {stats.lastAt ? (
+              <>
+                Last activity <span className="font-medium text-text-primary">{ago(stats.lastAt)}</span>
+              </>
+            ) : (
+              `Nothing recorded ${phrase}`
+            )}
+          </p>
+        </div>
+
+        {mailboxes.length > 0 && (
+          <ul className="mt-3 space-y-0.5 text-[11.5px]">
+            {mailboxes.map((s) => {
+              const stale = !s.synced_at || Date.now() - Date.parse(s.synced_at) > 86_400_000;
+              return (
+                <li key={s.mailbox} className={stale ? "text-text-warning" : "text-text-muted"}>
+                  <Mail size={11} className="mr-1 inline" />
+                  {s.mailbox}: sent mail {s.synced_at ? `copied in ${ago(s.synced_at)}` : "never copied in"}
+                  {s.server_error && <span> · last server copy failed: {s.server_error}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {stats.domains.length > 0 && (
+          <p className="mt-1 truncate text-[11.5px] text-text-secondary">
+            Wrote most to{" "}
+            {stats.domains
+              .slice(0, 4)
+              .map(([d, n]) => `${d} (${n})`)
+              .join(", ")}
+          </p>
+        )}
+
+        {/* ---- the sections, in figures: a press goes to the section ---- */}
+        <p className="mt-4 text-[11px] font-medium uppercase tracking-wide text-text-secondary">{periodLabel}</p>
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4 xl:grid-cols-7">
+          {CATEGORIES.filter((c) => c.key !== "other" || counts.get("other")).map((c) => {
+            const n = counts.get(c.key) ?? 0;
+            const Icon = CATEGORY_ICON[c.key];
+            return (
+              <button
+                key={c.key}
+                type="button"
+                disabled={!n}
+                onClick={() => {
+                  setView("sections");
+                  window.setTimeout(() => document.getElementById(`section-${c.key}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+                }}
+                className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-left transition-colors enabled:hover:border-border-strong enabled:hover:bg-surface-1 disabled:opacity-55"
+              >
+                <span className="flex items-center gap-1.5 text-[10.5px] text-text-muted">
+                  <Icon size={11} />
+                  <span className="truncate">{c.label}</span>
+                </span>
+                <span className="mt-0.5 block text-[17px] font-medium leading-tight tabular-nums text-text-primary">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ---- what they hold now, whatever the period ---- */}
+      <Holding held={held} />
+
+      {/* ---- their work ---- */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <h3 className="text-[13px] font-semibold text-text-primary">
+          What {name.split(/\s+/)[0]} did <span className="font-normal text-text-muted">· {periodLabel.toLowerCase()}</span>
+        </h3>
+        <div className="inline-flex rounded-lg border border-border bg-surface-1 p-0.5" role="group" aria-label="Show as">
+          {(
+            [
+              ["sections", "In sections"],
+              ["timeline", "As a timeline"],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`h-7 rounded-md px-2.5 text-[12px] transition-colors ${view === v ? "bg-brand text-white" : "text-text-secondary hover:text-text-primary"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!items.length ? (
+        <EmptyState
+          icon={Inbox}
+          title={searching ? "Nothing matches the search" : `Nothing recorded ${phrase}`}
+          hint={
+            searching
+              ? `None of ${name}'s work in this period mentions that.`
+              : `${name} sent no mail and recorded nothing in the CRM ${phrase} — or their sent mail has not been copied in yet.`
+          }
+        />
+      ) : view === "timeline" ? (
+        <Timeline items={items} enquiryOf={enquiryOf} />
+      ) : (
+        sections.map((s) => <SectionCard key={s.key} section={s} enquiryOf={enquiryOf} />)
+      )}
+    </div>
+  );
+}
+
+/** The enquiries a person holds and the jobs they have in process — now, not in the period. */
+function Holding({ held }: { held: { enquiries: Row[]; jobs: ShipmentRow[] } }) {
+  const [open, setOpen] = useState(false);
+  const n = held.enquiries.length + held.jobs.length;
+  return (
+    <section className="card overflow-hidden p-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        disabled={!n}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors enabled:hover:bg-surface-2"
+      >
+        <Briefcase size={15} className="shrink-0 text-text-secondary" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-medium text-text-primary">Holding now</span>
+          <span className="block text-[11.5px] text-text-muted">
+            {n
+              ? `${held.enquiries.length} enquir${held.enquiries.length === 1 ? "y" : "ies"} not yet booked · ${held.jobs.length} job${held.jobs.length === 1 ? "" : "s"} in process`
+              : "No open enquiries or jobs in their name"}
+          </span>
+        </span>
+        {n > 0 && <ChevronDown size={14} className={`shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />}
+      </button>
+      {open && n > 0 && (
+        <div className="grid gap-3 border-t border-border bg-surface-2/60 px-4 py-3 md:grid-cols-2">
+          <div>
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Enquiries</p>
+            {!held.enquiries.length ? (
+              <p className="text-[12px] text-text-muted">None.</p>
+            ) : (
+              <ul className="space-y-1">
+                {held.enquiries.map((r) => (
+                  <li key={r.ref} className="flex min-w-0 items-baseline gap-2 text-[12px]">
+                    <EnquiryLink to={`/enquiries/${r.ref}`} className="shrink-0 font-mono text-[11.5px] text-text-accent hover:underline">
+                      {r.ref}
+                    </EnquiryLink>
+                    <span className="min-w-0 truncate text-text-primary">{r.customer?.company || r.customer?.name || "—"}</span>
+                    <span className="ml-auto shrink-0 text-[11px] text-text-muted">{STATUS_LABEL[r.status]}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Jobs in process</p>
+            {!held.jobs.length ? (
+              <p className="text-[12px] text-text-muted">None.</p>
+            ) : (
+              <ul className="space-y-1">
+                {held.jobs.map((j) => (
+                  <li key={j.id} className="flex min-w-0 items-baseline gap-2 text-[12px]">
+                    <Link to={`/shipments/${j.id}`} className="shrink-0 font-mono text-[11.5px] text-text-accent hover:underline">
+                      {j.enquiry_ref}
+                    </Link>
+                    <span className="min-w-0 truncate text-text-primary">{j.customer?.company || j.customer?.name || "—"}</span>
+                    <span className="ml-auto shrink-0 text-[11px] text-text-muted">{stageLabel(j.stage, j.transport_mode)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** One section of a person's work: its kinds to narrow by, and the first few with the rest a press away. */
+function SectionCard({
+  section,
+  enquiryOf,
+}: {
+  section: { key: Category; label: string; hint: string; items: ActivityItem[] };
+  enquiryOf: Map<string, Row>;
+}) {
+  const [open, setOpen] = useState(true);
+  const [kind, setKind] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const kinds = labelCounts(section.items);
+  const shown = kind ? section.items.filter((i) => i.label === kind) : section.items;
+  const list = all ? shown : shown.slice(0, FIRST);
+  const Icon = CATEGORY_ICON[section.key];
+
+  return (
+    <section id={`section-${section.key}`} className="card scroll-mt-20 overflow-hidden p-0">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-2">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-surface-2 text-text-secondary">
+          <Icon size={14} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className="text-[13.5px] font-semibold text-text-primary">{section.label}</span>
+            <span className="tabular-nums text-[12px] text-text-muted">{section.items.length}</span>
+          </span>
+          <span className="block truncate text-[11.5px] text-text-muted">{section.hint}</span>
+        </span>
+        <ChevronDown size={14} className={`shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="border-t border-border">
+          {kinds.length > 1 && (
+            <div className="flex flex-wrap gap-1.5 px-4 py-2.5" role="group" aria-label={`${section.label}: kind`}>
+              <Chip
+                active={kind === null}
+                onClick={() => {
+                  setKind(null);
+                  setAll(false);
+                }}
+              >
+                All <span className="opacity-60">{section.items.length}</span>
+              </Chip>
+              {kinds.map(([label, n]) => (
+                <Chip
+                  key={label}
+                  active={kind === label}
+                  onClick={() => {
+                    setKind(kind === label ? null : label);
+                    setAll(false);
+                  }}
+                >
+                  {label} <span className="opacity-60">{n}</span>
+                </Chip>
+              ))}
+            </div>
+          )}
+          <ol className={`divide-y divide-border ${kinds.length > 1 ? "border-t border-border" : ""}`}>
+            {list.map((i) => (
+              <ActionRow key={i.id} item={i} enquiryOf={enquiryOf} withDay />
+            ))}
+          </ol>
+          {shown.length > FIRST && (
+            <button
+              type="button"
+              onClick={() => setAll((a) => !a)}
+              className="w-full border-t border-border py-2 text-[12px] text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
+            >
+              {all ? "Show fewer" : `Show all ${shown.length}`}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** The same work as one list, newest first, a heading per day. */
+function Timeline({ items, enquiryOf }: { items: ActivityItem[]; enquiryOf: Map<string, Row> }) {
+  const [shown, setShown] = useState(150);
   const days: Array<[string, ActivityItem[]]> = [];
-  for (const i of items) {
+  for (const i of items.slice(0, shown)) {
     const d = dayHead(i.at);
     const last = days[days.length - 1];
     if (last && last[0] === d) last[1].push(i);
@@ -454,195 +825,84 @@ function ActivityFeed({
         <section key={d}>
           <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">{d}</h3>
           <ol className="card divide-y divide-border overflow-hidden p-0">
-            {list.map((i) => {
-              const isOpen = open === i.id;
-              return (
-                <li key={i.id}>
-                  <button
-                    type="button"
-                    onClick={() => i.mail && setOpen(isOpen ? null : i.id)}
-                    className={`grid w-full grid-cols-[60px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 px-3 py-2.5 text-left sm:grid-cols-[64px_250px_minmax(0,1fr)] ${i.mail ? "hover:bg-surface-2" : "cursor-default"}`}
-                  >
-                    <span className="pt-px text-[11.5px] tabular-nums text-text-muted">{clock(i.at)}</span>
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-[12px] font-medium text-text-primary sm:w-[110px] sm:shrink-0">{personName(i.who)}</span>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10.5px] font-medium ${KIND_TONE[i.label] ?? SOURCE_TONE[i.source]}`}>{i.label}</span>
-                    </span>
-                    <span className="col-start-2 min-w-0 text-[12.5px] text-text-primary sm:col-start-auto">
-                      <span className="break-words">{i.mail ? i.mail.subject || "(no subject)" : i.text}</span>
-                      {i.ref && (
-                        <EnquiryLink to={`/enquiries/${i.ref}`} className="ml-2 font-mono text-[11px] text-text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
-                          {i.ref}
-                        </EnquiryLink>
-                      )}
-                      {i.mail?.has_attachments && <Paperclip size={11} className="ml-1.5 inline text-text-muted" aria-label="With attachments" />}
-                      {i.mail && (
-                        <span className="mt-0.5 block truncate text-[11.5px] text-text-secondary">
-                          <span className="text-text-muted">to </span>
-                          {recipientsText(i.mail.to_addrs, 3) || "—"}
-                          {i.mail.cc_addrs.length > 0 && <span className="text-text-muted"> · cc {recipientsText(i.mail.cc_addrs, 2)}</span>}
-                          <span className="text-text-muted"> · from {i.mail.mailbox}</span>
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                  {isOpen && i.mail && <MailDetail m={i.mail} />}
-                </li>
-              );
-            })}
+            {list.map((i) => (
+              <ActionRow key={i.id} item={i} enquiryOf={enquiryOf} withSection />
+            ))}
           </ol>
         </section>
       ))}
-      {total > items.length && (
-        <button type="button" onClick={onMore} className="w-full rounded-lg border border-border bg-surface-1 py-2 text-[12px] text-text-secondary hover:text-text-primary">
-          Show more ({total - items.length} further)
+      {items.length > shown && (
+        <button type="button" onClick={() => setShown((n) => n + 150)} className="w-full rounded-lg border border-border bg-surface-1 py-2 text-[12px] text-text-secondary hover:text-text-primary">
+          Show more ({items.length - shown} further)
         </button>
       )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Mail sent
-// ---------------------------------------------------------------------------
+/** One thing a person did: when, what kind, what, and on which job. A mail opens to its recipients and first lines. */
+function ActionRow({ item: i, enquiryOf, withDay, withSection }: { item: ActivityItem; enquiryOf: Map<string, Row>; withDay?: boolean; withSection?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const section = withSection ? CATEGORIES.find((c) => c.key === i.category)?.label : null;
+  // Taken on: how long after it came in.
+  const enquiry = i.kind === "assigned" && i.ref ? enquiryOf.get(i.ref) : undefined;
+  const wait = enquiry ? gap(arrivedAt(enquiry), i.at) : null;
+  const tone = i.source === "mail" ? MAIL_TONE : (KIND_TONE[i.label] ?? PLAIN_TONE);
 
-function MailSent({
-  rows,
-  boxes,
-  box,
-  setBox,
-  kind,
-  setKind,
-  seen,
-  personName,
-  seenBy,
-  open,
-  setOpen,
-}: {
-  rows: MailLogRow[];
-  boxes: Array<[string, number]>;
-  box: string;
-  setBox: (b: string) => void;
-  kind: string;
-  setKind: (k: string) => void;
-  seen: MailboxSeen[];
-  personName: (m: MailLogRow) => string;
-  seenBy: (id: string | null) => string;
-  open: string | null;
-  setOpen: (id: string | null) => void;
-}) {
-  const lastSeen = new Map(seen.map((s) => [s.mailbox, s]));
   return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-center gap-1.5">
-        <Chip active={box === "all"} onClick={() => setBox("all")}>
-          All mailboxes
-        </Chip>
-        {boxes.map(([b, n]) => (
-          <Chip key={b} active={box === b} onClick={() => setBox(b)}>
-            {b} <span className="opacity-60">{n}</span>
-          </Chip>
-        ))}
-        <Select
-          label="Kind"
-          value={kind}
-          onChange={setKind}
-          className="ml-auto w-52"
-          align="right"
-          options={[{ value: "all", label: "Every kind" }, ...(Object.keys(MAIL_KIND_LABEL) as MailKind[]).map((k) => ({ value: k, label: MAIL_KIND_LABEL[k] }))]}
-        />
-      </div>
-
-      {!rows.length ? (
-        <EmptyState
-          icon={Mail}
-          title="No sent mail in this view"
-          hint="Mail is copied in from each person's Sent Items while they have the CRM open with Outlook connected. If a mailbox is missing below, its owner has not opened the CRM since."
-        />
-      ) : (
-        <ol className="card divide-y divide-border overflow-hidden p-0">
-          {rows.map((m) => {
-            const isOpen = open === m.id;
-            return (
-              <li key={m.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpen(isOpen ? null : m.id)}
-                  aria-expanded={isOpen}
-                  className="grid w-full gap-x-4 gap-y-1 px-3 py-2.5 text-left hover:bg-surface-2 md:grid-cols-[112px_170px_minmax(0,1fr)_minmax(0,1.2fr)]"
-                >
-                  <span className="text-[11.5px] tabular-nums text-text-muted">{stamp(m.sent_at)}</span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[12px] font-medium text-text-primary">{personName(m)}</span>
-                    <span className="block truncate text-[11px] text-text-muted">{m.mailbox}</span>
-                  </span>
-                  <span className="min-w-0 truncate text-[12px] text-text-secondary" title={[...m.to_addrs, ...m.cc_addrs].map((r) => r.address).join(", ")}>
-                    <span className="text-text-muted">To </span>
-                    {recipientsText(m.to_addrs, 2) || "—"}
-                    {m.cc_addrs.length > 0 && <span className="text-text-muted"> · cc {m.cc_addrs.length}</span>}
-                  </span>
-                  <span className="min-w-0 text-[12.5px] text-text-primary">
-                    <span className="mr-1.5 inline-block rounded-full border border-text-accent/25 bg-bg-accent px-1.5 py-px text-[10.5px] font-medium text-text-accent">{MAIL_KIND_LABEL[m.kind] ?? "Mail"}</span>
-                    <span className="break-words">{m.subject || "(no subject)"}</span>
-                    {m.enquiry_ref && (
-                      <EnquiryLink to={`/enquiries/${m.enquiry_ref}`} className="ml-2 font-mono text-[11px] text-text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
-                        {m.enquiry_ref}
-                      </EnquiryLink>
-                    )}
-                    {m.has_attachments && <Paperclip size={11} className="ml-1.5 inline text-text-muted" aria-label="With attachments" />}
-                  </span>
-                </button>
-                {isOpen && <MailDetail m={m} />}
-              </li>
-            );
-          })}
-        </ol>
-      )}
-
-      <div className="mt-4 rounded-card border border-border bg-surface-1 p-4">
-        <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Mailboxes being copied in</h3>
-        {!seen.length ? (
-          <p className="text-[12px] text-text-muted">None yet. The server checks every CRM login&rsquo;s mailbox every five minutes.</p>
-        ) : (
-          <ul className="space-y-2 text-[12px]">
-            {[...lastSeen.values()]
-              .sort((a, b) => a.mailbox.localeCompare(b.mailbox))
-              .map((s) => {
-                // Not checked for a day: its mail is missing here, whatever the reason.
-                const stale = !s.synced_at || Date.now() - Date.parse(s.synced_at) > 86_400_000;
-                return (
-                  <li key={s.mailbox}>
-                    <div className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="font-medium text-text-primary">{s.mailbox}</span>
-                      <span className={stale ? "text-text-warning" : "text-text-muted"}>
-                        {!s.synced_at ? "never checked" : `last checked ${ago(s.synced_at)} ${s.synced_by ? `from ${seenBy(s.synced_by)}’s session` : "by the server"}`}
-                      </span>
-                    </div>
-                    {s.server_error && (
-                      <p className="mt-0.5 flex items-start gap-1.5 text-[11.5px] text-text-warning">
-                        <AlertCircle size={12} className="mt-px shrink-0" />
-                        <span>Server copy: {s.server_error}</span>
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
-          </ul>
-        )}
-        <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-          Copied from each mailbox&rsquo;s Outlook Sent Items — mail sent from Outlook as well as from the CRM. The server checks every CRM login every five
-          minutes; a person&rsquo;s own CRM session also copies theirs just after each send, with Outlook&rsquo;s first lines. Subject and recipients are kept, the
-          body is not, and only administrators see other people&rsquo;s mail here.
-        </p>
-      </div>
-    </div>
+    <li>
+      <button
+        type="button"
+        onClick={() => i.mail && setOpen((o) => !o)}
+        aria-expanded={i.mail ? open : undefined}
+        className={`grid w-full grid-cols-[72px_minmax(0,1fr)] items-start gap-x-3 px-4 py-2.5 text-left sm:grid-cols-[88px_minmax(0,1fr)] ${i.mail ? "hover:bg-surface-2" : "cursor-default"}`}
+      >
+        <span className="pt-px text-[11px] leading-snug tabular-nums text-text-muted">
+          {withDay && <span className="block">{dayShort(i.at)}</span>}
+          {clock(i.at)}
+        </span>
+        <span className="min-w-0 text-[12.5px] text-text-primary">
+          <span className="mb-0.5 flex flex-wrap items-center gap-1.5">
+            <span className={`rounded-full border px-2 py-px text-[10.5px] font-medium ${tone}`}>{i.label}</span>
+            {section && <span className="text-[10.5px] text-text-muted">{section}</span>}
+          </span>
+          <span className="break-words">{i.mail ? i.mail.subject || "(no subject)" : i.text}</span>
+          {wait && <span className="text-text-muted"> · {wait} after it came in</span>}
+          {i.ref && (
+            <EnquiryLink to={`/enquiries/${i.ref}`} className="ml-2 font-mono text-[11px] text-text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
+              {i.ref}
+            </EnquiryLink>
+          )}
+          {!i.ref && i.shipmentId && (
+            <Link to={`/shipments/${i.shipmentId}`} className="ml-2 text-[11px] text-text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
+              Open the job
+            </Link>
+          )}
+          {!i.ref && !i.shipmentId && i.consoleId && (
+            <Link to="/consoles" className="ml-2 text-[11px] text-text-accent hover:underline" onClick={(e) => e.stopPropagation()}>
+              Consoles
+            </Link>
+          )}
+          {i.mail?.has_attachments && <Paperclip size={11} className="ml-1.5 inline text-text-muted" aria-label="With attachments" />}
+          {i.mail && (
+            <span className="mt-0.5 block truncate text-[11.5px] text-text-secondary">
+              <span className="text-text-muted">to </span>
+              {recipientsText(i.mail.to_addrs, 3) || "—"}
+              {i.mail.cc_addrs.length > 0 && <span className="text-text-muted"> · cc {recipientsText(i.mail.cc_addrs, 2)}</span>}
+              <span className="text-text-muted"> · from {i.mail.mailbox}</span>
+            </span>
+          )}
+        </span>
+      </button>
+      {open && i.mail && <MailDetail m={i.mail} />}
+    </li>
   );
 }
 
 function MailDetail({ m }: { m: Pick<MailLogRow, "to_addrs" | "cc_addrs" | "preview" | "mailbox" | "sent_at"> }) {
   const list = (xs: Array<{ name: string; address: string }>) => xs.map((r) => (r.name && r.name !== r.address ? `${r.name} <${r.address}>` : r.address)).join(", ");
   return (
-    <div className="border-t border-border bg-surface-2 px-3 py-2.5 text-[12px] leading-relaxed">
+    <div className="border-t border-border bg-surface-2 px-4 py-2.5 text-[12px] leading-relaxed">
       <p>
         <span className="text-text-muted">From </span>
         {m.mailbox}
@@ -664,178 +924,110 @@ function MailDetail({ m }: { m: Pick<MailLogRow, "to_addrs" | "cc_addrs" | "prev
 }
 
 // ---------------------------------------------------------------------------
-// People
+// The whole desk
 // ---------------------------------------------------------------------------
 
-function PeopleView({
-  people,
+function DeskSummary({
   feed,
   rows,
-  ships,
   booked,
-  period,
-  onPick,
+  seen,
+  personName,
+  periodLabel,
 }: {
-  people: Person[];
   feed: ActivityItem[];
   rows: Row[];
-  ships: ShipmentRow[];
   booked: Set<string>;
-  period: string;
-  onPick: (id: string) => void;
+  seen: MailboxSeen[];
+  personName: (id: string | null) => string;
+  periodLabel: string;
 }) {
-  if (!people.length) return <EmptyState icon={Users} title="Nobody on the desk yet" hint="People appear here once they have an account." />;
+  const count = (kind: string) => feed.filter((i) => i.kind === kind).length;
+  const unclaimed = rows
+    .filter((r) => !r.assigned_to && !booked.has(r.ref) && r.status !== "declined" && r.status !== "lost")
+    .sort((a, b) => arrivedAt(a).localeCompare(arrivedAt(b)));
+
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {people.map((p) => {
-        const s = statsFor(p.id, feed);
-        const held = rows.filter((r) => r.assigned_to === p.id && !booked.has(r.ref) && r.status !== "declined" && r.status !== "lost").length;
-        const jobs = ships.filter((j) => j.assigned_to === p.id && j.stage !== "delivered" && j.stage !== "cancelled").length;
-        return (
-          <button key={p.id} type="button" onClick={() => onPick(p.id)} className="card card-interactive p-4 text-left">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="truncate text-[14px] font-medium text-text-primary">{p.full_name?.trim() || p.email}</p>
-              <span className="shrink-0 text-[11px] capitalize text-text-muted">{p.role}</span>
-            </div>
-            <p className="truncate text-[11.5px] text-text-muted">{p.email}</p>
+    <div className="space-y-3">
+      <p className="hidden text-[12px] text-text-secondary lg:block">Pick a name on the left to see what they did, in sections.</p>
 
-            <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-text-secondary">{period}</p>
-            <dl className="mt-1 grid grid-cols-5 gap-1 text-center">
-              <Fig label="Mails" value={s.mails} />
-              <Fig label="Taken on" value={s.takenOn} />
-              <Fig label="Quoted" value={s.quoted} />
-              <Fig label="Booked" value={s.booked} />
-              <Fig label="Steps" value={s.steps} />
-            </dl>
+      <section>
+        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-secondary">The desk · {periodLabel.toLowerCase()}</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+          <Tile label="Mails sent" value={feed.filter((i) => i.source === "mail").length} />
+          <Tile label="Enquiries taken on" value={count("assigned")} />
+          <Tile label="Quotes sent" value={count("quote_sent")} />
+          <Tile label="Booked" value={count("promoted")} />
+          <Tile label="Steps done" value={count("step_done")} />
+          <Tile label="Unclaimed now" value={unclaimed.length} tone={unclaimed.length ? "warning" : undefined} />
+        </div>
+      </section>
 
-            <p className="mt-3 text-[12px] text-text-secondary">
-              Holding <span className="font-medium text-text-primary">{held}</span> enquir{held === 1 ? "y" : "ies"} and{" "}
-              <span className="font-medium text-text-primary">{jobs}</span> job{jobs === 1 ? "" : "s"} in process
-            </p>
-            {s.domains.length > 0 && (
-              <p className="mt-1 truncate text-[12px] text-text-secondary">
-                Wrote most to{" "}
-                {s.domains
-                  .slice(0, 3)
-                  .map(([d, n]) => `${d} (${n})`)
-                  .join(", ")}
-              </p>
-            )}
-            <p className="mt-1 text-[11.5px] text-text-muted">{s.lastAt ? `Last activity ${ago(s.lastAt)}` : `Nothing recorded ${period === "today" ? "today" : "in this period"}`}</p>
-          </button>
-        );
-      })}
+      <section className="card p-4">
+        <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Nobody has taken these on</h3>
+        {!unclaimed.length ? (
+          <p className="text-[12px] text-text-muted">Every open enquiry has somebody on it.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {unclaimed.map((r) => (
+              <li key={r.ref} className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5 text-[12px]">
+                <EnquiryLink to={`/enquiries/${r.ref}`} className="shrink-0 font-mono text-[11.5px] text-text-accent hover:underline">
+                  {r.ref}
+                </EnquiryLink>
+                <span className="min-w-0 flex-1 truncate text-text-primary">
+                  {r.customer?.company || r.customer?.name || "—"}
+                  <span className="text-text-secondary"> · {[r.origin, r.destination].filter(Boolean).join(" → ") || "route not captured"}</span>
+                </span>
+                <span className="shrink-0 text-[11px] text-text-warning">came in {ago(arrivedAt(r))}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <MailboxStatus seen={seen} seenBy={personName} />
     </div>
   );
 }
 
-function Fig({ label, value }: { label: string; value: number }) {
+function MailboxStatus({ seen, seenBy }: { seen: MailboxSeen[]; seenBy: (id: string | null) => string }) {
   return (
-    <div className="rounded-lg bg-surface-2 px-1 py-1.5">
-      <dd className="text-[16px] font-medium leading-none tabular-nums text-text-primary">{value}</dd>
-      <dt className="mt-1 text-[10px] text-text-muted">{label}</dt>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Enquiries: when each arrived, who took it on, and everything done to it
-// ---------------------------------------------------------------------------
-
-function EnquiriesView({ rows, events, byId, who, needle }: { rows: Row[]; events: EnquiryEvent[]; byId: Map<string, Person>; who: string; needle: string }) {
-  const [open, setOpen] = useState<string | null>(null);
-
-  const timeline = useMemo(() => {
-    const m = new Map<string, EnquiryEvent[]>();
-    for (const e of events) m.set(e.enquiry_ref, [...(m.get(e.enquiry_ref) ?? []), e]);
-    // Oldest first inside a case: this is a story, and stories run forwards.
-    for (const list of m.values()) list.sort((a, b) => a.at.localeCompare(b.at));
-    return m;
-  }, [events]);
-
-  const visible = [...rows]
-    .sort((a, b) => arrivedAt(b).localeCompare(arrivedAt(a)))
-    .filter((r) => who === "all" || r.assigned_to === who)
-    .filter((r) => !needle || [r.ref, r.origin, r.destination, r.cargo, r.customer?.company, r.customer?.name].filter(Boolean).some((v) => String(v).toLowerCase().includes(needle)));
-
-  if (!visible.length) {
-    return <EmptyState title="Nothing to show" hint={rows.length ? "No enquiry matches that filter." : "No enquiries have been opened yet."} />;
-  }
-
-  return (
-    <div className="space-y-2">
-      {visible.map((r) => {
-        const list = timeline.get(r.ref) ?? [];
-        const isOpen = open === r.ref;
-        const wait = gap(arrivedAt(r), r.assigned_at);
-        return (
-          <article key={r.ref} className="card overflow-hidden">
-            <div className="grid gap-x-5 gap-y-3 p-4 md:grid-cols-[minmax(0,1fr)_128px_150px_112px] md:items-center">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <EnquiryLink to={`/enquiries/${r.ref}`} className="font-mono text-[12px] text-text-accent hover:underline">
-                    {r.ref}
-                  </EnquiryLink>
-                  <span className="text-[11px] capitalize text-text-muted">via {r.source}</span>
-                </div>
-                <p className="mt-0.5 truncate text-[14px] font-medium text-text-primary">{r.customer?.company || r.customer?.name || "—"}</p>
-                <p className="truncate text-[12px] text-text-secondary">
-                  {[r.origin, r.destination].filter(Boolean).join(" → ") || "Route not captured"}
-                  {r.cargo ? ` · ${r.cargo}` : ""}
-                </p>
-              </div>
-              <Cell label="Came in">
-                <span className="tabular-nums text-text-primary">{stamp(arrivedAt(r))}</span>
-              </Cell>
-              <Cell label="Taken on">
-                {r.assigned_at ? (
-                  <>
-                    <span className="block tabular-nums text-text-primary">{stamp(r.assigned_at)}</span>
-                    <span className="block truncate text-text-secondary">
-                      {nameOf(byId, r.assigned_to) ?? "someone"}
-                      {wait && <span className="text-text-muted"> · after {wait}</span>}
+    <section className="rounded-card border border-border bg-surface-1 p-4">
+      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary">Mailboxes being copied in</h3>
+      {!seen.length ? (
+        <p className="text-[12px] text-text-muted">None yet. The server checks every CRM login&rsquo;s mailbox every five minutes.</p>
+      ) : (
+        <ul className="space-y-2 text-[12px]">
+          {[...seen]
+            .sort((a, b) => a.mailbox.localeCompare(b.mailbox))
+            .map((s) => {
+              // Not checked for a day: its mail is missing here, whatever the reason.
+              const stale = !s.synced_at || Date.now() - Date.parse(s.synced_at) > 86_400_000;
+              return (
+                <li key={s.mailbox}>
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-medium text-text-primary">{s.mailbox}</span>
+                    <span className={stale ? "text-text-warning" : "text-text-muted"}>
+                      {!s.synced_at ? "never checked" : `last checked ${ago(s.synced_at)} ${s.synced_by ? `from ${seenBy(s.synced_by)}’s session` : "by the server"}`}
                     </span>
-                  </>
-                ) : (
-                  <span className="text-text-warning">Nobody yet</span>
-                )}
-              </Cell>
-              <div className="md:text-right">
-                <span className="rounded-full border border-border-strong bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-text-secondary">{STATUS_LABEL[r.status]}</span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setOpen(isOpen ? null : r.ref)}
-              aria-expanded={isOpen}
-              className="flex w-full items-center justify-between gap-2 border-t border-border px-4 py-2 text-[12px] text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
-            >
-              {isOpen ? "Hide what was done" : `Everything done on this one${list.length ? ` · ${list.length}` : ""}`}
-              <ChevronDown size={13} className={`transition-transform ${isOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {isOpen && (
-              <ol className="divide-y divide-border border-t border-border bg-surface-2">
-                {!list.length ? (
-                  <li className="px-4 py-3 text-[12px] text-text-muted">Nothing has been recorded against this enquiry yet.</li>
-                ) : (
-                  list.map((e) => (
-                    <li key={e.id} className="flex flex-wrap items-start gap-3 px-4 py-2.5">
-                      <span className="mt-0.5 shrink-0 rounded-full border border-border-strong bg-surface-1 px-2 py-0.5 text-[11px] font-medium capitalize text-text-secondary">
-                        {eventLabel(e.kind)}
-                      </span>
-                      <span className="min-w-0 flex-1 text-[12px] text-text-primary">{e.summary}</span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-text-muted">{stamp(e.at)}</span>
-                      <span className="shrink-0 text-[11px] text-text-secondary">{nameOf(byId, e.actor) ?? "the system"}</span>
-                    </li>
-                  ))
-                )}
-              </ol>
-            )}
-          </article>
-        );
-      })}
-    </div>
+                  </div>
+                  {s.server_error && (
+                    <p className="mt-0.5 flex items-start gap-1.5 text-[11.5px] text-text-warning">
+                      <AlertCircle size={12} className="mt-px shrink-0" />
+                      <span>Server copy: {s.server_error}</span>
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+        </ul>
+      )}
+      <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+        Copied from each mailbox&rsquo;s Outlook Sent Items — mail sent from Outlook as well as from the CRM. The server checks every CRM login every five minutes;
+        a person&rsquo;s own CRM session also copies theirs just after each send, with Outlook&rsquo;s first lines. Subject and recipients are kept, the body is
+        not, and only administrators see other people&rsquo;s mail here.
+      </p>
+    </section>
   );
 }
 
@@ -862,18 +1054,5 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
     >
       {children}
     </button>
-  );
-}
-
-/**
- * One labelled figure in a row. The label is repeated on every row rather than
- * sat once in a header, because below `md` the grid collapses to a stack.
- */
-function Cell({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0 text-[11px]">
-      <p className="text-text-secondary">{label}</p>
-      <div className="mt-0.5">{children}</div>
-    </div>
   );
 }

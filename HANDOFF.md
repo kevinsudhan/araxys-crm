@@ -34,7 +34,7 @@ session should read this whole file before changing anything. §0 is the short v
 - **Before every push:** `npm test` (60 suites) and `npm run build` (typecheck, bundle and
   secret scan) must both pass.
 - **Run SQL against live data:** `node supabase-v2/run-sql.mjs "select …"`, or pass a
-  migration filename (§6). The last migration is **136**, so the next one is `137-….sql`.
+  migration filename (§6). The last migration is **137**, so the next one is `138-….sql`.
   Reads of production may need the user's permission in a session; ask rather than work
   around a refusal.
 - **Both GitHub repositories are public** (an anonymous clone of logistics-v3 worked on
@@ -194,9 +194,9 @@ flag on, it also has invoices and costs.
 
 ---
 
-## 4. Data model — 136 migrations
+## 4. Data model — 137 migrations
 
-`supabase-v2/001…136`, applied in order with `run-sql.mjs` (each file runs as one
+`supabase-v2/001…137`, applied in order with `run-sql.mjs` (each file runs as one
 transaction).
 
 | Range | What it establishes |
@@ -255,6 +255,7 @@ transaction).
 | `134` | **An import has its own workflow.** The origin's steps (pickup, warehouse/CFS, empty pickup, stuffing, VGM, gate-in, documents, SI, B/L or HAWB, air loading) marked `direction = 'export'`; import steps added per mode (`imp_origin_booking`, air `imp_departed` (stage sailed), `imp_documents`, `imp_arrival_notice`, LCL `imp_destuffed`, `imp_do`, FCL `imp_empty_return`). Customer milestones: the origin's own (received, empty picked, stuffed, gated in) export-only. `apply_direction_steps(shipment)`: the other way's undone steps go, this way's come, dates and stage worked out again, direction milestones hidden or shown; run by `shipments_direction_steps` when `trade_direction` changes (logs `direction_changed`). The arrival notice sent ticks `imp_arrival_notice`; `received_house_bills.do_issued_on` ticks `imp_do`. Imports under way re-listed. Checked rolled back (export ↔ import, ticks) |
 | `135` | **Cross trade keeps the origin's steps.** `step_for_direction` and `milestone_hidden_for`: a cross trade is worked as an export without India's customs (no LEO, no OOC; on the customer's list only the two customs milestones hidden). Used by both seeds and `apply_direction_steps`. A job with no direction works as an export. Checked rolled back |
 | `136` | **Performance housekeeping (the advisor).** An index under each of the 11 unindexed foreign keys; `customer_dsr_sends_add` asks `(select auth.uid())` once a query; `company_registrations`, `shipment_checkpoints` and `checkpoint_templates` write policies split into insert/update/delete so reads check one policy. Checked rolled back |
+| `137` | **Team oversight by person.** `team_actions(p_from, p_to)`: administrators only (security definer, refuses anybody else), one row per recorded action in the period — the timeline (less invoice_*/receipt_recorded, which their tables say better), steps ticked, files filed, consoles opened, CSN files and replies, warehouse receipts, queue items set aside, rate cards, sailings, live rate requests, original rates, invoices started/issued/cancelled, receipts and payments recorded/confirmed/cancelled, vendor bills, agent statements, tracking decisions. Checked rolled back (admin reads, employee refused) |
 | `127` | **The arrival-notices sweep on pg_cron**: `araxys-v2-arrival-notices`, at :05 and :35 every hour (UTC), calling the function with the scheduler's secret from the vault, as live rates does |
 | `126` | **Deconsolidation at destination.** `shipments.arrival_notice_sent_at / _to / _via` ('auto' or 'desk'); `consoles.arrival_auto` (default false; on only with `arrival_from`, checked), `arrival_from`, `arrival_days` (0–10, default 2), `outturn_sent_at / _to`; table `arrival_notice_sends` (every send or refusal by the function; staff read, only the service role writes). Checked rolled back as an employee: the guards hold, staff cannot write the send log |
 | `125` | **The console at the CFS.** `consoles` gains `box_type` (20GP/40GP/40HC, checked: the load plan's box when no sailing says), `stuffed_on`, `stuffing_report_sent_at / _to`. Checked rolled back as an employee |
@@ -1030,6 +1031,21 @@ the workflow and the customer's milestones (134). Locked on a signed-off, cancel
 `stagesFor(mode, direction)`: an import's stages are booked → sailed → arrived → delivered, so the
 header's "Mark …" offers sailed, not stuffed. Already following it: customs (077), the pre-alert
 (078), the received B/L and CSN (088, 097), free time (083), the consoles a job can join.
+
+**Team oversight, by person (7 Oct; the user: "make it employee based… each employee's name and when they
+click on it it should show their actions… categorized into subsections").** `pages/Oversight.tsx` was four
+tabs (Activity, Mail sent, People, Enquiries); it is now everyone on the desk down the side (name, actions
+in the period, last activity, what they hold) and, for the one picked (`?person=` in the address, so Back
+works and a link opens on them), their work in sections — Mail sent, Enquiries & queue, Quotes & rates,
+Bookings & jobs, Documents & B/L, Consoles, Accounts (Other for a kind nobody has placed) — each with its
+kinds to narrow by and the first eight with the rest a press away, or the same as one timeline. Their
+mailbox's copy status, who they wrote to most, "Holding now" (open enquiries and jobs in process), and how
+long after it came in they took each enquiry on. With nobody picked: the desk's figures, the enquiries
+nobody has taken on (oldest first), the mailboxes being copied in. On a phone the list is the page until a
+name is picked. Data: the mail log as before plus `team_actions` (137, services/teamActions.ts, paged);
+sections and labels in `lib/oversight.ts` (`buildFeed`, `categoryOf`, `sectionsOf`, `labelCounts`; a new
+event kind needs a line in `EVENT_LABEL` and `place(...)`), tested in `scripts/tests/oversight.test.ts`.
+Still no ranking: people in name order, counts only.
 
 **Speed (6 Oct; the user: "a lot of loading… implement caching, reduce the latencies of the entire
 app").** Measured first: the database answers in 1–30 ms; a round trip Chennai → Mumbai (ap-south-1)
